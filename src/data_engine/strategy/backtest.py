@@ -622,6 +622,7 @@ class BacktestEngine:
             f"{_escape(dataset.dataset_id)}|{_escape(dataset.version.version)}|"
             f"{_escape(str(dataset.version.instrument.symbol))}|{_escape(str(dataset.version.timeframe))}|"
             f"{len(dataset.candles)}|{candle_data}"
+            f"evidence_provenance={_escape(str(dataset.provenance.evidence_provenance.value))}"
         )
         return hashlib.sha256(data.encode("utf-8")).hexdigest()
 

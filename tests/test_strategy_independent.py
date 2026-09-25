@@ -352,6 +352,7 @@ class TestResultHashIndependentReconstruction:
             f"{_esc(ds.dataset_id)}|{_esc(ds.version.version)}|"
             f"{_esc(str(ds.version.instrument.symbol))}|{_esc(str(ds.version.timeframe))}|"
             f"{len(ds.candles)}|{_ds_candle_data}"
+            f"evidence_provenance={_esc(str(ds.provenance.evidence_provenance.value))}"
         )
         dataset_hash = hashlib.sha256(_ds_data.encode("utf-8")).hexdigest()
         # Config hash
@@ -369,33 +370,6 @@ class TestResultHashIndependentReconstruction:
         # Reconstruct canonical result
         canonical_result = f"{strategy_hash}|{dataset_hash}|{canonical_trades}|{canonical_equity}|{canonical_metrics}|{config_hash}"
         expected_hash = hashlib.sha256(canonical_result.encode("utf-8")).hexdigest()
-
-        # DEBUG
-        if result.result_hash != expected_hash:
-            print(f"\nDEBUG: result_hash={result.result_hash}")
-            print(f"DEBUG: expected_hash={expected_hash}")
-            print(f"DEBUG: strategy_hash={strategy_hash}")
-            print(f"DEBUG: dataset_hash={dataset_hash}")
-            print(f"DEBUG: canonical_trades={repr(canonical_trades[:200])}")
-            print(f"DEBUG: canonical_equity={repr(canonical_equity[:200])}")
-            print(f"DEBUG: canonical_metrics={repr(canonical_metrics[:200])}")
-            print(f"DEBUG: config_hash={config_hash}")
-            # Compare individual components
-            # Check dataset hash
-            eng = _BE(config=_mbc())
-            prod_ds_hash = eng._compute_dataset_hash(ds)
-            print(f"DEBUG: prod_dataset_hash={prod_ds_hash}")
-            # Check config hash
-            prod_config_hash = eng._compute_config_hash()
-            print(f"DEBUG: prod_config_hash={prod_config_hash}")
-            # Check canonical equity comparison
-            from data_engine.strategy.schemas import _format_float as _ff_prod
-            from data_engine.strategy.metrics import BacktestMetrics as _BM
-            for eq in result.equity_curve.equity_curve:
-                print(f"DEBUG: equity total_equity={eq.total_equity}, f-string={eq.total_equity:.10f}, _format_float={_ff_prod(eq.total_equity)}")
-            # Check the canonical result construction
-            prod_canonical_result = f"{strategy_hash}|{dataset_hash}|{canonical_trades}|{canonical_equity}|{canonical_metrics}|{config_hash}"
-            print(f"DEBUG: prod_canonical_result matches: {prod_canonical_result == f'{strategy_hash}|{dataset_hash}|{canonical_trades}|{canonical_equity}|{canonical_metrics}|{config_hash}'}")
 
         assert result.result_hash == expected_hash, f"result_hash {result.result_hash} != expected {expected_hash}"
 
