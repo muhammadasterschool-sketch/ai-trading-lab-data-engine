@@ -1,0 +1,22 @@
+[project]
+name = "ai-trading-lab-data-engine"
+version = "0.1.0"
+description = "Production-grade deterministic market-data engine for the AI Trading Lab."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.0",
+    "numpy>=1.0",
+    "pandas>=2.0",
+    "pytest>=9.1.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=9.0"]
+
+[project.scripts]
+data-engine = "data_engine.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.12.15,<0.13.0"]
+build-backend = "uv_build"
