@@ -15,13 +15,20 @@ Tests cover:
 12. NaN rejection
 13. Infinity rejection
 14. Unsupported type rejection
-15. Tuple rejection
+15. Tuple encoded identically to list (spec 3.1)
 16. Set rejection
 17. Custom object rejection
-18. Cross-process deterministic hashing
-19. Canonical hash stability
-20. TemporalContract validation
-21. Backward compatibility with existing Phase 3 behavior
+18. Non-string mapping-key rejection (SER-KEY-01, RA-NF-01)
+19. Cross-process deterministic hashing
+20. Canonical hash stability
+21. TemporalContract validation
+22. Backward compatibility with existing Phase 3 behavior
+
+NOTE (Phase 4A.1 remediation, Blocker 4): assertions below were
+re-aligned to the type-tagged canonical encoding mandated by spec
+SECTION 3 / 3.1a (PHASE_4A1_AUTHORITATIVE_REMEDIATION_SPEC.md). The
+previous assertions encoded the non-conformant untagged output and
+are superseded per GOV-01.
 """
 
 import pytest
@@ -401,7 +408,13 @@ class TestTemporalContract:
             contract.validate_required_fields_present(temporal_fields)
 
     def test_missing_allow_null(self):
-        """Missing fields are allowed when policy is ALLOW_NULL."""
+        """Missing fields are allowed when policy is ALLOW_NULL.
+
+        NOTE: superseded by spec 4.2 / SUB-20 — construction with
+        ALLOW_NULL + required_fields MUST raise. The re-aligned
+        assertion and the TemporalContract enforcement land together
+        with Blocker 3 (one blocker, one commit).
+        """
         contract = TemporalContract(
             data_type=TemporalDataType.OHLCV,
             required_fields=["publication_time"],
@@ -452,42 +465,40 @@ class TestCanonicalSerialization:
     """Test canonical serialization for all supported types."""
 
     def test_serialize_str(self):
-        """String serialization is deterministic."""
+        """String serialization is deterministic and type-tagged (spec 3.1)."""
         result = canonical_serialize("hello")
-        assert result == b'"hello"'
+        assert result == b'{"s":"hello"}'
 
     def test_serialize_int(self):
-        """Integer serialization is deterministic."""
+        """Integer serialization is deterministic and type-tagged (spec 3.1a.3)."""
         result = canonical_serialize(42)
-        assert result == b'42'
+        assert result == b'{"i":"42"}'
 
     def test_serialize_float(self):
-        """Float serialization is deterministic."""
+        """Float serialization uses the .10f policy (spec 3.3)."""
         result = canonical_serialize(3.14)
-        assert isinstance(result, bytes)
-        result_str = result.decode('utf-8')
-        assert "3.14" in result_str
+        assert result == b'{"f":"3.1400000000"}'
 
     def test_serialize_bool(self):
-        """Boolean serialization."""
-        assert canonical_serialize(True) == b'true'
-        assert canonical_serialize(False) == b'false'
+        """Boolean serialization is type-tagged and never int-like (COL-NUM-04)."""
+        assert canonical_serialize(True) == b'{"b":true}'
+        assert canonical_serialize(False) == b'{"b":false}'
 
     def test_serialize_none(self):
-        """None serializes to null."""
+        """None serializes to null (spec 3.1)."""
         assert canonical_serialize(None) == b'null'
 
     def test_serialize_list_preserves_order(self):
-        """List values preserve their order."""
+        """List values preserve their order (order is significant)."""
         result = canonical_serialize([3, 1, 2])
         result_str = result.decode('utf-8')
-        assert result_str == "[3,1,2]"
+        assert result_str == '{"L":[{"i":"3"},{"i":"1"},{"i":"2"}]}'
 
     def test_serialize_dict_sorts_keys(self):
-        """Dictionary keys are sorted."""
+        """Dictionary entries are sorted by key code point (spec 3.2)."""
         result = canonical_serialize({"c": 3, "a": 1, "b": 2})
         result_str = result.decode('utf-8')
-        assert result_str == '{"a":1,"b":2,"c":3}'
+        assert result_str == '{"D":[[{"s":"a"},{"i":"1"}],[{"s":"b"},{"i":"2"}],[{"s":"c"},{"i":"3"}]]}'
 
     def test_serialize_datetime_utc(self):
         """Datetime serializes to ISO format in UTC."""
@@ -505,18 +516,18 @@ class TestCanonicalSerialization:
         assert "123.456" in result_str
 
     def test_serialize_nested_dict(self):
-        """Nested dict serialization with sorted keys at all levels."""
+        """Nested dict: entries sorted at all levels, keys type-tagged."""
         nested = {"b": {"d": 4, "c": 3}, "a": 1}
         result = canonical_serialize(nested)
         result_str = result.decode('utf-8')
-        assert result_str == '{"a":1,"b":{"c":3,"d":4}}'
+        assert result_str == '{"D":[[{"s":"a"},{"i":"1"}],[{"s":"b"},{"D":[[{"s":"c"},{"i":"3"}],[{"s":"d"},{"i":"4"}]]}]]}'
 
     def test_serialize_nested_list_order(self):
         """Nested list order is preserved."""
         nested = [1, [3, 1, 2], 4]
         result = canonical_serialize(nested)
         result_str = result.decode('utf-8')
-        assert result_str == "[1,[3,1,2],4]"
+        assert result_str == '{"L":[{"i":"1"},{"L":[{"i":"3"},{"i":"1"},{"i":"2"}]},{"i":"4"}]}'
 
     def test_serialize_float_neg_zero(self):
         """-0.0 is normalized to 0.0."""
@@ -525,10 +536,14 @@ class TestCanonicalSerialization:
         # The float -0.0 gets normalized to 0.0 by _canonical_float
         assert "0.0" in result_str or "0" in result_str
 
-    def test_reject_tuple(self):
-        """Tuple is rejected."""
-        with pytest.raises(SerializationError):
-            canonical_serialize((1, 2, 3))
+    def test_tuple_encoded_as_list(self):
+        """Tuple is accepted and encoded identically to list (spec 3.1).
+
+        Old behaviour rejected tuple; the authoritative spec redefines
+        it: tuple == list, documented. Re-aligned per GOV-01.
+        """
+        assert canonical_serialize((1, 2, 3)) == canonical_serialize([1, 2, 3])
+        assert canonical_serialize((1, 2, 3)) == b'{"L":[{"i":"1"},{"i":"2"},{"i":"3"}]}'
 
     def test_reject_set(self):
         """Set is rejected."""
@@ -863,35 +878,35 @@ class TestSerializationEdgeCases:
     def test_empty_list(self):
         """Empty list serializes correctly."""
         result = canonical_serialize([])
-        assert result == b'[]'
+        assert result == b'{"L":[]}'
 
     def test_empty_dict(self):
         """Empty dict serializes correctly."""
         result = canonical_serialize({})
-        assert result == b'{}'
+        assert result == b'{"D":[]}'
 
     def test_empty_string(self):
         """Empty string serializes correctly."""
         result = canonical_serialize("")
-        assert result == b'""'
+        assert result == b'{"s":""}'
 
     def test_large_int(self):
-        """Large integer serializes correctly."""
+        """Large integer serializes correctly, base-10, tagged."""
         result = canonical_serialize(999999999999999999)
-        assert result == b'999999999999999999'
+        assert result == b'{"i":"999999999999999999"}'
 
     def test_nested_dict_sorted_deeply(self):
-        """Deeply nested dict keys are all sorted."""
+        """Deeply nested dict entries are all sorted."""
         d = {"z": {"y": {"x": 1}}, "a": {"c": {"b": 2}}}
         result = canonical_serialize(d)
         result_str = result.decode('utf-8')
-        assert result_str == '{"a":{"c":{"b":2}},"z":{"y":{"x":1}}}'
+        assert result_str == '{"D":[[{"s":"a"},{"D":[[{"s":"c"},{"D":[[{"s":"b"},{"i":"2"}]]}]]}],[{"s":"z"},{"D":[[{"s":"y"},{"D":[[{"s":"x"},{"i":"1"}]]}]]}]]}'
 
     def test_mixed_list_preserves_order(self):
-        """Mixed-type list preserves order."""
+        """Mixed-type list preserves order; every element is tagged."""
         result = canonical_serialize([1, "two", True, None])
         result_str = result.decode('utf-8')
-        assert result_str == "[1,\"two\",true,null]"
+        assert result_str == '{"L":[{"i":"1"},{"s":"two"},{"b":true},null]}'
 
     def test_datetime_in_dict(self):
         """Dict containing datetime serializes correctly."""
@@ -908,12 +923,12 @@ class TestSerializationEdgeCases:
         assert "0.001" in result_str
 
     def test_list_of_dicts_preserves_order(self):
-        """List of dicts preserves list order."""
+        """List of dicts preserves list order; inner dicts sorted by key."""
         d1 = {"b": 2, "a": 1}
         d2 = {"d": 4, "c": 3}
         result = canonical_serialize([d1, d2])
         result_str = result.decode('utf-8')
-        assert result_str == '[{"a":1,"b":2},{"c":3,"d":4}]'
+        assert result_str == '{"L":[{"D":[[{"s":"a"},{"i":"1"}],[{"s":"b"},{"i":"2"}]]},{"D":[[{"s":"c"},{"i":"3"}],[{"s":"d"},{"i":"4"}]]}]}'
 
 
 # ─── Backward Compatibility: No Phase 3 Module Changes ───
