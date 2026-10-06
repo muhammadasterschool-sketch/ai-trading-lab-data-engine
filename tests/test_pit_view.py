@@ -1202,7 +1202,9 @@ def test_no_phase3_hash_in_phase4_identity(monkeypatch):
     """SUB-25 (spec 2.8 / FRZ-02): no frozen Phase 3 hash method may
     enter any Phase 4 identity. If Candle.to_hash() were called
     anywhere in the Phase 4 identity path, this test FAILS (the
-    monkeypatched bomb explodes)."""
+    monkeypatched bomb explodes). Uses REAL Phase 3 candles so the
+    bombed method genuinely exists on the flowing objects."""
+    from data_engine.evidence import EvidenceProvenance
     from data_engine.schemas import Candle
 
     def _bomb(self):
@@ -1212,15 +1214,21 @@ def test_no_phase3_hash_in_phase4_identity(monkeypatch):
         )
 
     monkeypatch.setattr(Candle, "to_hash", _bomb)
-    candles = [DuckCandle(_ts(d, 10), 100.0, 105.0, 98.0, 102.0)
-               for d in range(1, 6)]
-    ds = DuckDataset(candles)
-    content_hash = dataset_content_hash(ds)  # must not explode
+    # Real Phase 3 dataset: its candles genuinely carry to_hash().
+    real_ds = _real_dataset(EvidenceProvenance.REAL)
+    assert all(isinstance(c, Candle) for c in real_ds.candles)
+    content_hash = dataset_content_hash(real_ds)  # must not explode
     assert len(content_hash) == 64
-    view = PitViewBuilder().build(ds, _ts(4), _explicit_sidecar(), _tb())
+
+    # The full view path over the same real dataset must not explode.
+    sidecar = PitSidecar(
+        dataset_id="ds", dataset_version="v1",
+        event_time=_ts(1, 10), observation_time=_ts(1, 10, 30),
+        publication_time=_ts(2),
+    )
+    view = PitViewBuilder().build(real_ds, _ts(6), sidecar, _tb())
     assert view.view_hash.startswith("pit4v.")
-    sidecar_hash = _explicit_sidecar().sidecar_hash
-    assert sidecar_hash.startswith("pit4.")
+    assert _explicit_sidecar().sidecar_hash.startswith("pit4.")
 
 
 # ═══════════════════════════════════════════════════════════════════
