@@ -32,7 +32,38 @@ from data_engine.pit.availability import (
 )
 from data_engine.pit.contract import TemporalContract
 from data_engine.pit.serialization import canonical_serialize
-from data_engine.pit.hashing import deterministic_hash
+from data_engine.pit.hashing import (
+    deterministic_hash,
+    identity_hash,
+    eligibility_hash,
+    PHASE4_IDENTITY_CONTRACT_VERSION,
+)
+from data_engine.pit.sidecar import PitSidecar, LegacyClassification
+from data_engine.pit.revision import RevisionChain, RevisionEntry
+from data_engine.pit.tiebreaker import TieBreakerPolicy, AmbiguousTieError
+from data_engine.pit.primitives import (
+    InstrumentIdentity,
+    InstrumentSpecification,
+    Venue,
+    DataSource,
+    SymbolMapping,
+    CalendarRef,
+    validate_specification_intervals,
+)
+from data_engine.pit.view import (
+    PitView,
+    PitViewBuilder,
+    PitViewValidator,
+    ViewValidationResult,
+    ValidationCheck,
+    ExcludedRecord,
+    dataset_content_hash,
+)
+from data_engine.pit.experiment import (
+    ExperimentIdentity,
+    PitExperimentConfig,
+    LegacyPolicy,
+)
 
 __all__ = [
     "TemporalDataType",
@@ -43,5 +74,31 @@ __all__ = [
     "TemporalContract",
     "canonical_serialize",
     "deterministic_hash",
+    "identity_hash",
+    "eligibility_hash",
+    "PHASE4_IDENTITY_CONTRACT_VERSION",
+    "PitSidecar",
+    "LegacyClassification",
+    "RevisionChain",
+    "RevisionEntry",
+    "TieBreakerPolicy",
+    "AmbiguousTieError",
+    "InstrumentIdentity",
+    "InstrumentSpecification",
+    "Venue",
+    "DataSource",
+    "SymbolMapping",
+    "CalendarRef",
+    "validate_specification_intervals",
+    "PitView",
+    "PitViewBuilder",
+    "PitViewValidator",
+    "ViewValidationResult",
+    "ValidationCheck",
+    "ExcludedRecord",
+    "dataset_content_hash",
+    "ExperimentIdentity",
+    "PitExperimentConfig",
+    "LegacyPolicy",
     "__version__",
 ]
