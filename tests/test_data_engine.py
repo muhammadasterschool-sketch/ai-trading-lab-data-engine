@@ -909,21 +909,6 @@ class TestEvidenceIntegrity:
         label = EvidenceLabel(provenance=EP.UNKNOWN)
         assert not label.provenance.is_valid_for_research()
 
-def test_evidence_provenance_single_definition():
-    """SUB-22: EvidenceProvenance has exactly one definition (F-02/R-03).
-
-    The canonical definition is evidence.py:18. schemas.py must be a
-    re-export, not a second class definition. Acceptance: assert A is B.
-    """
-    from data_engine.evidence import EvidenceProvenance as EP
-    from data_engine.schemas import EvidenceProvenance as EP2
-    assert EP2 is EP, (
-        f"EvidenceProvenance is not a single definition: "
-        f"schemas.EvidenceProvenance({id(EP2)}) is not "
-        f"evidence.EvidenceProvenance({id(EP)})"
-    )
-
-
     def test_check_evidence_integrity(self):
         """Evidence integrity checks must work."""
         from data_engine.evidence import check_evidence_integrity, EvidenceLabel, EvidenceProvenance as EP
@@ -955,6 +940,21 @@ def test_evidence_provenance_single_definition():
         violations = check_evidence_integrity([type('DS', (), {'dataset_id': 'synth', 'provenance': prov})()])
         # Should have a violation for synthetic
         assert len(violations) > 0
+
+
+def test_evidence_provenance_single_definition():
+    """SUB-22: EvidenceProvenance has exactly one definition (F-02/R-03).
+
+    The canonical definition is evidence.py:18. schemas.py must be a
+    re-export, not a second class definition. Acceptance: assert A is B.
+    """
+    from data_engine.evidence import EvidenceProvenance as EP
+    from data_engine.schemas import EvidenceProvenance as EP2
+    assert EP2 is EP, (
+        f"EvidenceProvenance is not a single definition: "
+        f"schemas.EvidenceProvenance({id(EP2)}) is not "
+        f"evidence.EvidenceProvenance({id(EP)})"
+    )
 
 
 if __name__ == "__main__":
