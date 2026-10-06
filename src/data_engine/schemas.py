@@ -44,11 +44,11 @@ class ContractType(str, Enum):
     UNKNOWN = "unknown"
 
 
-class EvidenceProvenance(str, Enum):
-    REAL = "REAL"
-    SYNTHETIC = "SYNTHETIC"
-    SIMULATED = "SIMULATED"
-    UNKNOWN = "UNKNOWN"
+# EvidenceProvenance re-exported from evidence.py per R-03 (spec §1.3).
+# Canonical definition with is_strong_evidence() / is_valid_for_research()
+# lives in evidence.py:18. The 'is' identity check must pass:
+#   assert EvidenceProvenance is evidence.EvidenceProvenance
+from data_engine.evidence import EvidenceProvenance  # canonical: evidence.py:18
 
 
 class ValidationStatus(str, Enum):
