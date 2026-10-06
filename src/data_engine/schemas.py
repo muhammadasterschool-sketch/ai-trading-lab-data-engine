@@ -151,8 +151,19 @@ class Instrument(BaseModel):
 
 
 class ProviderConfig(BaseModel):
-    """Provider configuration and connection parameters."""
-    model_config = ConfigDict(frozen=True)
+    """Provider configuration and connection parameters.
+
+    Phase 4A.1 filesystem security (spec SECTION 11):
+    - extra='forbid' (FS-17): unknown config keys raise — a strict
+      config must never silently degrade through a typo
+    - approved_data_root (FS-04): explicit approved data root for
+      file-backed providers; file I/O fails closed without it (FS-06)
+    - endpoint validated at construction when it is an absolute
+      filesystem path (FS-18)
+    - instrument_allowlist (FS-14): instruments validated before path
+      construction
+    """
+    model_config = ConfigDict(frozen=True, extra="forbid")
     provider_name: str
     provider_type: str = Field(..., description="e.g. 'api', 'file', 'database', 'websocket'")
     endpoint: Optional[str] = None
@@ -161,6 +172,53 @@ class ProviderConfig(BaseModel):
     supports_bid_ask: bool = False
     supports_volume: bool = True
     rate_limit_per_minute: Optional[int] = None
+    approved_data_root: Optional[str] = Field(
+        None,
+        description="Approved data root for file-backed providers (FS-04). "
+                    "File I/O fails closed when unset (FS-06).",
+    )
+    instrument_allowlist: Optional[list[str]] = Field(
+        None,
+        description="Allowed instrument identifiers (FS-14); validated "
+                    "before any path construction (FS-16).",
+    )
+    audit_trail_path: Optional[str] = Field(
+        None,
+        description="Path to the structured security audit trail (FS-21/22).",
+    )
+
+    @model_validator(mode="after")
+    def _validate_endpoint_at_construction(self) -> "ProviderConfig":
+        """Validate endpoint at construction, not at first use (FS-18).
+
+        When the endpoint is an absolute filesystem path, an approved
+        data root MUST be configured and the endpoint MUST resolve
+        inside it (FS-07). Non-path endpoints (URLs, relative paths)
+        are validated at use time by the provider's containment layer.
+        """
+        endpoint = self.endpoint
+        if endpoint is None:
+            return self
+        is_absolute_path = endpoint.startswith("/") or endpoint.startswith("\\\\")
+        if len(endpoint) >= 2 and endpoint[1] == ":" and endpoint[0].isalpha():
+            is_absolute_path = True
+        if is_absolute_path:
+            if self.approved_data_root is None:
+                raise ValueError(
+                    f"FS-06/FS-18 violation: endpoint {endpoint!r} is an "
+                    f"absolute path but no approved_data_root is configured. "
+                    f"Filesystem access fails closed without an approved root."
+                )
+            from pathlib import Path
+            resolved = Path(endpoint).resolve()
+            root = Path(self.approved_data_root).resolve()
+            if resolved != root and root not in resolved.parents:
+                raise ValueError(
+                    f"FS-07 violation: absolute endpoint {endpoint!r} resolves "
+                    f"to {resolved}, which is outside the approved data root "
+                    f"{root}.",
+                )
+        return self
 
 
 class ProvenanceRecord(BaseModel):

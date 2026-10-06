@@ -176,3 +176,203 @@ class ImmutableProvenance:
     @property
     def data(self) -> dict:
         return json.loads(json.dumps(self._data))  # Return copy
+
+
+# ---------------------------------------------------------------------------
+# Filesystem security (Phase 4A.1 — spec SECTION 11, FS-01..FS-24)
+# ---------------------------------------------------------------------------
+
+from pathlib import Path  # noqa: E402
+
+
+class FilesystemSecurityError(ValueError):
+    """Typed filesystem-security rejection naming the rule violated (FS-20).
+
+    Every containment/traversal/symlink/config rejection raises this
+    error with the specific FS rule ID, so denials are auditable and
+    never silent.
+    """
+
+    def __init__(self, rule: str, message: str):
+        self.rule = rule
+        self.message = message
+        super().__init__(f"[{rule}] {message}")
+
+
+def resolve_path(path) -> Path:
+    """Resolve a path to its canonical absolute form (FS-01).
+
+    Resolves '..', '.', and symlinks BEFORE any containment decision.
+    """
+    return Path(path).resolve()
+
+
+def ensure_containment(path, approved_root, rule: str = "FS-05") -> Path:
+    """Verify a resolved path is INSIDE the approved root (FS-02..FS-05).
+
+    Containment is evaluated on the RESOLVED path (FS-02), by path
+    COMPONENTS (FS-03) — never by string prefix, which is vulnerable
+    to the 'C:\\dataevil' vs 'C:\\data' prefix bug.
+
+    Raises FilesystemSecurityError naming the rule (FS-20) when the
+    path is outside the root.
+    """
+    if approved_root is None:
+        raise FilesystemSecurityError(
+            "FS-06",
+            "No approved data root configured — failing closed; no I/O "
+            "is permitted without an explicit approved root.",
+        )
+    resolved = Path(path).resolve()
+    root = Path(approved_root).resolve()
+    if resolved != root and root not in resolved.parents:
+        raise FilesystemSecurityError(
+            rule,
+            f"Resolved path {resolved} is OUTSIDE the approved root {root} "
+            f"(component-based containment check).",
+        )
+    return resolved
+
+
+def validate_instrument_identifier(instrument, allowlist=None, registry=None,
+                                   registry_count=None) -> str:
+    """Validate an instrument identifier before path construction
+    (FS-14, FS-15, FS-16).
+
+    Rejected (FS-15): path separators, '..', drive letters, UNC
+    prefixes, '~' expansions, NUL bytes, leading separators.
+    Enforced (FS-14): the instrument must pass the allowlist
+    (config allowlist, or a non-empty registry) BEFORE any path is
+    constructed. No allowlist at all -> fail closed (FS-06 class).
+
+    The filename MUST be constructed from the identifier returned
+    here — never from raw user input (FS-16).
+    """
+    if not isinstance(instrument, str) or not instrument.strip():
+        raise FilesystemSecurityError(
+            "FS-16", f"Instrument identifier invalid: {instrument!r}."
+        )
+    if "\x00" in instrument:
+        raise FilesystemSecurityError("FS-15", "NUL byte in instrument identifier.")
+    if "/" in instrument or "\\" in instrument:
+        raise FilesystemSecurityError(
+            "FS-15",
+            f"Path separator in instrument {instrument!r} — instrument "
+            f"identifiers MUST NOT control path structure.",
+        )
+    if ".." in instrument:
+        raise FilesystemSecurityError(
+            "FS-14",
+            f"Traversal sequence '..' in instrument {instrument!r} — rejected "
+            f"before path construction.",
+        )
+    if len(instrument) >= 2 and instrument[1] == ":" and instrument[0].isalpha():
+        raise FilesystemSecurityError(
+            "FS-15", f"Drive letter in instrument {instrument!r}."
+        )
+    if instrument.startswith("\\\\") or instrument.startswith("//"):
+        raise FilesystemSecurityError(
+            "FS-15", f"UNC prefix in instrument {instrument!r}."
+        )
+    if instrument.startswith("~"):
+        raise FilesystemSecurityError(
+            "FS-15", f"Home-directory expansion in instrument {instrument!r}."
+        )
+
+    # FS-14: allowlist before path construction. Fail closed when no
+    # allowlist source is configured at all.
+    if allowlist is not None:
+        if instrument not in allowlist:
+            raise FilesystemSecurityError(
+                "FS-14",
+                f"Instrument {instrument!r} is not in the configured "
+                f"instrument allowlist.",
+            )
+    elif registry is not None and registry_count and registry_count > 0:
+        if not registry.is_registered(instrument):
+            raise FilesystemSecurityError(
+                "FS-14",
+                f"Instrument {instrument!r} is not registered in the "
+                f"InstrumentRegistry.",
+            )
+    else:
+        raise FilesystemSecurityError(
+            "FS-14",
+            "No instrument allowlist configured (neither an explicit "
+            "allowlist nor a populated registry) — failing closed; "
+            "filenames must be constructed from validated identifiers "
+            "(FS-16).",
+        )
+    return instrument
+
+
+class SecurityAuditTrail:
+    """Append-only, tamper-evident structured security audit trail
+    (FS-21, FS-22).
+
+    Every allow and every deny is recorded with actor, path, decision,
+    rule, and timestamp (FS-21). Entries are hash-chained: each entry
+    carries the previous entry's hash, and the chain can be verified
+    end-to-end (FS-22: append-only and tamper-evident).
+
+    Note: audit timestamps are wall-clock BY DESIGN — an audit trail
+    records when a security decision happened; it never participates
+    in any Phase 4 identity (spec 2.4 ID-WC-01).
+    """
+
+    def __init__(self, path):
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        if not self.path.exists():
+            self.path.touch()
+
+    def _read_entries(self) -> list:
+        entries = []
+        with open(self.path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    entries.append(json.loads(line))
+        return entries
+
+    def _entry_digest(self, entry: dict) -> str:
+        payload = {k: v for k, v in entry.items() if k != "entry_hash"}
+        return hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+
+    def record(self, actor: str, path: str, decision: str, rule: str) -> dict:
+        """Append one audit record. Returns the recorded entry."""
+        entries = self._read_entries()
+        prev_hash = entries[-1]["entry_hash"] if entries else "GENESIS"
+        entry = {
+            "seq": len(entries) + 1,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "actor": actor,
+            "path": str(path),
+            "decision": decision,   # "ALLOW" | "DENY"
+            "rule": rule,
+            "prev_hash": prev_hash,
+        }
+        entry["entry_hash"] = self._entry_digest(entry)
+        with open(self.path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, sort_keys=True) + "\n")
+        return entry
+
+    def verify(self) -> bool:
+        """Verify the full hash chain (FS-22 tamper evidence)."""
+        entries = self._read_entries()
+        prev_hash = "GENESIS"
+        for i, entry in enumerate(entries):
+            if entry.get("seq") != i + 1:
+                return False
+            if entry.get("prev_hash") != prev_hash:
+                return False
+            if entry.get("entry_hash") != self._entry_digest(entry):
+                return False
+            prev_hash = entry["entry_hash"]
+        return True
+
+    def decisions(self) -> list:
+        """Return all recorded decisions (audit surface)."""
+        return self._read_entries()

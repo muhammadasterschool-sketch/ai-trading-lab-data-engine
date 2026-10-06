@@ -56,8 +56,23 @@ class DataStorage:
     RESEARCH: Prepared for analytical workflows. Derived from PROCESSED.
     """
 
-    def __init__(self, storage_dir: str = "./data_engine_storage"):
+    def __init__(self, storage_dir: str = "./data_engine_storage", approved_root: Optional[str] = None):
+        """Create the three-tier storage manager.
+
+        Phase 4A.1 filesystem security (spec SECTION 11, defence in
+        depth for the storage layer): when an ``approved_root`` is
+        supplied, the resolved ``storage_dir`` MUST be inside it
+        (FS-02/03/05 component-based containment); a violation raises
+        FilesystemSecurityError before any directory is created
+        (FS-09). Without an approved_root the historical behaviour is
+        unchanged (the provider layer remains the primary control).
+        """
         self.storage_dir = storage_dir
+        self._approved_root = approved_root
+        if approved_root is not None:
+            from data_engine.security import ensure_containment
+            # FS-09: containment is enforced BEFORE makedirs (before I/O).
+            ensure_containment(storage_dir, approved_root, rule="FS-05")
         self._lock = threading.Lock()
         self._raw_store: Dict[str, List[Candle]] = {}
         self._processed_store: Dict[str, Dataset] = {}
