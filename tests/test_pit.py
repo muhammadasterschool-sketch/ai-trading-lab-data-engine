@@ -408,23 +408,19 @@ class TestTemporalContract:
             contract.validate_required_fields_present(temporal_fields)
 
     def test_missing_allow_null(self):
-        """Missing fields are allowed when policy is ALLOW_NULL.
+        """ALLOW_NULL + required_fields is PROHIBITED and raises (spec 4.2, SUB-20).
 
-        NOTE: superseded by spec 4.2 / SUB-20 — construction with
-        ALLOW_NULL + required_fields MUST raise. The re-aligned
-        assertion and the TemporalContract enforcement land together
-        with Blocker 3 (one blocker, one commit).
+        Old behaviour silently skipped the required-field check; the
+        authoritative spec redefines this: a contract MUST NOT contain
+        a field in required_fields while missing_field_policy=ALLOW_NULL.
+        Construction MUST raise. Re-aligned per GOV-01.
         """
-        contract = TemporalContract(
-            data_type=TemporalDataType.OHLCV,
-            required_fields=["publication_time"],
-            missing_field_policy=MissingFieldPolicy.ALLOW_NULL,
-        )
-        temporal_fields = {
-            "event_time": datetime(2025, 1, 15, 10, 0, 0, tzinfo=UTC),
-            "publication_time": None,
-        }
-        contract.validate_required_fields_present(temporal_fields)  # Should not raise
+        with pytest.raises(Exception):
+            TemporalContract(
+                data_type=TemporalDataType.OHLCV,
+                required_fields=["publication_time"],
+                missing_field_policy=MissingFieldPolicy.ALLOW_NULL,
+            )
 
     def test_is_eligible_field(self):
         """Eligible/non-eligible field checks work correctly."""

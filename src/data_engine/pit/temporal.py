@@ -14,7 +14,7 @@ ingestion_time is metadata only. It MUST NOT participate in:
 
 from datetime import datetime, UTC
 from enum import Enum
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
 from typing import Optional
 import hashlib
 
@@ -50,7 +50,7 @@ class TemporalSemantics(BaseModel):
             MUST NOT participate in PIT eligibility, availability,
             or any hash computation.
     """
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     event_time: datetime = Field(..., description="Time the event occurred")
     observation_time: datetime = Field(..., description="Time observation was recorded")
@@ -73,6 +73,44 @@ class TemporalSemantics(BaseModel):
             )
         # Normalize to UTC
         return v.astimezone(UTC)
+
+    @model_validator(mode="after")
+    def _validate_temporal_ordering(self) -> "TemporalSemantics":
+        """Enforce cross-field temporal ordering (spec 4.3, F-12).
+
+        When all operands are present:
+            event_time       <= observation_time
+            observation_time <= publication_time (when publication present)
+            publication_time <= revision_time    (when both present)
+
+        Equality at any boundary is VALID (zero-delay publication is
+        legitimate). A null operand SKIPS its constraint (it does not
+        fail). effective_time has NO ordering constraint against
+        publication_time — a backdated effective date is legitimate
+        (max_delay_seconds bounds it as a quality check, not an
+        ordering rule).
+
+        Raises ValueError naming both fields and both values.
+        """
+        constraints = (
+            ("event_time", self.event_time, "observation_time", self.observation_time),
+            ("observation_time", self.observation_time,
+             "publication_time", self.publication_time),
+            ("publication_time", self.publication_time,
+             "revision_time", self.revision_time),
+        )
+        for left_name, left, right_name, right in constraints:
+            if left is None or right is None:
+                continue  # null operand skips its constraint
+            if left > right:
+                raise ValueError(
+                    f"Temporal ordering violation (spec 4.3): "
+                    f"{left_name} ({left.isoformat()}) > "
+                    f"{right_name} ({right.isoformat()}). "
+                    f"Required order: event_time <= observation_time "
+                    f"<= publication_time <= revision_time."
+                )
+        return self
 
     def _temporal_fields(self) -> dict[str, Optional[datetime]]:
         """Return all temporal fields except ingestion_time (metadata-only)."""

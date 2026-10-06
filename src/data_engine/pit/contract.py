@@ -9,7 +9,7 @@ The trusted research boundary must reject missing required timestamps.
 No Phase 3 model (Candle, etc.) is modified by this contract.
 """
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from enum import Enum
 from typing import Optional, Literal
 from datetime import datetime, UTC
@@ -44,7 +44,7 @@ class TemporalContract(BaseModel):
         missing_field_policy: How to handle missing required fields.
         timezone_requirement: Must be "UTC" for all trusted PIT timestamps.
     """
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     data_type: TemporalDataType = Field(..., description="Canonical data type category")
     required_fields: list[str] = Field(
@@ -94,6 +94,49 @@ class TemporalContract(BaseModel):
         if v != "UTC":
             raise ValueError(f"Only UTC timezone is supported for PIT timestamps, got: {v}")
         return v
+
+    @model_validator(mode="after")
+    def _validate_field_classification(self) -> "TemporalContract":
+        """Enforce spec 4.2 required/optional semantics.
+
+        PROHIBITED (SUB-20): a contract MUST NOT contain a field in
+        required_fields while missing_field_policy = ALLOW_NULL.
+        Construction raises — ALLOW_NULL must never silently defeat
+        required_fields. Fields permitted to be null belong in the
+        eligible/optional classification instead.
+
+        Also enforces: a field must not appear in both the eligible and
+        non-eligible lists, and a required field must not be classified
+        non-eligible (direct contradictions of the classification).
+        """
+        if self.required_fields and \
+                self.missing_field_policy == MissingFieldPolicy.ALLOW_NULL:
+            raise ValueError(
+                f"TemporalContract violation (spec 4.2, SUB-20): "
+                f"required_fields={self.required_fields} combined with "
+                f"missing_field_policy=ALLOW_NULL is PROHIBITED. "
+                f"ALLOW_NULL must not silently defeat required_fields; "
+                f"fields permitted to be null belong in the optional/eligible "
+                f"classification instead."
+            )
+        eligible = set(self.eligible_fields)
+        non_eligible = set(self.non_eligible_fields)
+        overlap = eligible & non_eligible
+        if overlap:
+            raise ValueError(
+                f"TemporalContract violation: field(s) {sorted(overlap)} "
+                f"appear in BOTH eligible_fields and non_eligible_fields — "
+                f"the classification is exhaustive and mutually exclusive."
+            )
+        required = set(self.required_fields)
+        req_non_eligible = required & non_eligible
+        if req_non_eligible:
+            raise ValueError(
+                f"TemporalContract violation: required field(s) "
+                f"{sorted(req_non_eligible)} are classified non-eligible — "
+                f"a required field participates in PIT eligibility."
+            )
+        return self
 
     def validate_required_fields_present(self, temporal_fields: dict[str, Optional[datetime]]) -> None:
         """Validate that all required temporal fields are present and non-null.

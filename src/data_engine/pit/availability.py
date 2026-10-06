@@ -10,7 +10,7 @@ Supports:
 - revision-aware availability
 """
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from enum import Enum
 from typing import Optional
 from datetime import datetime, UTC
@@ -34,7 +34,7 @@ class PublicationControlledAvailability(BaseModel):
         max_delay_seconds: Maximum allowed delay between publication_time
             and effective_time. None means no limit.
     """
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     require_publication: bool = Field(True, description="Publication time required")
     max_delay_seconds: Optional[float] = Field(
@@ -86,7 +86,7 @@ class RevisionAwareAvailability(BaseModel):
         max_revision_age_seconds: Maximum age of revision before it
             is considered stale. None means no limit.
     """
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     require_revision: bool = Field(True, description="Revision time required")
     max_revision_age_seconds: Optional[float] = Field(
@@ -136,12 +136,39 @@ class AvailabilityPolicy(BaseModel):
         rule_type: The type of availability rule to apply.
         policy: The specific policy configuration.
     """
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     rule_type: AvailabilityRuleType = Field(..., description="Type of availability rule")
     policy: PublicationControlledAvailability | RevisionAwareAvailability = Field(
         ..., description="Declarative availability policy configuration"
     )
+
+    @model_validator(mode="after")
+    def _validate_rule_type_matches_policy(self) -> "AvailabilityPolicy":
+        """Enforce the discriminated-union pairing (spec 5.2/5.3, F-16).
+
+        A mismatched rule_type/policy combination MUST raise at
+        construction. Without this, a mismatched pairing silently
+        computes under the wrong rule and leaks future revisions —
+        the exact defect PIT exists to prevent.
+        """
+        if self.rule_type == AvailabilityRuleType.PUBLICATION_CONTROLLED \
+                and not isinstance(self.policy, PublicationControlledAvailability):
+            raise ValueError(
+                f"AvailabilityPolicy pairing violation (spec 5.2): "
+                f"rule_type=PUBLICATION_CONTROLLED requires "
+                f"PublicationControlledAvailability, got "
+                f"{type(self.policy).__name__}."
+            )
+        if self.rule_type == AvailabilityRuleType.REVISION_AWARE \
+                and not isinstance(self.policy, RevisionAwareAvailability):
+            raise ValueError(
+                f"AvailabilityPolicy pairing violation (spec 5.2): "
+                f"rule_type=REVISION_AWARE requires "
+                f"RevisionAwareAvailability, got "
+                f"{type(self.policy).__name__}."
+            )
+        return self
 
     def is_available(self, publication_time: Optional[datetime],
                       effective_time: Optional[datetime],
