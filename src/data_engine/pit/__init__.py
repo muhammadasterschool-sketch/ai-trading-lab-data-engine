@@ -27,6 +27,7 @@ from data_engine.pit.temporal import (
 )
 from data_engine.pit.availability import (
     AvailabilityPolicy,
+    AvailabilityRuleType,
     PublicationControlledAvailability,
     RevisionAwareAvailability,
 )
@@ -69,6 +70,7 @@ __all__ = [
     "TemporalDataType",
     "TemporalSemantics",
     "AvailabilityPolicy",
+    "AvailabilityRuleType",
     "PublicationControlledAvailability",
     "RevisionAwareAvailability",
     "TemporalContract",

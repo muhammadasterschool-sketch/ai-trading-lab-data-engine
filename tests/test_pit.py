@@ -49,7 +49,7 @@ from data_engine.pit.serialization import (
     _canonical_float,
     _canonical_value,
 )
-from data_engine.pit.hashing import deterministic_hash, verify_hash_determinism, verify_cross_process_hash
+from data_engine.pit.hashing import deterministic_hash, verify_hash_determinism  # noqa: F401 (verify_cross_process_hash removed with F-24)
 from data_engine.schemas import Candle, Timeframe, Dataset, Instrument, ProvenanceRecord, DatasetVersion
 
 
@@ -661,39 +661,33 @@ class TestDeterministicHashing:
         h2 = deterministic_hash("test")
         assert h1 == h2
 
-    def test_hash_cross_process_determinism(self):
-        """Hash is deterministic across invocations."""
-        assert verify_hash_determinism({"key": "value"}) is True
-
     def test_hash_stability_dict_order(self):
         """Dict with different key order produces same hash."""
         h1 = deterministic_hash({"a": 1, "b": 2})
         h2 = deterministic_hash({"b": 2, "a": 1})
         assert h1 == h2
 
-    def test_cross_process_hash_well_formed(self):
-        """Hash is well-formed (64 hex chars)."""
-        assert verify_cross_process_hash("test") is True
+    # F-24 REPLACEMENT NOTE (spec 8.4): four weak tests were REMOVED
+    # from this file, each replaced by strictly stronger named tests
+    # in tests/test_pit_view.py:
+    #   test_hash_cross_process_determinism  -> test_t_h05_cross_process_determinism
+    #                                           + test_identity_determinism_true_subprocess
+    #                                           (>= 5 real OS subprocesses)
+    #   test_cross_process_hash_well_formed  -> (same family: only asserted
+    #                                           len(h)==64) covered by the same
+    #                                           subprocess tests above
+    #   test_hash_no_timestamp               -> test_wallclock_in_allowlist_rejected
+    #                                           + test_experiment_id_wallclock_independent
+    #                                           + test_t_h02_identity_wallclock_invariance
+    #   test_hash_no_uuid                    -> test_experiment_id_wallclock_independent
+    #                                           (identity invariant under env/time changes)
+    # test_no_phase3_source_modified (in TestBackwardCompatibility)
+    #   -> test_frozen_phase3_manifest (13-file SHA-256 manifest, FRZ-04)
 
     def test_hash_not_random(self):
         """Hash is not random — same input always same output."""
         results = {deterministic_hash("same_input") for _ in range(100)}
         assert len(results) == 1
-
-    def test_hash_no_timestamp(self):
-        """Hash does not include runtime timestamps."""
-        # This is verified by the fact that hashing the same string
-        # always produces the same result — no timestamps are injected
-        h1 = deterministic_hash("no_timestamp_test")
-        h2 = deterministic_hash("no_timestamp_test")
-        assert h1 == h2
-
-    def test_hash_no_uuid(self):
-        """Hash does not include random UUIDs."""
-        import re
-        h = deterministic_hash("test")
-        # UUIDs contain hyphens; SHA-256 hex digests do not
-        assert "-" not in h
 
 
 # ─── Backward Compatibility Tests ───
@@ -736,24 +730,12 @@ class TestBackwardCompatibility:
         )
         assert d.dataset_id == "test"
 
-    def test_no_phase3_source_modified(self):
-        """Verify that no Phase 3 source files have been modified."""
-        import os
-        phase3_files = [
-            "src/data_engine/schemas.py",
-            "src/data_engine/storage.py",
-            "src/data_engine/provenance.py",
-            "src/data_engine/validation.py",
-            "src/data_engine/ingestion.py",
-            "src/data_engine/data_blocked.py",
-            "src/data_engine/evidence.py",
-            "src/data_engine/quarantine.py",
-            "src/data_engine/quality_report.py",
-            "src/data_engine/provider.py",
-            "src/data_engine/timeframes.py",
-        ]
-        for f in phase3_files:
-            assert os.path.exists(f), f"Phase 3 file missing: {f}"
+    # F-24 REPLACEMENT NOTE: test_no_phase3_source_modified was REMOVED
+    # per spec 8.4 — it asserted only os.path.exists(f) for 11 files
+    # and could not detect ANY modification (it also omitted strategy/
+    # entirely). Replaced by test_frozen_phase3_manifest in
+    # tests/test_pit_view.py: a 13-file SHA-256 manifest comparison
+    # that fails the gate immediately on any byte-level change (FRZ-04).
 
     def test_no_datetime_utcnow_in_source(self):
         """Verify no datetime.utcnow() in any source file."""

@@ -134,8 +134,10 @@ class PitExperimentConfig(BaseModel):
 
     IDENTITY_FIELDS: tuple[str, ...] = (
         "cutoff", "contract_version", "tie_breaker_name", "tie_breaker_version",
-        "legacy_policy", "calendar_ref", "instrument_identity",
-        "instrument_specification", "venue", "data_source",
+        "legacy_policy", "legacy_assumption_text",
+        "legacy_publication_offset_seconds", "calendar_ref",
+        "instrument_identity", "instrument_specification", "venue",
+        "data_source",
     )
 
     @field_validator("cutoff", mode="before")
@@ -179,6 +181,15 @@ class PitExperimentConfig(BaseModel):
             "tie_breaker_name": self.tie_breaker.name,
             "tie_breaker_version": self.tie_breaker.version,
             "legacy_policy": self.legacy_policy.value,
+            # Spec 6.3 mandate: the declared assumption TEXT becomes an
+            # identity field (two different declared assumptions are two
+            # different experiments — PROH-LEG-08 class). The offset is
+            # the declared assumed publication schedule; equally
+            # identity-bearing.
+            "legacy_assumption_text": self.legacy_assumption_text,
+            "legacy_publication_offset_seconds": (
+                self.legacy_publication_offset_seconds
+            ),
             "calendar_ref": (
                 self.calendar_ref.calendar_ref_hash if self.calendar_ref else None
             ),

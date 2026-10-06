@@ -116,6 +116,10 @@ class PitView(BaseModel):
     calendar_ref_hash: Optional[str] = None
     contract_version: str = PHASE4_IDENTITY_CONTRACT_VERSION
     pit_contract_version: str = "1.0.0"
+    # CFG-04 (spec 7.13): the config alone determines the view — its
+    # identity participates in the view identity whenever a config
+    # governed the build (e.g. a declared legacy assumption).
+    config_identity_hash: Optional[str] = None
 
     @field_validator("cutoff", mode="before")
     @classmethod
@@ -150,6 +154,7 @@ class PitView(BaseModel):
             "calendar_ref": self.calendar_ref_hash,
             "contract_version": self.contract_version,
             "pit_contract_version": self.pit_contract_version,
+            "config_identity": self.config_identity_hash,
             "legacy_classification": self.legacy_classification.value,
         }
         digest = hashlib.sha256(canonical_serialize(payload)).hexdigest()
@@ -229,24 +234,19 @@ class PitViewBuilder:
             classification = sidecar.legacy_classification
             publication_time = sidecar.publication_time
 
-            if classification == LegacyClassification.PIT_INELIGIBLE:
-                any_ineligible = True
-                excluded.append(ExcludedRecord(
-                    item_index=index,
-                    reason="pit_ineligible",
-                    classification=classification.value,
-                ))
-                continue
-
-            # Spec 6.3 selection rule: unknown publication time.
+            # Spec 6.3 selection rule — publication time unknown:
+            #   1. explicit publication exists -> use it (EXPLICIT)
+            #   2. declared assumption in PitExperimentConfig ->
+            #      ASSUMED_PUBLICATION (assumed value + basis recorded;
+            #      the view is labelled ASSUMED in its identity)
+            #   3. else -> PIT_INELIGIBLE: excluded + counted
+            # (A PIT_INELIGIBLE sidecar always has publication_time None,
+            # so it flows through branch 2 or 3 here.)
             if publication_time is None:
                 assumed = getattr(legacy_policy, "legacy_policy", None)
                 offset = getattr(legacy_policy, "legacy_publication_offset_seconds", None)
                 if assumed is not None and "assumed" in str(assumed).lower() \
                         and offset is not None:
-                    # Declared assumption (spec 6.3 branch 2): the assumed
-                    # publication time and its basis are recorded; the view
-                    # is labelled ASSUMED in its identity (PROH-LEG-08).
                     publication_time = sidecar.observation_time + timedelta(
                         seconds=float(offset)
                     )
@@ -329,6 +329,11 @@ class PitViewBuilder:
             source_hash=data_source.source_hash if data_source is not None else None,
             calendar_ref_hash=(
                 calendar_ref.calendar_ref_hash if calendar_ref is not None else None
+            ),
+            config_identity_hash=(
+                legacy_policy.config_identity_hash
+                if legacy_policy is not None and hasattr(legacy_policy, "config_identity_hash")
+                else None
             ),
         )
 
