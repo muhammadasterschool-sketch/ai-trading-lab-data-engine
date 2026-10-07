@@ -2,14 +2,14 @@
 ## Repository Progress Brief
 
 > One-page orientation: what exists in this repository today, how it got here,
-> and what remains. Generated 2026-10-08 after the final governance-docs push.
+> and what remains. Updated 2026-10-08 after filing the Enhancement Mandate v2.0.
 
 | | |
 |---|---|
 | **Remote** | https://github.com/muhammadasterschool-sketch/ai-trading-lab-data-engine |
-| **HEAD** | `018d084` — `main` and `phase-4a/4a1-architecture-correction` (in sync) |
+| **HEAD** | `main` and `phase-4a/4a1-architecture-correction` in sync (see git log) |
 | **Test suite** | **789 passed** (deterministic; verified 3x) |
-| **Overall status** | READY_WITH_FINDINGS — construction complete, evaluation phase gated |
+| **Overall status** | Construction era COMPLETE · enhancement era **REGISTERED, NOT STARTED** · READY_WITH_FINDINGS |
 
 ---
 
@@ -33,7 +33,9 @@ computation → backtesting → research validation → risk control → paper t
 | Phases 4A.2 → graduation | Corporate actions, derivatives, research gov, registry, features, validation, risk, hermes, infra, paper trading, graduation layer | `0ce78f6..a7fba96` (12) | 692 |
 | Master-mandate cycle | Strategy discovery, knowledge/memory, benchmarks, end-to-end lifecycle test | `0cafbb4..281dfdc` (5) | 789 |
 | Governance docs (CR-10) | 10 audit/governance reports committed into repo | `018d084` (1) | 789 |
-| This brief | Consolidated progress summary | this commit | 789 |
+| Progress brief | Consolidated progress summary | `3084dcb` (1) | 789 |
+| Enhancement Mandate v2.0 | 50-section enhancement/hardening mandate filed verbatim + registration & gap analysis | `78349e1` (1) | 789 |
+| This brief update | Brief refreshed to cover mandate registration | this commit | 789 |
 
 ## 3. What was built, phase by phase
 
@@ -119,19 +121,27 @@ docs/             engine design docs
 
 ## 7. What comes next
 
-1. **Start the 30-day paper-trading evaluation** once a strategy candidate is
+1. **Execute the Enhancement Mandate v2.0** (`MASTER_ENHANCEMENT_HARDENING_
+   MANDATE.md`, registered NOT started): 17 work packages — 3 ABSENT (model
+drift, CI gates, operator plane), 14 PARTIAL. Recommended order in
+   `ZAI_ENHANCEMENT_MANDATE_REGISTRATION.md` §6 (CI gates → NO-TRADE decision
+   model → data quality → … → operator plane → autonomous lifecycle test →
+   final acceptance).
+2. **Start the 30-day paper-trading evaluation** once a strategy candidate is
    validated and registered (rule is structural and already implemented).
-2. **Dispatch external review windows** — GPT re-audit and Claude fix window
+3. **Dispatch external review windows** — GPT re-audit and Claude fix window
    (F-11 and the 4 MEDIUM findings are queued for the fix window).
-3. **Ratify H-1 containment** — human decision on `PHASE_GOVERNANCE_
+4. **Ratify H-1 containment** — human decision on `PHASE_GOVERNANCE_
    RECONCILIATION.md` recommendation (Option A: containment, no Phase 3
    amendment).
-4. **Final human acceptance** → graduation decision. Live execution remains
+5. **Final human acceptance** → graduation decision. Live execution remains
    never-authorized without an explicit human-issued token.
 
 ## 8. Key documents in this repository
 
-`MASTER_FULL_SYSTEM_CONSTRUCTION_BLUEPRINT.md` (authority) ·
+`MASTER_FULL_SYSTEM_CONSTRUCTION_BLUEPRINT.md` (construction authority) ·
+`MASTER_ENHANCEMENT_HARDENING_MANDATE.md` (enhancement authority, v2.0) ·
+`ZAI_ENHANCEMENT_MANDATE_REGISTRATION.md` (gap map, 17 packages) ·
 `PHASE_4A1_IMPLEMENTATION_RECORD.md` ·
 `PHASES_4A2_TO_GRADUATION_IMPLEMENTATION_RECORD.md` ·
 `PHASES_DISCOVERY_TO_AUTONOMY_IMPLEMENTATION_RECORD.md` ·
@@ -139,4 +149,5 @@ docs/             engine design docs
 `H1_FORMAL_DECISION_ANALYSIS.md` · `ZAI_DEFECT_REGISTER.md` ·
 `ZAI_WEEK_END_FULL_FORENSIC_INSPECTION.md` ·
 `FINAL_FULL_REPOSITORY_FORENSIC_AUDIT.md` ·
-`AI_TRADING_LAB_FINAL_ACCEPTANCE_AUDIT.md`
+`AI_TRADING_LAB_FINAL_ACCEPTANCE_AUDIT.md` ·
+`ZAI_REPOSITORY_PROGRESS_BRIEF.md` (this document)
