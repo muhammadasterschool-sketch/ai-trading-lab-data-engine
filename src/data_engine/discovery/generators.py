@@ -61,8 +61,8 @@ class RuleTemplate(BaseModel):
     exit_indicator: Optional[str] = None
     exit_operator: str = Field(default="<", pattern="^(>|<|>=|<=|==)$")
     exit_thresholds: tuple[float, ...] = ()
-    stop_loss_pcts: tuple[Optional[float], ...] = ()
-    take_profit_pcts: tuple[Optional[float], ...] = ()
+    stop_loss_pcts: tuple[Optional[float], ...] = (None,)
+    take_profit_pcts: tuple[Optional[float], ...] = (None,)
     min_history_bars: int = Field(default=20, gt=0)
 
     @field_validator("template_id", "indicator")
