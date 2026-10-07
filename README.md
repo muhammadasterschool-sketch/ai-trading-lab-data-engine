@@ -124,3 +124,38 @@ This Data Engine does NOT implement or enable:
 ## License
 
 MIT
+
+## Phase Map (4A.1 remediation complete → graduation layer complete)
+
+```
+src/data_engine/
+    pit/                    4A.1   temporal/PIT foundation (identity contracts,
+                                  canonical serialization, PitView, experiments)
+    actions/                4A.2   corporate actions, adjustment chains,
+                                  survivorship-bias-free universes, calendars
+    derivatives/            4A.3   futures contracts, rollover policies,
+                                  continuous series (leakage-guarded)
+    research/               4A.4   research governance (no self-approval)
+    experiment_registry/    5      experiment registry + reproducibility logs
+    quant/                  2/6    deterministic quant engine + PIT feature
+                                  pipeline (quant/features.py)
+    research_validation/    7      bias/leakage detection, statistics (scipy-free),
+                                  walk-forward, robustness
+    risk/                   8      hard-limit risk engine (kill switch),
+                                  exposure, inverse-vol portfolio construction
+    hermes/                 9      agent contracts (unavailable permissions),
+                                  free-first model routing, orchestration audit
+    infra/                  10     reproducibility verification, observability,
+                                  monitoring, checkpoint recovery
+    paper/                  11     paper trading (realism simulator, gateway,
+                                  reconciliation) + 30-day evaluation +
+                                  graduation/retirement + LiveAuthorizationGate
+```
+
+**Live execution boundary:** NEVER authorized by this codebase. The
+`LiveAuthorizationGate` denies by default; a grant requires a
+human-issued token from a registry that starts empty and refuses
+machine principals (blueprint 5.59).
+
+**Closure records:** `PHASE_4A1_IMPLEMENTATION_RECORD.md` (4A.1),
+`PHASES_4A2_TO_GRADUATION_IMPLEMENTATION_RECORD.md` (this cycle).
