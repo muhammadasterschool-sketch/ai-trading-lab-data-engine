@@ -125,7 +125,7 @@ This Data Engine does NOT implement or enable:
 
 MIT
 
-## Phase Map (4A.1 remediation complete → graduation layer complete)
+## Phase Map (4A.1 remediation complete → lifecycle/autonomy layer complete)
 
 ```
 src/data_engine/
@@ -150,6 +150,16 @@ src/data_engine/
     paper/                  11     paper trading (realism simulator, gateway,
                                   reconciliation) + 30-day evaluation +
                                   graduation/retirement + LiveAuthorizationGate
+    discovery/              12     strategy discovery (bounded deterministic
+                                  grids, validated-only registry) + the
+                                  fail-closed execution-eligibility chain
+    knowledge/              18     knowledge/memory records — fact/
+                                  observation/hypothesis/model-output/
+                                  human-decision; unvalidated model output
+                                  is never authoritative evidence
+    benchmarks/             30     performance suite over real components;
+                                  deterministic operation counts; NO-TRADE
+                                  capability proven
 ```
 
 **Live execution boundary:** NEVER authorized by this codebase. The
@@ -158,4 +168,5 @@ human-issued token from a registry that starts empty and refuses
 machine principals (blueprint 5.59).
 
 **Closure records:** `PHASE_4A1_IMPLEMENTATION_RECORD.md` (4A.1),
-`PHASES_4A2_TO_GRADUATION_IMPLEMENTATION_RECORD.md` (this cycle).
+`PHASES_4A2_TO_GRADUATION_IMPLEMENTATION_RECORD.md` (4A.2→graduation),
+`PHASES_DISCOVERY_TO_AUTONOMY_IMPLEMENTATION_RECORD.md` (discovery/knowledge/benchmarks/lifecycle).

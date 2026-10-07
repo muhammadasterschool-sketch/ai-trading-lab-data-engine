@@ -124,6 +124,26 @@ from data_engine.paper.evaluation import (
     GraduationEvaluator,
     LiveAuthorizationGate,
 )
+from data_engine.discovery import (
+    StrategyCandidate,
+    RuleBasedGenerator,
+    CandidateValidator,
+    CandidateEvaluator,
+    DiscoveryRegistry,
+    ExecutionEligibility,
+)
+from data_engine.knowledge import (
+    KnowledgeRecord,
+    KnowledgeStore,
+    MemoryRecord,
+    MemoryStore,
+    RecordType,
+)
+from data_engine.benchmarks import (
+    BenchmarkSuite,
+    BenchmarkReport,
+    build_default_suite,
+)
 
 __all__ = [
     "Candle",
@@ -148,5 +168,19 @@ __all__ = [
     "DataQualityReport",
     "QuarantineManager",
     "ProvenanceTracker",
+    "StrategyCandidate",
+    "RuleBasedGenerator",
+    "CandidateValidator",
+    "CandidateEvaluator",
+    "DiscoveryRegistry",
+    "ExecutionEligibility",
+    "KnowledgeRecord",
+    "KnowledgeStore",
+    "MemoryRecord",
+    "MemoryStore",
+    "RecordType",
+    "BenchmarkSuite",
+    "BenchmarkReport",
+    "build_default_suite",
     "__version__",
 ]
