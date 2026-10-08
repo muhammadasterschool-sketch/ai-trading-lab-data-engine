@@ -1,5 +1,19 @@
 # ZAI DEFECT REGISTER
 
+```text
+Document Type:  Defect register (live)
+Phase:          Cross-phase
+Authority:      B — CURRENT SUPPORTING (register of record for open defects)
+Status:         CURRENT (open items remain open; register frozen at 281dfdc-era
+                findings pending external review windows)
+Version:        1.0.0
+Last Updated:   2026-10-08 (doc-control header added during documentation
+                normalization; finding content below unchanged)
+Supersedes:     none
+Superseded By:  —
+Source Evidence: first-hand probes recorded per finding below
+```
+
 **Report ID:** ZAI_DEFECT_REGISTER
 **Task:** Master Mandate v1.0 — Phase 32 (bug discovery / external review prep)
 **Date:** 2026-10-07 (PKT)

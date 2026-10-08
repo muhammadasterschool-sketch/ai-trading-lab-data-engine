@@ -1,5 +1,18 @@
 # ZAI ENHANCEMENT MANDATE REGISTRATION & GAP ANALYSIS
 
+```text
+Document Type:  Mandate registration record
+Phase:          Cross-phase (enhancement era)
+Authority:      B — CURRENT SUPPORTING
+Status:         CURRENT — execution NOT started
+Version:        1.0.0
+Last Updated:   2026-10-08 (doc-control header added during documentation
+                normalization; content unchanged)
+Supersedes:     none
+Superseded By:  —
+Source Evidence: registration-time verification recorded in §3
+```
+
 **Document type:** Mandate registration record (evidence-backed)
 **Registered:** 2026-10-08 (PKT), channel zai-web
 **Mandate:** MASTER_ENHANCEMENT_HARDENING_MANDATE.md (v2.0, 50 sections,

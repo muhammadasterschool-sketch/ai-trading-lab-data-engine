@@ -2,6 +2,15 @@
 
 Production-grade deterministic market-data engine for the AI Trading Lab.
 
+## Documentation
+
+The documentation source of truth is
+[`MASTER_DOCUMENTATION_INDEX.md`](MASTER_DOCUMENTATION_INDEX.md) — every
+governance, audit, design, and implementation document in this repository,
+classified by phase, authority, and status. Start there, or at the
+one-page [`ZAI_REPOSITORY_PROGRESS_BRIEF.md`](ZAI_REPOSITORY_PROGRESS_BRIEF.md).
+Live contradiction tracking: `GOVERNANCE_DOCUMENT_CONTRADICTION_REGISTER.md`.
+
 ## Architecture
 
 ```
