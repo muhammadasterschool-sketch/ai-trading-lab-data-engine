@@ -199,6 +199,60 @@ from data_engine.prediction.microstructure import (
     MicrostructureAvailability,
     microstructure_availability,
 )
+from data_engine.prediction.datasets import (
+    DatasetManifest,
+    DatasetState,
+    DatasetVerificationReport,
+    IngestionManifest,
+    dataset_content_hash,
+    synthetic_dataset_manifest,
+    verify_dataset_manifest,
+)
+from data_engine.prediction.quality_gates import (
+    DataQualityReport,
+    QualityGateFinding,
+    QualityGateID,
+    validate_ohlcv,
+)
+from data_engine.prediction.source_registry import (
+    DataSourceRecord,
+    DataSourceRegistry,
+    SourceApprovalDecision,
+    SourceVerificationStatus,
+    candidate_source_matrix,
+)
+from data_engine.prediction.artifact_verification import (
+    ArtifactVerificationReport,
+    verify_input_snapshot,
+    verify_model_artifact,
+)
+from data_engine.prediction.event_evaluation import (
+    CrashEventEpisode,
+    CrashEventEvaluation,
+    EventEvaluationConfig,
+    RegimeConditionedMetrics,
+    evaluate_by_split,
+    evaluate_crash_events,
+    extract_crash_events,
+)
+from data_engine.prediction.benchmark import (
+    BenchmarkProtocol,
+    BenchmarkResult,
+    ModelEvaluationEntry,
+    SplitManifest,
+    blocked_benchmark,
+    run_prediction_benchmark,
+)
+from data_engine.prediction.crash import (
+    RISK_STATE_VOCABULARY_MAP,
+    crash_warning_state,
+)
+from data_engine.prediction.redteam import (
+    AttackVerdict,
+    RedTeamAttack,
+    RedTeamMatrix,
+    run_redteam_matrix,
+)
 
 __all__ = [
     # contracts
@@ -258,4 +312,29 @@ __all__ = [
     "LEVEL_SIZING", "PredictionRiskDecision", "prediction_risk_decision",
     "MICROSTRUCTURE_UNAVAILABLE", "MicrostructureAvailability",
     "microstructure_availability",
+    # datasets / quality gates / source registry (closure mandate)
+    "DatasetManifest", "DatasetState", "DatasetVerificationReport",
+    "IngestionManifest", "dataset_content_hash",
+    "synthetic_dataset_manifest", "verify_dataset_manifest",
+    "DataQualityReport", "QualityGateFinding", "QualityGateID",
+    "validate_ohlcv",
+    "DataSourceRecord", "DataSourceRegistry",
+    "SourceApprovalDecision", "SourceVerificationStatus",
+    "candidate_source_matrix",
+    # artifact verification (PRED-F3)
+    "ArtifactVerificationReport", "verify_input_snapshot",
+    "verify_model_artifact",
+    # crash-event evaluation (§8)
+    "CrashEventEpisode", "CrashEventEvaluation",
+    "EventEvaluationConfig", "RegimeConditionedMetrics",
+    "evaluate_by_split", "evaluate_crash_events",
+    "extract_crash_events",
+    # benchmark harness (PRED-F1)
+    "BenchmarkProtocol", "BenchmarkResult", "ModelEvaluationEntry",
+    "SplitManifest", "blocked_benchmark", "run_prediction_benchmark",
+    # crash completion (§7)
+    "RISK_STATE_VOCABULARY_MAP", "crash_warning_state",
+    # red-team matrix (PRED-F2)
+    "AttackVerdict", "RedTeamAttack", "RedTeamMatrix",
+    "run_redteam_matrix",
 ]

@@ -144,8 +144,12 @@ Any future phase-owned document SHALL follow the naming standard
 
 | Path | Auth | Status | Purpose | Supersession |
 |---|---|---|---|---|
-| `AI_TRADING_LAB_PREDICTION_CRASH_INTELLIGENCE_SPEC.md` | A | Current — authoritative architecture spec for the prediction layer | Prediction & crash intelligence contracts, invariants, data policy, governance | — |
-| `PREDICTION_INTELLIGENCE_IMPLEMENTATION_REPORT.md` | B | Current supporting — construction-cycle record + §58 final status block | Implementation record (24 modules, 126 tests, honest coverage assessment) | — |
+| `AI_TRADING_LAB_PREDICTION_CRASH_INTELLIGENCE_SPEC.md` | A | Current — authoritative architecture spec for the prediction layer (v1.1.0: closure extension §17) | Prediction & crash intelligence contracts, invariants, data policy, governance | — |
+| `PREDICTION_INTELLIGENCE_IMPLEMENTATION_REPORT.md` | B | Current supporting — construction record (v1.0.0) + closure addendum (v1.1.0, §7) | Implementation record (31 modules, 270 prediction tests, honest coverage assessment) | — |
+| `PREDICTION_VALIDATION_EVALUATION_REPORT.md` | B | Current supporting — closure-cycle validation record | §26 claim-category separation, PRED-F1/F2/F3 closure evidence, blocker closure table | — |
+| `PREDICTION_REDTEAM_ADVERSARIAL_REPORT.md` | B | Current supporting — executed adversarial matrix evidence | 45 attacks, six categories, matrix hash `preda.8366…`, all defended | — |
+| `PREDICTION_DATA_SOURCE_PROVENANCE_POLICY.md` | B | Current supporting — governing data policy companion | Dataset epistemic states, quality gates, source governance, approval templates | — |
+| `WP_12_CI_IMPLEMENTATION_SPEC.md` | B | Current supporting — PENDING HUMAN AUTHORIZATION | Implementation-ready GitHub Actions workflow spec; WP-12 = HUMAN_DECISION_REQUIRED | — |
 
 ## Cross-Phase Implementation Records
 

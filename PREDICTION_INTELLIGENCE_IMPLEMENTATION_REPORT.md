@@ -5,17 +5,30 @@ Document Type:  Implementation record + final acceptance report
 Phase:          PRED (Prediction & Crash Intelligence)
 Authority:      B — CURRENT SUPPORTING (record of the construction cycle)
 Status:         CURRENT
-Version:        1.0.0
+Version:        1.1.0 (closure-cycle addendum §7; v1.0.0 body retained)
 Last Updated:   2026-10-08
 Source Mandate: Prediction & Crash Intelligence Master Architecture +
-                Implementation Mandate (58 sections)
+                Implementation Mandate (58 sections); closure addendum
+                per the Phase 4A.1 Completion/Validation/Closure mandate
+                (34 sections)
 Pre-change HEAD: 228bf208e9d68c2d95128b37bf200e3a9493941f
                   (branch phase-4a/4a1-architecture-correction, both
                   remote refs in sync, tree clean, 789 tests passing)
 Implementation HEAD: 50c2bc5 (source 67a273e + tests 50c2bc5);
                      this report is filed in the immediately following
                      documentation commit.
+Closure-cycle base HEAD: 3822417 (v1.0.0 cycle end)
 ```
+
+---
+
+> **v1.1.0 note.** The construction record below (§1–§6) is the
+> v1.0.0 body, retained unmodified. The closure cycle (2026-10-08)
+> added 7 modules, closed PRED-F1/F2/F3, and extended the suite to
+> 1,059 tests — see §7 (Closure Addendum) and
+> `PREDICTION_VALIDATION_EVALUATION_REPORT.md` for the authoritative
+> closure evidence. The §5 status block's UNRESOLVED_FINDINGS entries
+> PRED-F1/F2/F3 are superseded by §7; HUMAN_DECISIONS are unchanged.
 
 ---
 
@@ -256,3 +269,108 @@ COMPLIED — this report is the last construction artifact of the cycle
 3. Rotate the GitHub PAT (exposed in chat multiple times).
 4. Optionally dispatch the external review window and the enhancement
    mandate v2.0 execution go-ahead (separate authorizations).
+
+---
+
+## 7. Closure Addendum (v1.1.0 — 2026-10-08)
+
+Base state for this addendum: HEAD `3822417`, branch
+`phase-4a/4a1-architecture-correction`, 915/915 tests, frozen Phase 3
+intact, H-1 OPEN/CONTAINED.
+
+### 7.1 What the closure cycle added
+
+- **`datasets.py`** — governed dataset framework: `DatasetManifest`
+  (immutable `preds.` identity over the full provenance field set),
+  `DatasetState` epistemic machine (SYNTHETIC / REAL_UNVERIFIED /
+  REAL_VERIFIED / INSUFFICIENT / INVALID), content checksums,
+  synthetic fixtures with mandatory generator+seed,
+  `verify_dataset_manifest` (evidence-driven state transitions;
+  caller-asserted REAL_VERIFIED without evidence is demoted).
+- **`quality_gates.py`** — the 16 deterministic gates QG-01..QG-16
+  (ordering, duplicates, missing intervals, OHLC, prices, volumes,
+  timezone, future timestamps, discontinuities, symbol identity,
+  coverage, corporate actions, revision contamination, look-ahead,
+  checksum, provenance) with explicit INVALID / DATA_INSUFFICIENT
+  refusal states and affected-row evidence.
+- **`source_registry.py`** — governed source catalog: human-only
+  approvals (AI structurally rejected), closed usage-scope vocabulary,
+  fail-closed `usage_authorized`, credential-free schema
+  (`extra="forbid"`), and the five-candidate UNVETTED source matrix
+  with honest limitation notes.
+- **`artifact_verification.py`** (PRED-F3) — recomputed verification
+  of externally supplied artifacts: existence, hash recomputation
+  (declared AND expected), JSON round-trip serialization integrity,
+  schema compatibility, provenance completeness, dataset
+  compatibility, version validity. Caller `verified=True` is never
+  an input. `estimator.assess()` now runs this internally — the two
+  previously hardcoded gate flags are gone.
+- **`event_evaluation.py`** — deterministic crash-episode extraction,
+  event-level evaluation (detection, misses, lead times, precision,
+  bar-level FPR, F1, warning frequency, Brier/log-loss, regime-
+  conditioned metrics, crisis-sample sufficiency) with warning-
+  horizon/event-window separation and per-split ownership (no
+  train/test pooling; boundary-carried runs excluded by rule).
+- **`benchmark.py`** (PRED-F1) — the governed benchmark protocol:
+  hash-stable `BenchmarkProtocol`, reproducible `SplitManifest`,
+  machine-readable `BenchmarkResult`, the complete
+  `blocked_benchmark` refusal harness, and mode gating
+  (empirical / contract-verification / blocked). Platt is fitted on
+  validation only; justification, drift (per-feature PSI), refusal
+  analysis, and crash-event evaluation are embedded in every run.
+- **`redteam.py`** (PRED-F2) — 45 EXECUTED adversarial attacks across
+  six categories (temporal, identity, provenance, data, model,
+  crash-intelligence), each returning the mandated
+  ATTACK_ID/PRECONDITION/INPUT/EXPECTED/ACTUAL/PASS-FAIL/EVIDENCE
+  record. All 45 defended; matrix hash
+  `preda.8366c03c0e055f6b574422dbf60149bbec6343b11211fe7dc144ac0cf87dd628`.
+- **Crash completion** — `CrashRiskAssessment` now carries
+  `dataset_version` and the PIT `evidence_window_start/end`; derived
+  `warning_state` (WARNING_ACTIVE / WARNING_INACTIVE / REFUSED); the
+  mandate §7 vocabulary is mapped onto the project's closed states
+  (`RISK_STATE_VOCABULARY_MAP` — no new states invented).
+- **Hardening from red-team findings** — bool/NaN/inf closes rejected
+  at data access; `freeze_number` raises on non-finite floats.
+
+### 7.2 Verification (closure cycle)
+
+```text
+TOTAL_TESTS:   1059  (915 baseline + 144 new)
+PASSED:        1059  — three consecutive runs (17.59/17.55/17.58s)
+FAILED:        0
+NEW TESTS:     48 datasets/quality + 21 artifact-verification
+               + 26 event-evaluation + 19 benchmark
+               + 11 red-team matrix + 19 drift validation
+FROZEN_PHASE3: INTACT (11/11 + SUB-18 13/13)
+H-1:           OPEN / HUMAN-REVIEWED / CONTAINED (unchanged)
+SECURITY:      PASS — 5 families (secrets 0, path traversal 0,
+               symlinks 0, exec patterns 0, private endpoints 0)
+```
+
+### 7.3 Finding closure (supersedes §5 UNRESOLVED_FINDINGS)
+
+- **PRED-F1: CLOSED** — benchmark protocol + complete blocked/refusal
+  harness; empirical run truthfully BLOCKED on real data
+  (`predb.ab169e30…` artifact). Evidence:
+  `PREDICTION_VALIDATION_EVALUATION_REPORT.md` §3.
+- **PRED-F2: CLOSED** — 45/45 attacks defended, matrix deterministic.
+  Evidence: `PREDICTION_REDTEAM_ADVERSARIAL_REPORT.md`.
+- **PRED-F3: CLOSED** — verification recomputed inside `assess()`;
+  registry binding available; fail-closed on unverifiable artifacts.
+  Evidence: `PREDICTION_VALIDATION_EVALUATION_REPORT.md` §5.
+
+HUMAN_DECISIONS_REQUIRED (unchanged, now with prepared decision
+records): real data source approval (candidate matrix +
+`PREDICTION_DATA_SOURCE_PROVENANCE_POLICY.md` §7 templates),
+model-approval owner, H-1 ratification, GitHub Actions CI
+(`WP_12_CI_IMPLEMENTATION_SPEC.md` — workflow ready, deliberately not
+installed), PAT rotation, enhancement mandate v2.0 execution go.
+
+### 7.4 Claim boundary (unchanged in substance)
+
+Zero verified years of real market data. No empirical performance
+claim exists or may be made. The synthetic contract-verification
+benchmark records MODEL_NOT_JUSTIFIED for the logistic demonstrator
+against its base-rate baseline on the fixture — the honest §9
+verdict. ADVANCED_ML remains DEFERRED. LIVE TRADING AUTHORIZATION:
+NOT GRANTED.

@@ -5,13 +5,17 @@ Document Type:  Canonical prediction architecture specification
 Phase:          PRED (Prediction & Crash Intelligence architecture extension)
 Authority:      A — AUTHORITATIVE (canonical spec for this layer)
 Status:         CURRENT
-Version:        1.0.0
-Last Updated:   2026-10-08 (prediction intelligence construction cycle)
+Version:        1.1.0 (closure-cycle extension §17; v1.0.0 body retained)
+Last Updated:   2026-10-08 (closure/completion/validation cycle)
 Source Mandate: "AI Trading Lab — Prediction & Crash Intelligence Master
                 Architecture + Implementation Mandate" (58 sections,
-                operator-issued 2026-10-08)
-Implementation: src/data_engine/prediction/ (24 modules)
-Acceptance:     tests/test_prediction_*.py (T-PRED-001..030, 126 tests)
+                operator-issued 2026-10-08); closure extension per the
+                Phase 4A.1 Completion/Validation/Closure mandate (34
+                sections, operator-issued 2026-10-08)
+Implementation: src/data_engine/prediction/ (31 modules)
+Acceptance:     tests/test_prediction_*.py (T-PRED-001..030 + red-team
+                matrix + closure suites, 270 prediction tests;
+                suite total 1,059)
 ```
 
 ---
@@ -84,6 +88,13 @@ audit -> paper evaluation
 | `systemic.py` | Pairwise correlations, average/dispersion, spike detection; correlation ≠ prediction ≠ causation |
 | `risk_integration.py` | Advisory-only decision over the real `RiskLimits`; kill switch suppresses everything |
 | `microstructure.py` | Explicit `MICROSTRUCTURE_UNAVAILABLE` — order-book evidence is never synthesized |
+| `datasets.py` *(closure)* | `DatasetManifest` (immutable `preds.` identity), `DatasetState` epistemic machine (SYNTHETIC/REAL_UNVERIFIED/REAL_VERIFIED/INSUFFICIENT/INVALID), content checksums, evidence-driven verification |
+| `quality_gates.py` *(closure)* | 16 deterministic gates QG-01..QG-16 with INVALID/DATA_INSUFFICIENT refusal states and affected-row evidence |
+| `source_registry.py` *(closure)* | Governed source catalog — human-only approvals, closed usage-scope vocabulary, credential-free schema, UNVETTED candidate matrix |
+| `artifact_verification.py` *(closure)* | PRED-F3: recomputed verification of external artifacts (existence, hash vs declared vs expected, serialization integrity, schema, dataset, version) — caller `verified=True` never trusted |
+| `event_evaluation.py` *(closure)* | Deterministic crash-episode extraction; event-level metrics (detection, lead, precision, FPR, F1, calibration, regime-conditioned); per-split ownership |
+| `benchmark.py` *(closure)* | PRED-F1: governed benchmark protocol — split manifests, mode gating (empirical/contract-verification/blocked), complete refusal harness |
+| `redteam.py` *(closure)* | PRED-F2: 45 EXECUTED adversarial attacks across six categories with mandated evidence fields |
 
 ## 4. Prediction Targets
 
@@ -220,3 +231,58 @@ LIVE TRADING AUTHORIZATION: NOT GRANTED. Prediction never executes
 trades. LLM/agent roles remain research/summarization/explanation only
 (governed by `hermes` contracts and `research` human-only approvals);
 deterministic code stays authoritative.
+
+---
+
+## 17. Closure Extension (v1.1.0 — 2026-10-08)
+
+The Phase 4A.1 completion/validation/closure mandate added a
+validation-and-governance ring around the layer built under v1.0.0:
+
+1. **Dataset epistemics** (§7 reinforcement): every dataset carries an
+   immutable `preds.` manifest; epistemic states
+   SYNTHETIC/REAL_UNVERIFIED/REAL_VERIFIED/INSUFFICIENT/INVALID are
+   declared and evidence-verified; SYNTHETIC can never be promoted to
+   REAL_*; empirical evaluation requires REAL_VERIFIED with ≥ 5
+   verified years. Detail: `PREDICTION_DATA_SOURCE_PROVENANCE_POLICY.md`.
+2. **Data quality gates**: QG-01..QG-16 fail closed with
+   INVALID/DATA_INSUFFICIENT refusal states; failures list affected
+   rows; data is never silently repaired.
+3. **Source governance**: human-only source approvals; fail-closed
+   usage authorization over a closed scope vocabulary; no credentials
+   in the repository (schema-level guarantee).
+4. **External artifact verification (PRED-F3)**: `assess()` recomputes
+   artifact hashes (vs declared AND registry-expected), serialization
+   integrity, schema/dataset compatibility — caller-asserted flags are
+   no longer accepted anywhere.
+5. **Crash-intelligence completion (§4F)**: assessments carry
+   `dataset_version` and PIT evidence windows; derived warning states
+   (WARNING_ACTIVE/WARNING_INACTIVE/REFUSED); the closure mandate's
+   risk vocabulary maps 1:1 onto this spec's closed states via
+   `RISK_STATE_VOCABULARY_MAP` (NORMAL→NO_SIGNAL/LOW_RISK,
+   CRISIS→EXTREME_RISK, INSUFFICIENT_EVIDENCE→EVIDENCE_INSUFFICIENT,
+   INVALID→PREDICTION_BLOCKED+BlockReason).
+6. **Crash-event evaluation**: deterministic episode extraction;
+   warning horizon [t-lookback, t-1] strictly separate from the event
+   window [t, t+forward]; detection/miss/lead/precision/FPR/F1/
+   warning-frequency/Brier/log-loss/regime-conditioned reported
+   together (never a single-metric objective); per-split ownership
+   prevents train/test pooling; CRISIS_SAMPLE_INSUFFICIENT is carried
+   on every report where it stands.
+7. **Benchmark protocol (PRED-F1)**: hash-stable protocol + split
+   manifests + machine-readable results; three modes — empirical
+   (REAL_VERIFIED only), contract-verification (synthetic, stamped
+   `SYNTHETIC_CONTRACT_VERIFICATION`, `empirical_valid=False`), and
+   the complete blocked refusal harness. Standing state:
+   REAL_DATA_VALIDATION = BLOCKED (0 verified years).
+8. **Adversarial matrix (PRED-F2)**: 45 executed attacks across
+   temporal/identity/provenance/data/model/crash-intelligence
+   categories; all defended; matrix hash recorded in
+   `PREDICTION_REDTEAM_ADVERSARIAL_REPORT.md`.
+
+Test acceptance grew from 126 prediction tests (T-PRED-001..030) to
+270 (matrix + closure suites); the repository suite is 1,059. Frozen
+Phase 3 and H-1 are unchanged. No empirical performance claim is made
+or implied anywhere in this spec — see
+`PREDICTION_VALIDATION_EVALUATION_REPORT.md` §2 for the strictly
+separated claim categories.
