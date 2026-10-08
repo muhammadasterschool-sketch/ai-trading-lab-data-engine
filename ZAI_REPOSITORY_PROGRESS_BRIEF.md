@@ -1,8 +1,21 @@
 # AI Trading Lab — Data Engine
 ## Repository Progress Brief
 
+```text
+Document Type:  Progress brief (living orientation document)
+Phase:          Cross-phase
+Authority:      B — CURRENT SUPPORTING
+Status:         CURRENT
+Version:        1.2.0
+Last Updated:   2026-10-08 (documentation normalization cycle)
+Supersedes:     v1.1.0 (enhancement-mandate registration update)
+Superseded By:  —
+Source Evidence: git log, MASTER_DOCUMENTATION_INDEX.md, cycle records cited below
+```
+
 > One-page orientation: what exists in this repository today, how it got here,
-> and what remains. Updated 2026-10-08 after filing the Enhancement Mandate v2.0.
+> and what remains. Updated 2026-10-08 after the documentation normalization
+> cycle. Documentation map of record: `MASTER_DOCUMENTATION_INDEX.md`.
 
 | | |
 |---|---|
@@ -35,7 +48,8 @@ computation → backtesting → research validation → risk control → paper t
 | Governance docs (CR-10) | 10 audit/governance reports committed into repo | `018d084` (1) | 789 |
 | Progress brief | Consolidated progress summary | `3084dcb` (1) | 789 |
 | Enhancement Mandate v2.0 | 50-section enhancement/hardening mandate filed verbatim + registration & gap analysis | `78349e1` (1) | 789 |
-| This brief update | Brief refreshed to cover mandate registration | this commit | 789 |
+| Progress brief update | Brief refreshed to cover mandate registration | `6d0ad30` (1) | 789 |
+| Documentation normalization | Phase-wise documentation index (SSOT), contradiction register, link audit, doc-control headers — 4 new canonical docs, zero renames | this cycle | 789 |
 
 ## 3. What was built, phase by phase
 
@@ -141,6 +155,8 @@ drift, CI gates, operator plane), 14 PARTIAL. Recommended order in
 
 `MASTER_FULL_SYSTEM_CONSTRUCTION_BLUEPRINT.md` (construction authority) ·
 `MASTER_ENHANCEMENT_HARDENING_MANDATE.md` (enhancement authority, v2.0) ·
+`MASTER_DOCUMENTATION_INDEX.md` (documentation SSOT — every doc classified) ·
+`GOVERNANCE_DOCUMENT_CONTRADICTION_REGISTER.md` (live contradiction tracking) ·
 `ZAI_ENHANCEMENT_MANDATE_REGISTRATION.md` (gap map, 17 packages) ·
 `PHASE_4A1_IMPLEMENTATION_RECORD.md` ·
 `PHASES_4A2_TO_GRADUATION_IMPLEMENTATION_RECORD.md` ·
