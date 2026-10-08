@@ -574,7 +574,11 @@ class RiskGate:
                              "reason": c.reason}
                             for c in checks
                         ],
-                        "assessed_at": assessment.assessed_at,
+                        # BLOCKER 14: identity is a pure function of
+                        # DECLARED fields — assessed_at is audit
+                        # metadata (FS-21) and must never enter the
+                        # identity hash (wall-clock contamination broke
+                        # deterministic replay).
                         "correlation_id": correlation_id,
                     },
                 )

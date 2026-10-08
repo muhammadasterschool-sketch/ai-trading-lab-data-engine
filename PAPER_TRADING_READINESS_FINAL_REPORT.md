@@ -1,330 +1,367 @@
 # PAPER TRADING READINESS FINAL REPORT
 
-**Document ID:** PPR-FR-001 · **Version:** 1.0.0 · **Date:** 2026-10-09
-**Prepared by:** ZAI implementation agent (pre-paper mandate, 69 sections)
+**Document ID:** PPR-FR-002 · **Version:** 2.0.0 · **Date:** 2026-10-09
+**Prepared by:** ZAI implementation + verification agent (paper-readiness
+re-audit mandate: blocker closure + runtime-integration forensic re-audit)
 **Repository:** muhammadasterschool-sketch/ai-trading-lab-data-engine
-**Branch:** phase-4a/4a1-architecture-correction · **Baseline at start:** f61e1ee (P2 complete + readiness brief)
+**Branch:** phase-4a/4a1-architecture-correction
+**Baseline at start:** 8ca2fea (v1.0.0 report cycle complete; remote
+main = phase branch = 8ca2fea; tree clean)
+**Supersedes:** v1.0.0 (archived at
+`docs/PAPER_TRADING_READINESS_FINAL_REPORT_v1.md`)
 
 ---
 
 ## 1. Executive Summary
 
-This cycle implemented the **authoritative paper-trading runtime** —
-the integrated, fail-closed, auditable, persistent, PIT-correct
-execution system the pre-paper mandate §24 specifies — plus the
-governed model stack (deterministic baseline, NumPy LSTM with full
-BPTT, NumPy causal self-attention Transformer, validated ensemble,
-Platt calibration), the PIT-safe sequence engine, persistent
-execution state with hash-chained journal, the 14-state OMS with
-idempotent order identity / partial fills / TTL, the 9-ledger
-tamper-evident family with NO_TRADE ledgering, hierarchical kill
-switches, the structural 21-check risk gate, SL/TP lifecycle,
-multi-fill-aware reconciliation, structured memory, restart/recovery,
-deterministic replay, and the fail-closed 23-gate paper-readiness
-gate.
+This cycle performed a **full independent forensic re-audit of the
+integrated paper-trading runtime** and closed every
+technically-authorized blocker the fresh review identified. The
+v1.0.0 runtime was real but had integration and governance
+weaknesses: persistence was OPTIONAL, startup ignored the readiness
+gate, recovery lived outside the runtime, the persisted state was
+incomplete (no bar history, no ledger chains, no memory, no pending
+protection/exits), two wall-clock values contaminated deterministic
+identity, and the readiness gate was missing seven mandated gates.
 
-**Engineering verdict:** the implemented system passes 1,335 tests
-(1141 pre-existing + 194 new), two deterministic full-suite repeats,
-all security scans, and the frozen Phase 3 integrity gate.
+All of that is fixed and pinned by a new 43-test integration module
+executed through the ACTUAL `TradingRuntime`:
+
+- **Persistence is now MANDATORY** (BLOCKER 1): operational startup
+  without a self-checked `ExecutionStateStore` is REFUSED
+  (NO_STATE_STORE ⇒ BLOCKED ⇒ never RUNNING); corrupt/unavailable
+  stores are refused; write failure mid-session ⇒ safe HALT; read
+  failure ⇒ RECOVERY_REQUIRED. Unit-test fixtures may skip
+  persistence ONLY via the explicit
+  `ephemeral_test_fixture=True` marking, which is ledgered and
+  non-operational.
+- **The paper readiness gate is AUTHORITATIVE** (BLOCKER 2/24): the
+  gate set was extended 23 → 30 (REAL_DATA_READY, TRADE_PLAN_READY,
+  PARTIAL_FILL_READY, SLTP_READY, AUDIT_READY, REPLAY_READY,
+  BASELINE_READY); `start()` evaluates it and REFUSES on any FALSE
+  gate or a missing gate.
+- **Recovery is integrated into the runtime** (BLOCKER 4): START →
+  LOAD → VERIFY (schema + identity binding) → RESTORE (orders, fills,
+  positions incl. SL/TP, kill switch, ledger chains, memory, pending
+  state, bar history) → RECONCILE → only then RESUME; proven at the
+  TEN mandated restart points.
+- **Complete execution-state persistence** (BLOCKER 5): formal
+  `EXECUTION_STATE_SCHEMA` v1.1.0 — every execution-critical field,
+  validated on persist and restore, including warm-up and rejected
+  bars, with immediate persistence on kill-switch trips and halts.
+- **Full ledger + memory chain recovery** (BLOCKER 6/20): the
+  complete immutable lineage persists and re-derives to the same
+  heads; corruption ⇒ RECOVERY_REQUIRED refusal.
+- **Deterministic identity is now wall-clock-free** (BLOCKER 14):
+  the risk-assessment id no longer embeds `assessed_at`, and the
+  cold-start incident no longer embeds the filesystem path — two
+  real contaminants found and removed this cycle.
+- **One genuine state-machine defect fixed** (BLOCKER 17):
+  `PARTIALLY_FILLED → EXPIRED` was illegal while expiry accepted
+  partially-filled orders — partial-fill-then-expiry crashed; now a
+  legal, ledgered, tested transition.
+- **REAL_VERIFIED promotion now requires the complete nine-stage
+  chain** (BLOCKER 3) and reports VERIFIED_YEARS honestly (0.0).
+
+**Engineering verdict:** 1,378 passed + 1 skipped (1,335 + 43 new),
+full-suite deterministic repeats ×2, cross-process replay
+deterministic ×2, frozen Phase 3 integrity 13/13 before AND after,
+security scans clean (0 secrets / 0 dangerous ops / clean history).
 
 **Final verdict: PAPER_READY = FALSE — honestly.** The engineering
 gates closed; the DATA and GOVERNANCE gates remain open by rules no
 code may bypass: **zero REAL_VERIFIED datasets exist in this
-repository** (BLOCKED_ON_REAL_DATA), **H-1 ratification is
-HUMAN_DECISION_REQUIRED**, **CI/WP-12 authorization is
-HUMAN_DECISION_REQUIRED**, and the **chat-exposed GitHub PAT rotation
-remains an open operator action** (exposure #6 this session; the
-value is never reproduced in any artifact).
+repository** (BLOCKED_ON_REAL_DATA, VERIFIED_YEARS = 0), **H-1
+ratification is HUMAN_DECISION_REQUIRED**, **CI/WP-12 authorization
+is HUMAN_DECISION_REQUIRED**, and the **chat-exposed GitHub PAT
+rotation remains an open operator action** (exposure #7 this
+session; the value is never reproduced in any artifact).
+
+---
 
 ## 2. Repository Baseline
 
-Start: branch `phase-4a/4a1-architecture-correction` @ `f61e1ee`
-(P2 CONDITIONAL PASS + CURRENT_REPOSITORY_PAPER_READINESS_BRIEF.md;
-remote main = 94942bc; remote phase branch f61e1ee — fast-forwarded
-locally). Working tree: OBS-1 mode-only sweep neutralized via
-`core.fileMode=false` (content 0/0). Baseline tests: 1141/1141.
-Untracked/stash: empty at start.
+Start: branch `phase-4a/4a1-architecture-correction` @ `8ca2fea`,
+remote main = phase branch = 8ca2fea (verified via ls-remote), tree
+clean, no stashes. Baseline suite: **1,335 passed + 1 skipped**
+(reproduced before any modification). End: this cycle's commits on
+the same branch.
 
-## 3. Phase 3 Integrity
+## 3. Phase 3 Integrity (BEFORE / AFTER)
 
-Frozen strategy blobs: **11/11** identical to main@13fdc7e.
-SUB-18 manifest: **13/13** sha256 match. `docs/strategy_engine_design.md`
-carries the pre-window status-metadata line (disclosed since P2 §4).
-Verified at baseline, during the cycle (final_gate_verify), and
-pre-commit. NO frozen artifact was modified. The runtime package
-consumes only non-frozen surfaces; frozen-domain data crosses through
-the RT-F6 vocabulary bridge / BUG-008 boundary adapter (deep-copy
-snapshots — originals never retained or mutated).
+Authoritative frozen manifest (committed-state record,
+`tests/test_pit_view.py::_FROZEN_PHASE3_MANIFEST`, 13 entries):
 
-## 4. Bugs Audited (this cycle)
+- **FROZEN_PHASE3_BEFORE = PASS** — 13/13 sha256 match (verified
+  first, before any code change, via an independent script).
+- **FROZEN_MANIFEST_BEFORE = PASS** — same 13/13.
+- **FROZEN_MANIFEST_AFTER = PASS** — 13/13 re-verified after all
+  modifications (see §14).
+- `docs/strategy_engine_design.md` carries the pre-window
+  status-metadata line (disclosed since P2 §4) — unchanged.
+- NO frozen artifact was modified this cycle. All changes live in
+  the non-frozen runtime package, tests, and docs. Frozen-domain
+  data crosses only through the RT-F6 vocabulary bridge /
+  BUG-008 boundary adapter (deep-copy snapshots).
 
-All registered findings re-audited against current code: BUG-001..009
-(P2: 15/16 CLOSED, BUG-008 PARTIAL), RT-F1..F6, F9..F12, F14, F15,
-ARCH-F2, F5, F7..F12, H-1, plus the PAPER-BLK-1..10 structural
-blockers from the readiness brief.
+## 4. Finding Reconciliation (current authoritative status)
 
-## 5. Bugs Fixed (this cycle)
-
-| ID | Fix | Tests |
+| Finding | Status | Independently verified this cycle |
 |---|---|---|
-| RT-F1 | RiskGate structurally wired: OMS refuses RISK_APPROVED without a passing fingerprint-matched assessment | test_finding_closures (rt_f1), test_runtime_oms |
-| RT-F2 | Reconciliation invoked by the runtime after every fill-producing bar + recovery | test_runtime_e2e |
-| RT-F3 | All 9 runtime ledgers written by the authoritative path (RT-F3 closure test requires all non-empty) | test_finding_closures (rt_f3) |
-| RT-F4 | ExecutionStateStore: atomic snapshots + hash-chained fsync journal; orders/switches/positions persist | test_finding_closures (rt_f4), restart tests |
-| RT-F5 | Kill-switch trip/reset/refusal audited (engine violation chain + runtime Incident ledger) | rt_f5 tests |
-| RT-F6 | Authoritative vocabulary bridge (sides/quantities/statuses) + BUG-008 boundary adapter | test_runtime_safety |
-| RT-F9 | ExposureManager enforce=True: kill-switch guard + breach raises | rt_f9 test |
-| RT-F10 | TTL expiry with ledgered ORDER_EXPIRED; multi-bar fill windows | rt_f10 test |
-| RT-F11 | Gateway docstring drift (PnLCalculator) removed with correction note | rt_f11 test |
-| RT-F12 | Benchmark paper-orders workload routed through PaperOrderGateway + research-only containment | rt_f12 test |
-| RT-F14 | Model reconstruction: runtime models from_artifact (bit-identical) + prediction-layer reconstruct_model dispatcher | rt_f14 + models tests |
-| RT-F15 | QuantBoundary.request_calculation fails explicitly (no fabricated result=None) | rt_f15 test |
-| ARCH-F2 | verify_violation_log() recomputes the whole chain (tamper test) | arch_f2 test |
-| ARCH-F5 | Optional imported in calibration.py | arch_f5 test |
-| ARCH-F7 | Dedicated `predn.` regime-event prefix (was reusing `predv.`) | arch_f7 test (pin amended) |
-| ARCH-F8/F12 | Sequence-scaled purge (=horizon by construction) + walk_forward label_horizon validation | arch_f8_f12 tests |
-| ARCH-F9 | Full 14-state lifecycle enum in authoritative use (no dormant vocabulary) | arch_f9 test |
-| ARCH-F10 | Provider malformed rows recorded with reasons; strict mode raises | arch_f10 test |
-| ARCH-F11 | src/audit.log stays untracked + ignored (verified) | arch_f11 test |
+| BUG-001..BUG-007, BUG-009 | CLOSED | regression-tested (full suite green; pinned tests intact) |
+| BUG-008 | PARTIAL / DEFERRED / GOVERNANCE BLOCKED | frozen-contract immunity re-verified — 13 pinned fields untouched (13/13 manifest); non-frozen adapter intact; NOT reopened, NOT closed |
+| ARCH-F*, RT-F* (P1/P2 set) | CLOSED | regression evidence green; RT-F1 structural refusal re-pinned |
+| H-1 | OPEN / CONTAINED | HUMAN_DECISION_REQUIRED — unchanged (BLOCKER 26) |
+| REAL-DATA | BLOCKED_ON_REAL_DATA | 0 REAL_VERIFIED datasets; VERIFIED_YEARS = 0 (BLOCKER 3) |
+| CI/WP-12 | HUMAN_DECISION_REQUIRED | unchanged (BLOCKER 28) |
+| PAT rotation | OPEN | exposure #7 (re-pasted this session); never reproduced; operator-side (BLOCKER 25 disclosure) |
 
-Structural blockers: PAPER-BLK-1 (risk bypass) CLOSED structurally;
-BLK-2 (restart safety) CLOSED (persistence + recovery); BLK-3
-(partial fills) CLOSED (multi-fill OMS + adapter + reconciliation);
-BLK-4 (lineage) CLOSED (ledgers + correlation IDs); BLK-5 (critical
-state persistence) CLOSED; BLK-6 (SL/TP semantics) CLOSED (full
-lifecycle); BLK-7/8/9/10 (BUG-001/002/003/004 residuals) already
-P2-CLOSED, now additionally exercised inside the integrated runtime.
+## 5. Re-Audit Blockers — Verification and Disposition
 
-## 6. Bugs Deferred / 7. Open
+Each blocker from the fresh independent review was VERIFIED against
+the actual code first (not accepted blindly):
 
-- **BUG-008 = DEFERRED-BY-FROZEN-CONTRACT** (13 fields: strategy ×9
-  under the frozen contract's own §5.8 exclusion + schemas.py ×4 under
-  the SUB-18 manifest pin). Evidence: pinned-file sha256 unchanged;
-  runtime never mutates them — the non-frozen compatibility layer
-  (`vocabulary.freeze_strategy_boundary` deep-copy snapshots + frozen
-  runtime contracts) carries the discipline. Closure of the residual
-  requires a manifest-refresh authorization (human decision).
-- **H-1 = OPEN/CONTAINED, HUMAN_DECISION_REQUIRED** — formal record
-  created (H1_RATIFICATION_DECISION_RECORD.md) with signature block;
-  no approval fabricated.
-- **CI/WP-12 = HUMAN_DECISION_REQUIRED** — record created
-  (CI_WP12_GATE_DECISION_RECORD.md); `.github/` intentionally absent.
-- **REAL DATA = BLOCKED_ON_REAL_DATA** — contract created
-  (REAL_DATA_READINESS_CONTRACT.md); 0 verified datasets.
-- **CREDENTIAL ROTATION = OPEN operator action** (PAT exposure #6;
-  verified active during P2; rotation still owed; value never
-  reproduced in any artifact).
-- **KEYED-MAC ledger custody** — registered pending human decision
-  (unchanged from P1/P2).
-- RL / autonomous policy / broker adapters — OUT OF SCOPE (later
-  gated stages, mandate §58).
+| # | Blocker | Verified state at 8ca2fea | Action this cycle | Status |
+|---|---|---|---|---|
+| 1 | Persistent state mandatory | CONFIRMED: `state_store` optional; `if self._store is not None` guard | Mandatory store + `self_check()` at start; explicit ephemeral-fixture marking; write failure ⇒ HALT; 6 refusal tests | **CLOSED** |
+| 2 | Readiness gate authoritative | CONFIRMED: `start()` never consulted the gate | Gate wired into `start()`; REFUSED on FALSE/missing gate; 8 gate tests | **CLOSED** |
+| 3 | REAL_VERIFIED real gate | CONFIRMED weak: only quality+PIT checks | Nine-stage chain enforced in the record validator; VERIFIED_YEARS reported; 5 tests | **CLOSED (gate machinery)** — data itself still BLOCKED_ON_REAL_DATA |
+| 4 | Actual runtime recovery | CONFIRMED: RecoveryManager standalone only; restart tests used fresh components, not the runtime | `_recover_existing_state()` integrated in `start()`; 10-point restart matrix through TradingRuntime | **CLOSED** |
+| 5 | Complete execution-state persistence | CONFIRMED incomplete: no bars/cursors/pending/ledger chains/memory/identity | EXECUTION_STATE_SCHEMA v1.1.0 (18 fields), validated both directions; identity block | **CLOSED** |
+| 6 | Ledger recovery | CONFIRMED: heads only | Full-chain export/restore/verify; head cross-check; corruption refusal test | **CLOSED** |
+| 7 | Pending order recovery | OMS restore existed; unproven through runtime | Covered by restart points 2/3 (+ UNKNOWN/ambiguous refusal pinned earlier) | **CLOSED** |
+| 8 | Partial-fill recovery | CONFIRMED unproven through runtime (existing tests vacuous at low volume) | Restart-during-partial-fill with genuine multi-bar partials; quantity/avg-price/cursor preserved; no duplicate fill identities | **CLOSED** |
+| 9 | SL/TP recovery | CONFIRMED: pending protection NOT persisted | Persisted + restored; restart-with-active-SL/TP tests | **CLOSED** |
+| 10 | Reconciliation gates resumption | Existed (post-fill + recovery) | Restart-after-mismatch ⇒ RECONCILIATION_REQUIRED refusal test | **CLOSED** |
+| 11 | Risk gate structural | Verified sound (RT-F1) | Structural scan test + OMS refusal re-pin; no direct simulator path | **CLOSED** |
+| 12 | Kill-switch recovery | CONFIRMED gap: trips were not persisted immediately (a crash after a trip lost the switch) | Immediate persistence on trip/halt; restart-with-tripped-GLOBAL ⇒ refused + stays active; SYMBOL survives | **CLOSED** |
+| 13 | Idempotency across restart | OMS map restore existed; unproven | Same intent after restart ⇒ no duplicate order (deterministic id re-derivation + create_order returns existing) | **CLOSED** |
+| 14 | Clock/timestamp safety | CONFIRMED 2 contaminants: assessment id embedded `assessed_at`; cold-start incident embedded store path | Both removed from identity/audit-chain payloads; memory records use bar timestamps | **CLOSED** |
+| 15 | Deterministic replay | Existed (outcome-level) | Extended to identity level: order ids, fill ids, ledger heads, memory chain hash, final state — identical across runs AND independent processes ×2 | **CLOSED** |
+| 16 | Failure injection | 24 scenarios existed; fi_18 restart was a placeholder (`assert True`) | fi_18 replaced with a real restart-matrix guard; persistence-failure semantics upgraded to safe HALT | **CLOSED** |
+| 17 | Order TTL/expiry | **REAL DEFECT FOUND**: `PARTIALLY_FILLED → EXPIRED` illegal while expiry accepted partial orders (crash) | Transition added; partial-then-expiry + restart-around-expiry tested (no post-expiry fills) | **CLOSED** |
+| 18 | P&L/position authority | Verified sound (single PositionState) | Restart equivalence pins qty/avg/realized exactly | **CLOSED** |
+| 19 | Decision→order lineage | Verified sound | E2E correlation-integrity test re-run green | **CLOSED** |
+| 20 | Memory persistence | CONFIRMED: not persisted | Export/restore + chain-hash cross-check + corruption refusal | **CLOSED** |
+| 21 | Model artifact integrity | Partial: version checks only | `pinned_model_hashes` config (foreign model refused) + persisted identity binding (config digest + member hashes) — restart under another model refused | **CLOSED** |
+| 22 | Paper execution realism | Verified sound (latency, participation, costs, TTL) | Re-run green through the new partial-fill scenarios | **CLOSED** |
+| 23 | Data/PIT/sequence chain | Verified sound | PIT test suites green | **CLOSED** |
+| 24 | Readiness gate completeness | CONFIRMED: 7 mandated gates missing | 30-gate set; completeness test | **CLOSED (machinery)** |
+| 25 | Security | Re-scanned | 0 secrets / 309 files; 0 dangerous ops / 22 runtime modules; clean .git; history clean (2 documentation-only token-shape hits, pre-existing, values never in repo) | **CLOSED (scans)** — PAT rotation remains OPEN (operator) |
+| 26 | H-1 | Status preserved | OPEN / CONTAINED / HUMAN_DECISION_REQUIRED — no engineering closure claimed | **OPEN (by rule)** |
+| 27 | BUG-008 | Re-audited | PARTIAL / DEFERRED / GOVERNANCE BLOCKED — frozen contract prevents full closure; no frozen modification made | **PARTIAL (by rule)** |
+| 28 | CI/WP-12 | Status preserved | HUMAN_DECISION_REQUIRED — no approval fabricated | **OPEN (by rule)** |
 
-## 8. Data Readiness
+## 6. Fixes Made (FILES_CHANGED, engineering)
 
-Real data: **NONE** (0 REAL_VERIFIED datasets; VERIFIED_YEARS=0).
-Gate: BLOCKED_ON_REAL_DATA. Contract + record schema implemented
-(`DatasetReadinessRecord` — all §9 fields; promotion rules enforced).
-Synthetic fixtures only (tests); promotion to REAL_VERIFIED is
-structurally rejected without human-approved evidence.
+- `src/data_engine/runtime/state.py` — EXECUTION_STATE_SCHEMA
+  v1.1.0 (18 fields) + `validate_execution_state` + store
+  `self_check()` + `has_snapshot`; `restore()` now schema-validates.
+- `src/data_engine/runtime/ledgers.py` — full-chain
+  `export_state()` / `restore_state()` with re-verification.
+- `src/data_engine/runtime/memory.py` — `export_state()` /
+  `restore_state()` with chain re-derivation + verification.
+- `src/data_engine/runtime/readiness.py` — 23 → 30 mandatory gates.
+- `src/data_engine/runtime/data_gate.py` — nine-stage
+  REAL_VERIFIED chain + `readiness_chain` + VERIFIED_YEARS.
+- `src/data_engine/runtime/runtime.py` — fail-closed startup chain
+  (persistence mandatory, gate authoritative, integrated recovery,
+  pinned models, identity binding, DEGRADED preservation);
+  `_persist` full schema + `_persist_safe` (safe HALT); persistence
+  on warm-up/bad bars and on trip/halt; deterministic memory
+  timestamps; `ephemeral_test_fixture` + `operational`/`restarted`
+  properties.
+- `src/data_engine/runtime/risk_gate.py` — `assessed_at` removed
+  from the identity hash (BLOCKER 14).
+- `src/data_engine/runtime/oms.py` — `PARTIALLY_FILLED → EXPIRED`
+  legal transition (BLOCKER 17).
+- `src/data_engine/runtime/recovery.py` — ledger-chain restoration
+  consistency.
+- `src/data_engine/runtime/models.py` — public
+  `dataset_version`/`ece` calibrator properties.
+- `src/data_engine/runtime/__init__.py` — new exports.
+- `tests/test_runtime_recovery_integration.py` — NEW (43 tests).
+- `tests/test_runtime_e2e.py` — ephemeral fixture marking; gate
+  count 23→30 (honest amendment); fi_17 upgraded to safe-HALT
+  semantics; fi_18 placeholder replaced with a real guard.
+- `tests/test_finding_closures.py` — inherits the fixture marking.
+- Docs: `docs/PAPER_READINESS_GATE.md` v2.0.0,
+  `docs/TRADING_RUNTIME_ARCHITECTURE.md` v2.0.0,
+  `docs/DISASTER_RECOVERY_SPEC.md` v2.0.0,
+  `docs/TRADING_LEDGER_SPEC.md` v2.0.0,
+  `docs/ORDER_LIFECYCLE_SPEC.md` (§4 re-audit correction); this
+  report; `ZAI_REPOSITORY_PROGRESS_BRIEF.md` v1.13.0;
+  `MASTER_DOCUMENTATION_INDEX.md` v1.8.0; v1.0.0 report archived.
 
-## 9. PIT Readiness
+NO frozen Phase 3 file was touched. NO live-trading surface was
+created. NO governance status was fabricated.
 
-Sequence engine cutoff semantics: features from bars with
-`timestamp <= cutoff` (inclusive); labels ONLY when the horizon bar is
-also knowable at cutoff; no same-bar decision fills; adversarial
-tests: future-corruption invariance, duplicate/regressing/naive
-timestamps rejected, label-knowability, warm-up refusal. 92 PIT-layer
-tests (pre-existing) + 22 sequence tests. PIT correctness is proven
-on SYNTHETIC data; real-data PIT verification remains part of the
-BLOCKED data gate.
+## 7. Tests (TESTS_ADDED / EXECUTED)
 
-## 10. Sequence Readiness
+- **TESTS_ADDED: 43** (`tests/test_runtime_recovery_integration.py`):
+  persistence-mandatory (6) · readiness-gate authoritative (8) ·
+  restart-through-runtime at the 10 mandated points (10) ·
+  TTL-around-restart (1) · kill-switch survival critical+symbol (2)
+  · ledger corruption (1) · memory corruption (1) · foreign-model
+  refusal (1) · pinned models (2) · operational deterministic
+  replay (1) · REAL_VERIFIED chain (5) · EXECUTION_STATE_SCHEMA
+  (3) · structural risk-gate (2).
+- **TESTS_PASSED: 1,378 + 1 skipped** (0 failed).
+- Honest amendments (documented, defect-pins replaced by corrected
+  assertions): gate count 23→30; fi_17 persistence-failure now
+  asserts safe HALT (not raise); fi_18 placeholder removed.
 
-`SequenceSpec` (lookback/horizon/stride/feature_version/
-dataset_version), deterministic sequence IDs, sequence-set identity
-(spec + dataset content + cutoff), ordering, duplicate-ID rejection,
-gap flagging (strict default), walk-forward splits with
-horizon-scaled purge (ARCH-F8/F12), train/val/test separation.
-Reproducible from dataset + feature version + lookback + horizon +
-cutoff (tested).
+## 8. Deterministic Runs (RUN_1 / RUN_2)
 
-## 11. Model Readiness
+- Full suite RUN_1 = **1,378 passed + 1 skipped**.
+- Full suite RUN_2 (cache disabled) = **1,378 passed + 1 skipped**.
+- Frozen-manifest verification RUN_1 = **13/13 PASS**; RUN_2 =
+  **13/13 PASS** (independent script, before and after).
+- Cross-process replay (BLOCKER 15): two independent subprocesses
+  per invocation; script executed twice —
+  `CROSS_PROCESS_REPLAY_DETERMINISTIC` both times
+  (orders=8, fills=24, bar_index=69, identical ledger heads and
+  memory chain hash).
 
-DeterministicBaseline (momentum-sign logistic, seed-free) ·
-LSTMClassifier (NumPy, full BPTT, seeded) · TransformerClassifier
-(NumPy single-head causal self-attention, full manual backward,
-seeded) · DeterministicEnsemble (compatibility-validated members,
-weights sum=1, disagreement) · RuntimeCalibrator (Platt + ECE,
-artifact round-trip) · walk-forward evaluation with SAME-PLAN baseline
-comparison (§13). All models: deterministic retraining
-(bit-identical), artifact round-trip reconstruction (RT-F14, adopted
-12-decimal weights), refusal of non-finite inputs, no trading
-authority. Registry governance (Phase 4A.1 PredictionModelRegistry)
-unchanged; no self-promotion paths added.
+## 9. Recovery Evidence (BLOCKER 4/7/8/9/12/13)
 
-## 12. Prediction Readiness
+Ten mandated restart points, all through the ACTUAL runtime with a
+full 30-gate readiness report and persistent store, all asserting
+bit-exact state equivalence (orders incl. fills/status/quantities/
+average prices; positions incl. SL/TP; ledger chains incl. head
+identity; memory chain; cursors; pending protection/exits;
+realized equity; bar history):
 
-Canonical immutable PredictionArtifact (all §21 fields incl.
-uncertainty, regime, crash_risk, provenance, correlation) ledgered per
-bar; ensemble composition + calibration provenance recorded; §20
-crash intelligence computed INDEPENDENTLY of the directional signal
-(vol/drawdown/disagreement stress) with hard NO_TRADE and CRASH_EXIT
-authority that strategy signals cannot override.
+1. before any order (warm-up) — bar history + cursor survive;
+2. after order submission (live order) — survives; same intent
+   cannot duplicate (idempotency map restored);
+3. after acknowledgement — survives;
+4. during partial fill — remaining/avg-price/cursor preserved;
+   fills continue without duplicate identities;
+5. before protection attaches — pending-protection bookkeeping
+   survives;
+6. with active stop-loss — SL preserved;
+7. with active take-profit — TP preserved;
+8. during exit (protective exit in flight) — completes after
+   restart;
+9. after fill — position + realized P&L preserved exactly;
+10. after reconciliation mismatch (tampered state) — start
+    REFUSED, RECONCILIATION_REQUIRED.
 
-## 13. Risk Readiness
+Plus: restart around TTL expiry (fills never post-expiry);
+critical kill switch across restart (refused, stays tripped);
+foreign model across restart (refused).
 
-Structural RiskGate (21 mandatory checks — §25 list complete), wired
-into the OMS approval path (bypass impossible), delegation to the
-BUG-003-netting RiskEngine, ledgered verdicts with failed-check
-reasons, fail-closed unknowns (missing volatility/drawdown/daily-P&L
-knowledge = failure). No override parameter exists.
+## 10. Persistence Evidence (BLOCKER 1/5/6/20)
 
-## 14. Kill Switch Readiness
+- Missing store ⇒ `START REFUSED — NO_STATE_STORE`.
+- Corrupt journal ⇒ self-check failure ⇒ REFUSED.
+- Corrupt snapshot ⇒ RECOVERY_REQUIRED refusal.
+- Unavailable (read-only) store ⇒ REFUSED.
+- Write failure mid-bar ⇒ safe HALT + next bar refused.
+- Every persisted snapshot satisfies EXECUTION_STATE_SCHEMA v1.1.0
+  (validated).
+- Full ledger chains + memory chain persist and re-derive to the
+  same heads; tampering ⇒ refusal.
+- Trips/halts persist immediately.
 
-7-scope hierarchy (ORDER/STRATEGY/SYMBOL/MODEL/PORTFOLIO/ACCOUNT/
-GLOBAL), checked before every execution, persisted, audited on
-trip/request/authorization/reset, human-principal reset (machine
-refused), critical-scope reset requires prior recorded authorization;
-risk-reducing closes remain permitted (fail-safe direction).
+## 11. Security Evidence (BLOCKER 25)
 
-## 15. OMS Readiness
+- Secret scan: **0 hits / 309 tracked files** (10 pattern families).
+- Dangerous-op scan: **0 hits / 22 runtime modules** (no subprocess,
+  pickle, eval, exec, shell, network).
+- `.git` state-store scan: 0; `.git/config` credential scan: 0.
+- History: no token values in any commit (2 pre-existing
+  documentation-only pattern mentions, disclosed since P0/P2).
+- The session prompt re-exposed the GitHub PAT (exposure #7); the
+  value is NEVER reproduced in any artifact; rotation remains an
+  operator action (OPEN).
 
-14-state machine (no decision→filled jump), deterministic idempotent
-order identity, ambiguous-order reconcile-before-retry, partial fills
-(20+30+50=100 pinned), overfill refusal, cancel-after-partial, TTL
-expiry, state export/restore.
+## 12. Real-Data Status (BLOCKER 3)
 
-## 16. Execution Readiness
+`RealDataReadiness.report()`: **BLOCKED_ON_REAL_DATA** —
+0 REAL_VERIFIED datasets, VERIFIED_YEARS = 0.0. The promotion chain
+(DATA_SOURCE_APPROVED → ACQUIRED → VALIDATED → QUALITY_GATE →
+PIT_VERIFIED → PROVENANCE_VERIFIED → COVERAGE_VERIFIED →
+REPLAYABLE → REAL_VERIFIED) is now STRUCTURALLY enforced; synthetic
+data cannot be promoted. Closing this gate requires the operator to
+supply and verify real data per `REAL_DATA_READINESS_CONTRACT.md`.
 
-Multi-bar partial-fill paper executor: latency (no same-bar fills),
-per-bar liquidity caps, adverse cost stack, BUG-001 limit protection,
-full cost decomposition, cursor-based duplicate-fill prevention,
-structural PAPER isolation (no credential/endpoint/network surface —
-tested).
+## 13. Human-Decision Status (BLOCKER 26/28)
 
-## 17. Persistence
+- H-1 ratification: **HUMAN_DECISION_REQUIRED** (record + signature
+  block; no self-ratification).
+- CI/WP-12 authorization: **HUMAN_DECISION_REQUIRED**.
+- PAT rotation: **operator action, OPEN** (exposure #7).
+- BUG-008 residual path (manifest refresh vs. adapter acceptance):
+  **HUMAN_DECISION_REQUIRED**.
+- KEYED-MAC ledger custody: **HUMAN_DECISION_REQUIRED**.
 
-Atomic snapshots + fsync hash-chained journal; orders, fills,
-positions, portfolio, idempotency keys (via order state),
-reconciliation state (incident ledger), kill-switch state, incidents,
-ledger sequence heads, correlation IDs (ledger events), bar
-checkpoints. Fail-closed on any I/O failure (tested).
+## 14. Frozen Integrity Recheck (AFTER)
 
-## 18. Reconciliation
+After all modifications and the full test suite:
+**FROZEN_MANIFEST_AFTER = PASS — 13/13** (independent script;
+`test_frozen_phase3_manifest` green inside the suite). No
+frozen-contract change was committed.
 
-Multi-fill-aware three-way reconciliation after fills and at recovery;
-mismatch → RECONCILIATION_REQUIRED + STOP_NEW_ORDERS (tested);
-require_ok raises; every verdict ledgered.
+## 15. Remaining Blockers (exact evidence required to close)
 
-## 19. Ledger Integrity
+1. **BLOCKED_ON_REAL_DATA** — operator-approved real dataset passing
+   the full nine-stage chain + `REAL_DATA_READINESS_CONTRACT.md`;
+   then re-run the gate.
+2. **H-1 ratification** — human signature in
+   `H1_RATIFICATION_DECISION_RECORD.md`.
+3. **CI/WP-12 authorization** — human signature in
+   `CI_WP12_GATE_DECISION_RECORD.md`; then implement the specified
+   workflow gates.
+4. **PAT rotation** — operator revokes/rotates the exposed token
+   (evidence: old token fails auth).
+5. **BUG-008 residual** — manifest-refresh authorization or
+   permanent acceptance of the runtime-boundary adapter.
+6. **KEYED-MAC ledger custody** — custody decision.
 
-9 ledgers, per-ledger hash chains, payload hashes, tamper-evidence
-verified by tests (payload tamper breaks verify); NO_TRADE ledgering
-with blocked conditions (§35); correlation IDs thread the full chain
-(positive E2E verifies no orphan events).
+## 16. PAPER READY Verdict
 
-## 20. Memory
-
-12-category structured TradingMemory (hash-chained, capacity
-fail-closed); read-only for safety controls — no API through which a
-memory record can alter a risk verdict, switch, or order (structural
-separation tested).
-
-## 21. Security
-
-Secret scan: 266 tracked + 42 new files, 0 hits (incl. the exposed
-PAT shape — never reproduced). Dangerous-op scan on the runtime
-package: 0 (no subprocess/pickle/eval/exec/shell). Network surface: 0
-imports. Path-traversal/symlink/external-execution/private-endpoint
-scans (pre-existing script): PASS. Git history: unchanged this cycle
-(no commits yet at scan time; pre-commit scan repeated before push).
-Operator-side: PAT rotation STILL OPEN.
-
-## 22. Failure Injection
-
-All 24 mandated scenarios tested (tests/test_runtime_e2e.py::
-TestFailureInjection): stale data, unavailable data, PIT failure,
-malformed prediction, high uncertainty, crash threshold, risk
-rejection, kill switch, duplicate order, duplicate event, gateway
-timeout (→ UNKNOWN + RECONCILING), ambiguous order, partial fill,
-cancel-after-partial, reconciliation mismatch (→ STOP_NEW_ORDERS),
-ledger corruption (detected), persistence failure (halts), restart,
-model load failure, model version mismatch, configuration corruption,
-runtime exception (contained — ledger chains intact), clock anomaly,
-disk failure. Every failure produces safe behavior.
-
-## 23. Restart Recovery
-
-RecoveryManager: restore → verify (journal + ledgers) → reconcile →
-RESUME / RECONCILIATION_REQUIRED / HALT. Tampered journal → HALT;
-position mismatch → RECONCILIATION_REQUIRED (never silent resume);
-clean state → RESUME. Critical kill switch across restart → HALT.
-
-## 24. Deterministic Replay
-
-Two fresh runtimes, identical config (incl. session) + models + bars:
-bit-identical predictions, decisions, orders, fills, positions, P&L
-(outcome tuples compared). Full test suite: 1335 passed × 2 runs
-(second with cache disabled) — identical counts.
-
-## 25. Paper E2E
-
-Positive E2E: full 23-stage chain with orders, fills, exits, realized
-P&L > 0, all ledgers populated, NO_TRADE ledgered with reasons,
-chains verify, correlation integrity, zero orphan events. Negative
-E2E: stale/missing data, kill switches (global/symbol), high
-uncertainty, crash risk, risk limits, halted runtime — all NO_TRADE /
-refusal, never partial execution.
-
-## 26. Test Matrix
-
-| Category | Count | Result |
-|---|---|---|
-| Pre-existing suite (baseline) | 1141 | all pass |
-| — of which P1 correction window | 82 | all pass |
-| — of which PIT | 92 | all pass |
-| — of which paper/risk | 21 | all pass |
-| New: sequence engine | 22 | all pass |
-| New: models (determinism/artifacts/ensemble/calibration/WF) | 27 | all pass |
-| New: OMS (machine/idempotency/partial/TTL/adapter) | 28 | all pass |
-| New: safety (risk gate/kill switch/vocab/recon/P&L/SL-TP/memory) | 49 | all pass |
-| New: E2E (positive+negative+24 failure injection+recovery+replay+readiness) | 46 | all pass |
-| New: finding closures (RT-F/ARCH-F regression evidence) | 22 | all pass |
-| **TOTAL** | **1335 passed + 1 skipped** | **2 deterministic full-suite repeats** |
-
-## 27. Remaining Blockers (exact evidence required to close)
-
-1. **BLOCKED_ON_REAL_DATA** — requires an operator-approved real
-   dataset passing REAL_DATA_READINESS_CONTRACT.md (source approval →
-   acquisition → validation → quality → PIT → provenance → manifest →
-   replay), then re-run the readiness gate.
-2. **H-1 ratification** — requires the human-principal signature block
-   in H1_RATIFICATION_DECISION_RECORD.md (or a manifest-refresh
-   window decision).
-3. **CI/WP-12 authorization** — requires the human-principal signature
-   block in CI_WP12_GATE_DECISION_RECORD.md; then implement the
-   already-specified workflow gates.
-4. **Credential rotation** — operator revokes/rotates the exposed PAT
-   (evidence: the old token fails auth).
-5. **BUG-008 residual authorization path** — manifest-refresh
-   authorization or permanent acceptance of the runtime-boundary
-   adapter as the closure (human decision).
-6. **KEYED-MAC ledger custody decision** (pending since P1).
-
-## 28. Human Decisions Required
-
-H-1 ratification (A/B/C) · real-data source approval · CI/WP-12
-authorization · PAT rotation · BUG-008 residual path · keyed-MAC
-custody. None of these can be self-authorized (mandate §61); none
-were fabricated.
-
-## 29. PAPER READY Verdict
+```
+PAPER_READY =
+    DATA_READY            (PASS — machinery + tests)
+AND REAL_DATA_READY       (FALSE — 0 REAL_VERIFIED datasets)
+AND PIT_READY             (PASS)
+AND SEQUENCE_READY        (PASS)
+AND BASELINE_READY        (PASS)
+AND MODEL_READY           (PASS — pinned/integrity-enforced)
+AND PREDICTION_READY      (PASS)
+AND CALIBRATION_READY     (PASS)
+AND UNCERTAINTY_READY     (PASS)
+AND REGIME_READY          (PASS)
+AND CRASH_READY           (PASS)
+AND DECISION_READY        (PASS)
+AND TRADE_PLAN_READY      (PASS)
+AND RISK_READY            (PASS — structural)
+AND KILLSWITCH_READY      (PASS — restart-surviving)
+AND OMS_READY             (PASS)
+AND EXECUTION_READY       (PASS — paper-only)
+AND PERSISTENCE_READY     (PASS — mandatory + complete)
+AND RECOVERY_READY        (PASS — runtime-integrated, 10 points)
+AND PARTIAL_FILL_READY    (PASS — incl. partial-expiry)
+AND SLTP_READY            (PASS — restart-surviving)
+AND RECONCILIATION_READY  (PASS — gates resumption)
+AND LEDGER_READY          (PASS — full-chain recovery)
+AND MEMORY_READY          (PASS — persisted + verified)
+AND AUDIT_READY           (PASS — continuous chains)
+AND REPLAY_READY          (PASS — cross-process ×2)
+AND OBSERVABILITY_READY   (PASS)
+AND SECURITY_READY        (PASS — scans; PAT rotation OPEN)
+AND TESTS_READY           (PASS — 1378 ×2 deterministic)
+AND GOVERNANCE_READY      (FALSE — H-1/CI/human decisions open)
+```
 
 **PAPER_READY = FALSE.**
 
-Engineering gates: CLOSED (components, execution, persistence,
-reconciliation, ledgers, memory, recovery, replay, security, tests —
-all with objective evidence above). Data + governance gates: OPEN
-(items §27). Converting PARTIAL into READY is forbidden (§66) — the
-blockers are listed, the unblock path is documented, and the next
-authorized action belongs to the operator.
+STATUS = **BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY** — every
+engineering gate closed with objective, reproducible evidence; the
+remaining blockers are the real-data dependency and human decisions
+that no code may fabricate. No shortcut, no override, no
+FORCE_PAPER_READY exists (structurally tested). This verdict
+authorizes PAPER ONLY if it ever flips TRUE — never shadow, canary,
+live, broker execution, or autonomous capital deployment.

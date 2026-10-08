@@ -48,6 +48,80 @@ class StateStoreError(ValueError):
     """Raised on persistence failures / integrity violations."""
 
 
+#: Formal execution-state schema (paper-readiness re-audit BLOCKER 5).
+#:
+#: EVERY field required for deterministic recovery is enumerated here
+#: and validated on every snapshot/restore — persistence is not
+#: "orders + kill switch + positions + ledger heads + bar index"; it
+#: is the COMPLETE execution-critical in-memory state.
+EXECUTION_STATE_SCHEMA_VERSION = "1.1.0"
+
+EXECUTION_STATE_FIELDS = (
+    "schema",            # schema version stamp (this constant)
+    "identity",          # session/config/model binding (BLOCKER 21)
+    "orders",            # OMS state: full order lifecycle + fills
+    "kill_switch",       # all switch states (BLOCKER 12)
+    "positions",         # position book incl. SL/TP levels (BLOCKER 9)
+    "ledgers",           # FULL ledger event chains (BLOCKER 6)
+    "ledger_heads",      # head hash per ledger (restore cross-check)
+    "memory",            # structured trading memory records (BLOCKER 20)
+    "memory_chain_hash", # memory chain head (restore cross-check)
+    "bars",              # admitted bar history (sequence + fills need it)
+    "bar_index",         # authoritative bar cursor
+    "order_fill_cursor", # order_id -> next bar index (latency bookkeeping)
+    "pending_protection",# order_id -> (sl, tp, corr) (BLOCKER 9)
+    "pending_exits",     # symbol -> (order_id, reason, snapshot)
+    "consecutive_bad_bars",  # data-quality degradation counter
+    "equity_realized",   # realized-cost accumulator (P&L authority)
+    "session_id",        # session binding
+    "runtime_state",     # operating state at snapshot time
+)
+
+
+def validate_execution_state(state: Mapping[str, Any]) -> list:
+    """Validate a state mapping against EXECUTION_STATE_FIELDS.
+
+    Returns the list of problems (empty = valid). Fail-closed: any
+    missing/mistyped mandatory field is a problem — recovery must
+    refuse on an incomplete snapshot rather than guess.
+    """
+    problems: list = []
+    if not isinstance(state, Mapping):
+        return [f"state must be a mapping, got {type(state).__name__}"]
+    for field in EXECUTION_STATE_FIELDS:
+        if field not in state:
+            problems.append(f"missing mandatory field: {field}")
+    if isinstance(state.get("schema"), str) and \
+            state["schema"] != EXECUTION_STATE_SCHEMA_VERSION:
+        problems.append(
+            f"schema version mismatch: snapshot {state['schema']!r} vs "
+            f"runtime {EXECUTION_STATE_SCHEMA_VERSION!r}"
+        )
+    if "bar_index" in state and (
+        not isinstance(state["bar_index"], int)
+        or state["bar_index"] < -1
+    ):
+        problems.append("bar_index must be an int >= -1")
+    if "consecutive_bad_bars" in state and (
+        not isinstance(state["consecutive_bad_bars"], int)
+        or state["consecutive_bad_bars"] < 0
+    ):
+        problems.append("consecutive_bad_bars must be an int >= 0")
+    if "equity_realized" in state and not isinstance(
+        state["equity_realized"], (str, int, float)
+    ):
+        problems.append("equity_realized must be a numeric string")
+    for coll_field in ("orders", "kill_switch", "positions", "memory",
+                       "bars"):
+        if coll_field in state and not isinstance(state[coll_field], list):
+            problems.append(f"{coll_field} must be a list")
+    for dict_field in ("ledgers", "ledger_heads", "order_fill_cursor",
+                       "pending_protection", "pending_exits", "identity"):
+        if dict_field in state and not isinstance(state[dict_field], dict):
+            problems.append(f"{dict_field} must be a mapping")
+    return problems
+
+
 class HashChainJournal:
     """Append-only, hash-chained JSONL journal (tamper-evident).
 
@@ -224,7 +298,12 @@ class ExecutionStateStore:
         )
 
     def restore(self) -> dict:
-        """Load the authoritative state; verify journal integrity."""
+        """Load the authoritative state; verify journal integrity.
+
+        Fail-closed (BLOCKER 1/6): corrupt snapshot, corrupt journal,
+        and schema violations ALL raise — recovery goes through
+        reconciliation, never through silent trust (mandate §48).
+        """
         snapshot_path = self._dir / self.SNAPSHOT_FILE
         if not snapshot_path.exists():
             raise StateStoreError(
@@ -253,14 +332,72 @@ class ExecutionStateStore:
                 "journal chain verification FAILED — execution state "
                 "tampered or corrupted (RECOVERY_REQUIRED)"
             )
+        problems = validate_execution_state(payload["state"])
+        if problems:
+            raise StateStoreError(
+                "execution-state schema validation FAILED "
+                f"({len(problems)} problems): "
+                + "; ".join(problems[:6])
+                + " — RECOVERY_REQUIRED (incomplete state is never "
+                "best-effort, BLOCKER 5)"
+            )
         return payload["state"]
 
     def verify_journal(self) -> bool:
         return self._journal.verify()
+
+    def self_check(self) -> tuple:
+        """Mandatory pre-start self-check (BLOCKER 1).
+
+        Verifies: (a) the journal chain, (b) the snapshot parses and
+        satisfies EXECUTION_STATE_FIELDS (when present), and (c) the
+        store directory is writable (probe file, atomically removed).
+        Returns a tuple of problems — empty means the store is
+        authoritative and usable. NEVER fabricates a pass: a store
+        whose state cannot be proven is a refused store.
+        """
+        problems: list = []
+        # (a) journal chain integrity
+        try:
+            if not self._journal.verify():
+                problems.append(
+                    "journal hash chain verification FAILED — tampered "
+                    "or corrupted"
+                )
+        except StateStoreError as exc:
+            problems.append(f"journal unreadable: {exc}")
+        # (b) snapshot parse + schema (absent snapshot = cold start, OK)
+        snapshot_path = self._dir / self.SNAPSHOT_FILE
+        if snapshot_path.exists():
+            try:
+                payload = json.loads(
+                    snapshot_path.read_text(encoding="utf-8")
+                )
+                problems.extend(
+                    validate_execution_state(payload.get("state", {}))
+                )
+            except (OSError, json.JSONDecodeError) as exc:
+                problems.append(f"state snapshot corrupt/unreadable: {exc}")
+        # (c) writability probe
+        probe = self._dir / ".selfcheck-probe"
+        try:
+            probe.write_text("probe", encoding="utf-8")
+            probe.unlink()
+        except OSError as exc:
+            problems.append(f"store directory not writable: {exc}")
+        return tuple(problems)
+
+    @property
+    def has_snapshot(self) -> bool:
+        """True when a state snapshot exists (restart vs cold start)."""
+        return (self._dir / self.SNAPSHOT_FILE).exists()
 
 
 __all__ = [
     "StateStoreError",
     "HashChainJournal",
     "ExecutionStateStore",
+    "EXECUTION_STATE_SCHEMA_VERSION",
+    "EXECUTION_STATE_FIELDS",
+    "validate_execution_state",
 ]

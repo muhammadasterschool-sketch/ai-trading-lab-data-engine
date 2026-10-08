@@ -2,7 +2,7 @@
 
 FAIL-CLOSED BY CONSTRUCTION:
 
-- 23 mandatory component gates, each backed by an OBJECTIVE evidence
+- mandatory component gates, each backed by an OBJECTIVE evidence
   object (component + check + evidence) — never a boolean flag from
   a passing test run alone;
 - ALL must be TRUE: one FALSE ⇒ ``PAPER_READY = FALSE``;
@@ -23,11 +23,21 @@ from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from data_engine.runtime.contracts import RuntimeContractError
 
-#: The 23 mandatory component gates (mandate §52).
+#: The mandatory component gates (mandate §52 + re-audit BLOCKER 24).
+#:
+#: The re-audit extended the original 23 gates with the seven the
+#: paper-readiness logic REQUIRES but the first implementation
+#: omitted: REAL_DATA_READY (synthetic data is never silently
+#: promoted), TRADE_PLAN_READY, PARTIAL_FILL_READY, SLTP_READY
+#: (protection recovery), AUDIT_READY, REPLAY_READY, and
+#: BASELINE_READY. Every gate requires an explicit evidence object —
+#: absent evidence defaults to FALSE (fail closed, §53).
 GATE_NAMES = (
     "DATA_READY",
+    "REAL_DATA_READY",
     "PIT_READY",
     "SEQUENCE_READY",
+    "BASELINE_READY",
     "MODEL_READY",
     "PREDICTION_READY",
     "CALIBRATION_READY",
@@ -35,20 +45,34 @@ GATE_NAMES = (
     "REGIME_READY",
     "CRASH_READY",
     "DECISION_READY",
+    "TRADE_PLAN_READY",
     "RISK_READY",
     "KILLSWITCH_READY",
     "OMS_READY",
     "EXECUTION_READY",
     "PERSISTENCE_READY",
+    "RECOVERY_READY",
+    "PARTIAL_FILL_READY",
+    "SLTP_READY",
     "RECONCILIATION_READY",
     "LEDGER_READY",
     "MEMORY_READY",
+    "AUDIT_READY",
+    "REPLAY_READY",
     "OBSERVABILITY_READY",
-    "RECOVERY_READY",
     "SECURITY_READY",
     "TESTS_READY",
     "GOVERNANCE_READY",
 )
+
+#: The verdict logic (no shortcut, no override — mandate §66):
+#:
+#: PAPER_READY = ALL of GATE_NAMES TRUE.
+#: REAL_DATA_READY can only be TRUE from a REAL_VERIFIED dataset that
+#: passed the full acquisition→validation→quality→PIT→provenance→
+#: coverage→replay chain (BLOCKER 3) — never from synthetic fixtures.
+#: GOVERNANCE_READY requires recorded human decisions (H-1, CI/WP-12)
+#: — no code path can fabricate them.
 
 
 class ReadinessError(RuntimeContractError):
@@ -119,7 +143,7 @@ class ReadinessReport(BaseModel):
 
 
 class PaperReadinessGate:
-    """Evaluate the 23 mandatory gates from submitted evidence (§52)."""
+    """Evaluate ALL mandatory gates from submitted evidence (§52)."""
 
     def __init__(self) -> None:
         self._evidence: dict = {}
@@ -130,7 +154,7 @@ class PaperReadinessGate:
         self._evidence[evidence.gate] = evidence
 
     def evaluate(self) -> ReadinessReport:
-        """Compute the fail-closed verdict over ALL 23 gates."""
+        """Compute the fail-closed verdict over ALL mandatory gates."""
         evidences = []
         for gate in GATE_NAMES:
             ev = self._evidence.get(gate)

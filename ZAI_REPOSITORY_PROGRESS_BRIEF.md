@@ -6,9 +6,9 @@ Document Type:  Progress brief (living orientation document)
 Phase:          Cross-phase
 Authority:      B — CURRENT SUPPORTING
 Status:         CURRENT
-Version:        1.12.0
-Last Updated:   2026-10-09 (PRE-PAPER READINESS IMPLEMENTATION EXECUTED: PAPER_TRADING_READINESS_FINAL_REPORT.md)
-Supersedes:     v1.11.0 (P2 independent re-audit EXECUTED: P2_INDEPENDENT_CORRECTION_RE_AUDIT_REPORT.md)
+Version:        1.13.0
+Last Updated:   2026-10-09 (PAPER-READINESS RE-AUDIT EXECUTED: blocker closure + runtime-integration forensic re-audit — PAPER_TRADING_READINESS_FINAL_REPORT.md v2.0.0)
+Supersedes:     v1.12.0 (PRE-PAPER READINESS IMPLEMENTATION EXECUTED)
 Superseded By:  —
 Source Evidence: git log, MASTER_DOCUMENTATION_INDEX.md, cycle records cited below
 ```
@@ -55,14 +55,36 @@ Source Evidence: git log, MASTER_DOCUMENTATION_INDEX.md, cycle records cited bel
 > PAPER_READY = FALSE — honestly: 0 REAL_VERIFIED datasets
 > (BLOCKED_ON_REAL_DATA), H-1/CI authorization + PAT rotation remain
 > human decisions (records created, none fabricated).**
+> **PAPER-READINESS RE-AUDIT EXECUTED (v1.13.0 — see
+> `PAPER_TRADING_READINESS_FINAL_REPORT.md` v2.0.0): independent
+> forensic re-verification of the integrated runtime found and closed
+> every technically-authorized blocker — persistence is now MANDATORY
+> (NO_STATE_STORE ⇒ start REFUSED; write failure ⇒ safe HALT;
+> explicit ephemeral-fixture marking for unit tests), the 30-gate
+> readiness gate is AUTHORITATIVE at startup (23 → 30 gates incl.
+> REAL_DATA_READY), recovery is INTEGRATED INTO TradingRuntime.start()
+> (LOAD → VERIFY → RESTORE → RECONCILE → RESUME; proven at the ten
+> mandated restart points with bit-exact state equivalence), the
+> execution-state persistence is COMPLETE (EXECUTION_STATE_SCHEMA
+> v1.1.0 — full ledger chains + memory + pending SL/TP + bar history
+> + identity binding), kill-switch trips persist IMMEDIATELY (a
+> restart never clears a switch), a real PARTIALLY_FILLED → EXPIRED
+> state-machine defect was fixed, two wall-clock identity contaminants
+> were removed (deterministic replay now bit-identical across
+> independent processes ×2), and REAL_VERIFIED promotion now requires
+> the complete nine-stage chain (VERIFIED_YEARS reported honestly as
+> 0). 43 new integration tests; 1,378/1,378 ×2 deterministic; frozen
+> 13/13 INTACT before AND after; security scans 0 hits. PAPER_READY
+> = FALSE — STATUS = BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY (real data
+> + H-1 + CI + PAT rotation + BUG-008 residual + keyed-MAC custody).**
 > Documentation map of record: `MASTER_DOCUMENTATION_INDEX.md`.
 
 | | |
 |---|---|
 | **Remote** | https://github.com/muhammadasterschool-sketch/ai-trading-lab-data-engine |
 | **HEAD** | `main` and `phase-4a/4a1-architecture-correction` in sync (see git log) |
-| **Test suite** | **1,335 passed + 1 skipped** (deterministic; 2x re-verified in the pre-paper cycle) |
-| **Overall status** | Construction era COMPLETE · prediction intelligence layer BUILT, TESTED **and closure-validated** (PRED-F1/F2/F3 closed) · architecture readiness AUDITED (5 families NOT READY) · expansion era REGISTERED + §78 audit baseline COMPLETE (autonomy L0 achieved, L1–L5 components partial, L6 absent, L7/L8 never authorized — see `ZAI_AUTONOMOUS_TRADING_SYSTEM_STATUS.md`) · **runtime-integration era REGISTERED + PHASE A audit COMPLETE** (`TRADING_RUNTIME_ARCHITECTURE_AUDIT.md`: no runtime/event bus/persistence yet; risk gate + reconciliation + audit logger UNWIRED from the paper order path — RT-F1..F15 registered; PHASE B–AF gated) · **pre-paper bug forensic COMPLETE** (`PRE_PAPER_BUG_FORENSIC_AND_CLOSURE_REPORT.md`: RT-F1..15 + MC-1..12 + ARCH-F1..4 all re-verified CONFIRMED; NEW BUG-001..009 (3 CRITICAL) reproduced 11/11; fixes prepared and BLOCKED_BY_AUTHORIZATION; PAPER_READY = **NO**) · **P0 security credential cleanup COMPLETE** (`SECURITY_CREDENTIAL_FORENSIC_REPORT.md`: 0 secrets in working tree / full 52-commit history / config; exposed PAT verified STILL ACTIVE via API — rotation advisory standing; staged readiness program P0–P8 registered, P0 done, P1 correction window awaiting human authorization) · **P1 correction window EXECUTED** (`P1_CORRECTION_WINDOW_REPORT.md`: BUG-001..009 + ARCH-F1/F3/F4/F6 + RT-F7/F8/F13 all corrected — limit-price protection, flip basis, signed netting, status-aware reconciliation, audit deep-immutability, truthful CLI status, bar-order validation, deep-immutability migration (25 fields, `pit/immutable.py`), NaN guards, human-gated kill-switch reset, latent NameErrors, deterministic raw hash, CLI boundary fix, live file-ingest path, pytest dev-only; 82 new tests; closure verdicts deferred to P2) · **P2 independent re-audit EXECUTED — CONDITIONAL PASS** (`P2_INDEPENDENT_CORRECTION_RE_AUDIT_REPORT.md`: every P1 correction re-verified first-hand from diffs + probes — 15/16 findings CLOSED (BUG-001..007/009, ARCH-F1/F3/F4/F6, RT-F7/F8/F13), BUG-008 PARTIAL (25/25 in-scope fields migrated and runtime-blocked 31/31; 13 fields rule-deferred under frozen-contract/manifest immunity); no regressions; frozen 11/11 + 13/13 re-verified blob-level; credential STILL ACTIVE — exposure #5, rotation OPEN) · **PRE-PAPER READINESS IMPLEMENTATION EXECUTED** (`PAPER_TRADING_READINESS_FINAL_REPORT.md`: authoritative runtime BUILT — sequence engine, baseline/LSTM/Transformer/ensemble/calibration, risk gate, kill switches, OMS, persistence, ledgers, SL/TP, reconciliation, memory, recovery, replay, readiness gate; RT-F1..F6/F9..F12/F14/F15 + ARCH-F2/F5/F7/F8/F9/F10/F11 closed with regression evidence; BUG-008 DEFERRED-BY-FROZEN-CONTRACT via runtime-boundary adapter; 194 new tests) · empirical validation truthfully BLOCKED on real data · PAPER_READY = FALSE (BLOCKED_ON_REAL_DATA + human decisions) · READY_WITH_FINDINGS |
+| **Test suite** | **1,378 passed + 1 skipped** (deterministic; 2× re-verified in the re-audit cycle; 1,335 + 43 re-audit integration tests) |
+| **Overall status** | Construction era COMPLETE · prediction intelligence layer BUILT, TESTED **and closure-validated** (PRED-F1/F2/F3 closed) · architecture readiness AUDITED (5 families NOT READY) · expansion era REGISTERED + §78 audit baseline COMPLETE (autonomy L0 achieved, L1–L5 components partial, L6 absent, L7/L8 never authorized — see `ZAI_AUTONOMOUS_TRADING_SYSTEM_STATUS.md`) · **runtime-integration era REGISTERED + PHASE A audit COMPLETE** (`TRADING_RUNTIME_ARCHITECTURE_AUDIT.md`: no runtime/event bus/persistence yet; risk gate + reconciliation + audit logger UNWIRED from the paper order path — RT-F1..F15 registered; PHASE B–AF gated) · **pre-paper bug forensic COMPLETE** (`PRE_PAPER_BUG_FORENSIC_AND_CLOSURE_REPORT.md`: RT-F1..15 + MC-1..12 + ARCH-F1..4 all re-verified CONFIRMED; NEW BUG-001..009 (3 CRITICAL) reproduced 11/11; fixes prepared and BLOCKED_BY_AUTHORIZATION; PAPER_READY = **NO**) · **P0 security credential cleanup COMPLETE** (`SECURITY_CREDENTIAL_FORENSIC_REPORT.md`: 0 secrets in working tree / full 52-commit history / config; exposed PAT verified STILL ACTIVE via API — rotation advisory standing; staged readiness program P0–P8 registered, P0 done, P1 correction window awaiting human authorization) · **P1 correction window EXECUTED** (`P1_CORRECTION_WINDOW_REPORT.md`: BUG-001..009 + ARCH-F1/F3/F4/F6 + RT-F7/F8/F13 all corrected — limit-price protection, flip basis, signed netting, status-aware reconciliation, audit deep-immutability, truthful CLI status, bar-order validation, deep-immutability migration (25 fields, `pit/immutable.py`), NaN guards, human-gated kill-switch reset, latent NameErrors, deterministic raw hash, CLI boundary fix, live file-ingest path, pytest dev-only; 82 new tests; closure verdicts deferred to P2) · **P2 independent re-audit EXECUTED — CONDITIONAL PASS** (`P2_INDEPENDENT_CORRECTION_RE_AUDIT_REPORT.md`: every P1 correction re-verified first-hand from diffs + probes — 15/16 findings CLOSED (BUG-001..007/009, ARCH-F1/F3/F4/F6, RT-F7/F8/F13), BUG-008 PARTIAL (25/25 in-scope fields migrated and runtime-blocked 31/31; 13 fields rule-deferred under frozen-contract/manifest immunity); no regressions; frozen 11/11 + 13/13 re-verified blob-level; credential STILL ACTIVE — exposure #5, rotation OPEN) · **PRE-PAPER READINESS IMPLEMENTATION EXECUTED** (`PAPER_TRADING_READINESS_FINAL_REPORT.md`: authoritative runtime BUILT — sequence engine, baseline/LSTM/Transformer/ensemble/calibration, risk gate, kill switches, OMS, persistence, ledgers, SL/TP, reconciliation, memory, recovery, replay, readiness gate; RT-F1..F6/F9..F12/F14/F15 + ARCH-F2/F5/F7/F8/F9/F10/F11 closed with regression evidence; BUG-008 DEFERRED-BY-FROZEN-CONTRACT via runtime-boundary adapter; 194 new tests) · **PAPER-READINESS RE-AUDIT EXECUTED** (`PAPER_TRADING_READINESS_FINAL_REPORT.md` v2.0.0: every re-audit blocker verified first-hand and closed where authorized — persistence MANDATORY + readiness-gated startup + runtime-integrated recovery at 10 restart points + complete EXECUTION_STATE_SCHEMA v1.1.0 + full ledger/memory chain recovery + immediate kill-switch persistence + PARTIAL→EXPIRED state-machine fix + wall-clock-free identity (cross-process replay ×2 deterministic) + 30-gate readiness set + nine-stage REAL_VERIFIED chain with honest VERIFIED_YEARS=0; 43 new integration tests) · empirical validation truthfully BLOCKED on real data · PAPER_READY = FALSE (STATUS = BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY) · READY_WITH_FINDINGS |
 
 ---
 
@@ -100,6 +122,7 @@ computation → backtesting → research validation → risk control → paper t
 | P1 correction window (staged program stage 1) | **Operator-authorized fix window EXECUTED over non-frozen modules** (`P1_CORRECTION_WINDOW_REPORT.md` v1.0.0): all 16 authorized findings corrected — 3 CRITICAL (limit-order price protection with exact cost accounting; position-flip basis at the flip fill price; signed risk netting that never trips on reductions/closes) + 1 HIGH (status-aware reconciliation: fills-iff-FILLED) + ARCH-F1 (human-principal-gated kill-switch reset + non-silent opt-out) + ARCH-F3/F4 (latent NameErrors) + ARCH-F6 (deterministic raw hash, H-1 containment preserved) + RT-F7/F8/F13 (CLI boundary exit semantics; live file-ingest path through FS-06 containment; pytest dev-only + audit.log untracked) + the deep-immutability migration (25 non-pinned frozen-model fields via new `pit/immutable.py`; strategy/×9 + schemas.py×4 excluded by frozen-contract/manifest rules) + BUG-005/006/007/009; 82 new regression tests + 3 pinned-test amendments; suite 1,059→1,141 (×3 deterministic); frozen gates 11/11 + 13/13 pre- and post-commit; secret scan 0; AFTER-evidence probe 0/17 defective; BUG-008 runtime sweep 31/31 blocked; commits 1277331 + docs **local only — NOT pushed (rule 11)**; closure verdicts deferred to the P2 independent re-audit | `1277331` + docs (2) | 1,141 |
 | P2 independent re-audit (staged program stage 2, READ-ONLY) | **Independent re-audit of every P1 correction, evidence-first** (`P2_INDEPENDENT_CORRECTION_RE_AUDIT_REPORT.md` v1.0.0): first-hand re-derivation of all 16 corrections from the `1277331` diffs + re-execution of the full suite (1,141/1,141 ×2 deterministic) + 8 category subsets (PIT 195 / identity 33 / red-team 61 / risk 11 / paper 10 / governance 21 / infra 8 / P1-window 82) + AFTER-probe 0/17 defective + BUG-008 sweep 31/31 blocked + BEFORE-probe convention artifacts verified first-hand; the 3 pinned-test amendments verified HONEST (defect-pins → corrected assertions); frozen gates re-verified blob-level (11/11 + 13/13); secret/history/config scans 0; **VERDICTS: 15 CLOSED · 1 PARTIAL (BUG-008 — 13 fields deferred under frozen/manifest immunity, registered follow-up) · 0 OPEN · 0 REGRESSED; P2 VERDICT: CONDITIONAL PASS** (conditions operator-side: PAT rotation, BUG-008 residual authorization path, keyed-MAC custody decision); OBS-1 recorded (262-file mode-only worktree sweep, content 0/0 — environment artifact, cosmetic); NO implementation modified by the audit | docs commit | 1,141 |
 | Pre-paper readiness implementation (operator-authorized, this cycle) | **THE AUTHORITATIVE PAPER-TRADING RUNTIME IS BUILT AND VERIFIED** (`PAPER_TRADING_READINESS_FINAL_REPORT.md` v1.0.0 + 11 runtime specs + 3 governance decision records): new `src/data_engine/runtime/` package (22 modules) — PIT-safe sequence engine with horizon-scaled purge/embargo; deterministic baseline + NumPy LSTM (full BPTT) + NumPy Transformer (causal self-attention, full backward) + compatibility-validated ensemble + Platt calibration with ECE; DecisionEngine (NO_TRADE first-class); TradePlan builder (risk-budget sizing, vol-derived SL/TP); structural 21-check RiskGate wired into OMS approval (bypass impossible); 7-scope hierarchical kill switch (human-gated reset); 14-state OMS with idempotent order identity, partial fills, TTL, ambiguous-order reconcile-before-retry; multi-bar partial-fill paper executor (latency, liquidity caps, BUG-001 limit protection, structural PAPER isolation); persistent execution state (atomic snapshots + fsync hash-chained journal); 9 tamper-evident ledgers with NO_TRADE ledgering; SL/TP lifecycle + 9 exit reasons; multi-fill-aware three-way reconciliation; 12-category structured memory; restart/recovery (restore→verify→reconcile→resume-or-halt); deterministic replay; fail-closed 23-gate readiness gate. Existing-module corrections: RT-F5/F9 (risk engine), RT-F11 (gateway docstring), RT-F12 (benchmark via gateway), RT-F14 (model reconstruction incl. prediction layer), RT-F15 (explicit failure), ARCH-F2/F5/F7/F8/F9/F10/F11. BUG-008 = DEFERRED-BY-FROZEN-CONTRACT (runtime-boundary adapter; 13 pinned fields untouched). 194 new tests (E2E positive+negative, 24 failure-injection scenarios, recovery, replay, closures); suite 1,141→1,335 ×2 deterministic; frozen 11/11 + 13/13 INTACT; security scans 0; PAPER_READY = FALSE — BLOCKED_ON_REAL_DATA + H-1/CI human decisions + PAT rotation (exposure #6) | implementation + docs | 1,335 |
+| Paper-readiness re-audit (operator-authorized, this cycle) | **BLOCKER CLOSURE + RUNTIME-INTEGRATION FORENSIC RE-AUDIT EXECUTED** (`PAPER_TRADING_READINESS_FINAL_REPORT.md` v2.0.0): all 28 re-audit blockers verified first-hand against the code; every technically-authorized one CLOSED — **persistence MANDATORY** (NO_STATE_STORE ⇒ start REFUSED; corrupt/unavailable store ⇒ REFUSED; write failure ⇒ safe HALT; read failure ⇒ RECOVERY_REQUIRED; explicit `ephemeral_test_fixture` marking for unit tests, ledgered non-operational); **readiness gate AUTHORITATIVE at startup** (23→30 gates incl. REAL_DATA_READY/TRADE_PLAN/PARTIAL_FILL/SLTP/AUDIT/REPLAY/BASELINE; one FALSE ⇒ start REFUSED); **recovery INTEGRATED into TradingRuntime.start()** (LOAD→VERIFY→RESTORE→RECONCILE→RESUME; ten mandated restart points with bit-exact state equivalence incl. partial fills, SL/TP, kill switches, idempotency); **EXECUTION_STATE_SCHEMA v1.1.0** (18 fields — full ledger chains + memory + pending protection/exits + bar history + identity binding; validated on persist AND restore); **kill-switch trips/halts persist immediately** (restart never clears a switch); **REAL DEFECT FIXED**: PARTIALLY_FILLED→EXPIRED transition was illegal while expiry accepted partial orders (crash) — now legal + tested; **wall-clock identity contaminants removed** (assessment id embedded `assessed_at`; cold-start incident embedded the store path) — deterministic replay now bit-identical across independent processes ×2; REAL_VERIFIED nine-stage chain + honest VERIFIED_YEARS=0; model pinning + restart identity binding (foreign model refused). 43 new integration tests; suite 1,335→1,378 ×2 deterministic; frozen 13/13 INTACT before AND after; security re-scan 0 hits; PAPER_READY = FALSE — STATUS = BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY (real data + H-1 + CI + PAT rotation #7 + BUG-008 residual + keyed-MAC custody) | implementation + docs | 1,378 |
 
 ## 3. What was built, phase by phase
 
@@ -164,14 +187,21 @@ states are tested; no coverage claim), a single advanced model family
 (deterministic logistic) is implemented, and microstructure is explicitly
 UNAVAILABLE.
 
-## 4. Current verified state (all gates green at the closure-cycle HEAD)
+## 4. Current verified state (all gates green at the re-audit-cycle HEAD)
 
-- **1,059/1,059 tests pass** — deterministic across repeated runs (4×),
-  cache disabled.
+- **1,378 passed + 1 skipped tests** — deterministic across repeated
+  runs (×2, cache disabled on the second run), including the 43-test
+  runtime-integration module (restart matrix, readiness-gated startup,
+  persistence mandates, corruption refusals, operational replay).
 - **Frozen Phase 3 intact**: 11/11 strategy blobs byte-identical to `13fdc7e`;
-  SUB-18 manifest 13/13 sha256 pins match (re-pinned by T-PRED-028).
-- **Secret scan**: 0 hits across 261 tracked files; **0 real-token-shape
-  strings across the full 52-commit history on all refs** (`-S`/`-G` sweeps —
+  SUB-18 manifest 13/13 sha256 pins match — re-verified BEFORE and
+  AFTER the re-audit cycle by an independent script.
+- **Cross-process deterministic replay**: order ids, fill ids, ledger
+  head hashes, and the memory chain hash are bit-identical across
+  fully independent processes (×2 invocations of the replay script).
+- **Secret scan**: 0 hits across 309 tracked files (re-audit cycle
+  re-scan; 10 pattern families); **0 real-token-shape
+  strings across the full history on all refs** (`-S`/`-G` sweeps —
   see `SECURITY_CREDENTIAL_FORENSIC_REPORT.md` §5); 0 tokens in `.git/config`
   (verified after every push); 0 tracked symlinks; 0 path-traversal/exec
   patterns; 0 private endpoints (5-family security scan, closure cycle + P0
@@ -353,6 +383,15 @@ staged readiness program P0–P8 registration) ·
 `P2_INDEPENDENT_CORRECTION_RE_AUDIT_REPORT.md` (P2 independent re-audit
 record — 15/16 CLOSED, BUG-008 PARTIAL, CONDITIONAL PASS verdict,
 open-blocker register) ·
+`PAPER_TRADING_READINESS_FINAL_REPORT.md` v2.0.0 (re-audit cycle record —
+all 28 re-audit blockers verified + closed where authorized, 10-point
+restart matrix, EXECUTION_STATE_SCHEMA, final verdict
+BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY; v1.0.0 archived under `docs/`) ·
+`docs/` runtime spec family (TRADING_RUNTIME_ARCHITECTURE /
+TRADING_EVENT_CONTRACT / ORDER_LIFECYCLE_SPEC / PAPER_TRADING_SPEC /
+RECONCILIATION_SPEC / KILL_SWITCH_SPEC / TRADING_LEDGER_SPEC /
+PREDICTION_LEDGER_SPEC / DECISION_LEDGER_SPEC / DISASTER_RECOVERY_SPEC /
+PAPER_READINESS_GATE — re-audit versions v2.0.0 where amended) ·
 
 Read-only audit deliverable (maintained **outside** the repository, per the
 audit's no-modification mandate): `AI_TRADING_LAB_ARCHITECTURE_READINESS_

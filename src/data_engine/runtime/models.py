@@ -995,6 +995,16 @@ class RuntimeCalibrator:
         self._n = 0
         self._dataset_version = dataset_version
 
+    @property
+    def dataset_version(self) -> str:
+        """Dataset version this calibrator was fitted on."""
+        return self._dataset_version
+
+    @property
+    def ece(self) -> Optional[float]:
+        """Expected calibration error (None until fitted)."""
+        return self._ece
+
     def fit(
         self, probabilities: Sequence[float], outcomes: Sequence[int]
     ) -> "RuntimeCalibrator":

@@ -50,6 +50,14 @@ record (ttl, submitted bar, current bar, filled/expired quantities).
 RT-F10 closure: unfilled orders now EXPIRE loudly instead of silently
 never filling.
 
+**Re-audit correction (BLOCKER 17):** `PARTIALLY_FILLED → EXPIRED` is
+now a legal transition (partial-fill-then-expiry). v1.0.0 omitted it
+from the authoritative transition table while `expire_if_elapsed`
+accepted partially-filled orders — the combination raised
+`InvalidTransitionError` at expiry. Pinned by
+`test_restart_around_ttl_expiry`: every fill of an expired order
+happened on bars within its TTL window (never executes post-expiry).
+
 ## 5. Execution Realism (§38, `runtime/execution.py`)
 
 - **Latency**: filling starts at `submit bar + fill_lag_bars` — never

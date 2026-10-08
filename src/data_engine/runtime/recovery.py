@@ -100,11 +100,35 @@ class RecoveryManager:
         restored_switches = self._kill_switch.restore_state(
             state.get("kill_switch", [])
         )
-        ledger_intact = self._ledgers.verify()
-        if not ledger_intact:
-            reasons.append(
-                "ledger chain verification FAILED — tampered or corrupted"
-            )
+        # BLOCKER 6 consistency: restore the FULL ledger chains from
+        # the persisted state (verifying them) instead of verifying an
+        # empty in-memory ledger — a fresh process has no chains until
+        # they are restored. Older snapshots without "ledgers" keep
+        # the empty-chain behavior (pre-schema-1.1.0 compatibility).
+        ledger_intact = True
+        if "ledgers" in state:
+            try:
+                self._ledgers.restore_state(state.get("ledgers", {}))
+            except Exception as exc:
+                ledger_intact = False
+                reasons.append(
+                    f"ledger chain restoration FAILED: {exc} — tampered "
+                    "or corrupted"
+                )
+            if ledger_intact and state.get("ledger_heads") is not None \
+                    and self._ledgers.head_hashes() != state["ledger_heads"]:
+                ledger_intact = False
+                reasons.append(
+                    "restored ledger heads differ from persisted heads — "
+                    "chain reconstruction failed"
+                )
+        else:
+            ledger_intact = self._ledgers.verify()
+            if not ledger_intact:
+                reasons.append(
+                    "ledger chain verification FAILED — tampered or "
+                    "corrupted"
+                )
         journal_intact = self._store.verify_journal()
         if not journal_intact:
             reasons.append(

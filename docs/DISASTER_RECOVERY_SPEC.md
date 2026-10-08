@@ -1,6 +1,6 @@
 # DISASTER RECOVERY SPEC
 
-**Document ID:** TRA-DRS-001 · **Version:** 1.0.0 · **Status:** AUTHORITATIVE (implemented)
+**Document ID:** TRA-DRS-001 · **Version:** 2.0.0 · **Status:** AUTHORITATIVE (implemented)
 **Applies to:** `src/data_engine/runtime/recovery.py`, `runtime/state.py`
 **Mandate:** §48 (restart/recovery)
 
@@ -8,18 +8,34 @@
 
 ## 1. Recovery Flow (deterministic, fail-closed)
 
-    runtime running (open orders / open positions / kill-switch state)
-      → restart
-      → restore persistent state (orders, fills, positions, switches)
-      → verify ledger integrity (all 9 chains)
-      → verify state-journal chain
-      → reconcile orders ↔ fills ↔ positions
-      → RESUME (only if EVERYTHING verifies) | RECONCILIATION_REQUIRED
-        | HALT
+**Re-audit BLOCKER 4: recovery is INTEGRATED INTO
+`TradingRuntime.start()` itself** (`_recover_existing_state`) — a
+standalone RecoveryManager test is not recovery. The authoritative
+runtime path:
+
+    START
+      → LOAD SNAPSHOT (state.json; absent = COLD_START, ledgered)
+      → VERIFY SNAPSHOT (EXECUTION_STATE_SCHEMA v1.1.0 + journal chain
+        + identity binding: config digest + ensemble member hashes)
+      → VERIFY hash/ledger integrity (full chain re-derivation;
+        restored heads MUST equal persisted heads)
+      → RESTORE OMS / ORDERS / FILLS / POSITIONS (incl. SL/TP) /
+        KILL SWITCH / LEDGER STATE / MEMORY / PENDING EXECUTION STATE
+        (fill cursors, pending protection, pending exits) / bar
+        history + cursor + bad-bar counter + realized equity
+      → RECONCILE (fills replay vs stated positions, exactly)
+      → ONLY THEN RESUME (RUNNING) — else RECONCILIATION_REQUIRED /
+        RECOVERY_REQUIRED / HALTED, and start() is REFUSED
 
 **NEVER resume normal trading after restart without the required
 reconciliation.** A restart that cannot prove its state clean
-degrades to HALT, not to amnesia.
+degrades to a refusal, not to amnesia. A restart from a DEGRADED
+snapshot resumes DEGRADED. Kill-switch trips and halts persist
+IMMEDIATELY — a restart NEVER clears a kill switch (BLOCKER 12).
+
+The standalone `RecoveryManager` remains as a verifier for
+out-of-band recovery audits and now restores the persisted ledger
+chains too (BLOCKER 6 consistency).
 
 ## 2. Verdicts
 

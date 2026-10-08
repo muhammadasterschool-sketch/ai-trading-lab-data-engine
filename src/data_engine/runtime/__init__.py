@@ -69,9 +69,12 @@ from data_engine.runtime.models import (
     evaluate_walk_forward,
 )
 from data_engine.runtime.state import (
+    EXECUTION_STATE_FIELDS,
+    EXECUTION_STATE_SCHEMA_VERSION,
     ExecutionStateStore,
     HashChainJournal,
     StateStoreError,
+    validate_execution_state,
 )
 from data_engine.runtime.ledgers import (
     LedgerEvent,
@@ -180,6 +183,8 @@ __all__ = [
     "WalkForwardReport", "evaluate_walk_forward",
     # persistence
     "ExecutionStateStore", "HashChainJournal", "StateStoreError",
+    "EXECUTION_STATE_FIELDS", "EXECUTION_STATE_SCHEMA_VERSION",
+    "validate_execution_state",
     # ledgers
     "LedgerEvent", "LedgerFamily", "LedgerError", "LEDGER_NAMES",
     # accounting

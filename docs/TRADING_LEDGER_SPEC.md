@@ -1,6 +1,6 @@
 # TRADING LEDGER SPEC
 
-**Document ID:** TRA-TLS-001 · **Version:** 1.0.0 · **Status:** AUTHORITATIVE (implemented)
+**Document ID:** TRA-TLS-001 · **Version:** 2.0.0 · **Status:** AUTHORITATIVE (implemented)
 **Applies to:** `src/data_engine/runtime/ledgers.py`
 **Mandate:** §34/§35 (ledger family + NO_TRADE ledgering)
 
@@ -39,6 +39,23 @@ full trading run: predictions, decisions (incl. NO_TRADE), plans,
 order transitions, fills, position updates, exits, P&L snapshots, and
 incidents (start/halt/data rejections/kill-switch lifecycle/
 reconciliation verdicts).
+
+## 4a. Full-Chain Persistence + Recovery (re-audit BLOCKER 6)
+
+v1.0.0 persisted only ledger HEAD hashes — the immutable lineage
+(Prediction → Decision → TradePlan → Order → Fill → Position →
+Exit → Trade → P&L → Incident) was NOT reconstructable after
+restart. v2.0.0 persists the COMPLETE event set of every chain
+(`LedgerFamily.export_state()`), and recovery restores + re-verifies
+them (`restore_state()`): every event is re-validated, the full hash
+chain is recomputed, and the restored heads MUST equal the persisted
+heads (chain reconstruction to the same head). Tampering with any
+persisted event (edit/delete/reorder) breaks re-derivation ⇒
+RECOVERY_REQUIRED refusal (pinned by
+`test_ledger_corruption_refuses_restart`). The restart path appends
+new events (RUNTIME_STATE_RESTORED, RECONCILIATION_PASS,
+RUNTIME_STARTED) onto the restored chains — the audit chain is
+CONTINUOUS across restarts, never reset.
 
 ## 5. Relationship to Prior Ledgers
 

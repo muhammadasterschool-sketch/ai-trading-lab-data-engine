@@ -61,22 +61,36 @@ from data_engine.runtime.decision import (
 )
 from data_engine.runtime.execution import PaperExecutionAdapter, RuntimeFill
 from data_engine.runtime.exits import ExitManager
-from data_engine.runtime.identity import prefixed_hash
+from data_engine.runtime.identity import (
+    RUNTIME_CONTRACT_VERSION,
+    prefixed_hash,
+)
 from data_engine.runtime.kill_switch import (
     KillSwitchManager,
     KillSwitchScope,
 )
-from data_engine.runtime.ledgers import LedgerFamily
-from data_engine.runtime.memory import TradingMemory
+from data_engine.runtime.ledgers import LedgerError, LedgerFamily
+from data_engine.runtime.memory import MemoryError, TradingMemory
 from data_engine.runtime.oms import OMS, OMSOrder
 from data_engine.runtime.pnl import PnLEngine, PositionState
+from data_engine.runtime.readiness import (
+    GateEvidence,
+    PaperReadinessGate,
+    ReadinessReport,
+)
 from data_engine.runtime.reconciliation import RuntimeReconciliation
 from data_engine.runtime.risk_gate import RiskContext, RiskGate
 from data_engine.runtime.sequence import (
     SequenceSpec,
     build_sequence_set,
 )
-from data_engine.runtime.state import ExecutionStateStore
+from data_engine.runtime.state import (
+    EXECUTION_STATE_FIELDS,
+    EXECUTION_STATE_SCHEMA_VERSION,
+    ExecutionStateStore,
+    StateStoreError,
+    validate_execution_state,
+)
 from data_engine.runtime.trade_plan import SizingConfig, TradePlanBuilder
 
 
@@ -100,6 +114,17 @@ class RuntimeConfig(BaseModel):
     crash_exit_probability: float = 0.40
     max_position_units: Decimal = Decimal("100")
     risk_fraction: Decimal = Decimal("0.01")
+    #: BLOCKER 1: explicit non-operational marking. When True the
+    #: runtime is a UNIT-TEST FIXTURE — persistence and the paper
+    #: readiness gate are skipped and every start is ledgered as
+    #: EPHEMERAL_TEST_FIXTURE. A normal (operational) paper session
+    #: NEVER sets this: fail-closed defaults keep it False.
+    ephemeral_test_fixture: bool = False
+    #: BLOCKER 21: operator-pinned model artifact hashes. When
+    #: non-empty, EVERY ensemble member's model_hash must be listed —
+    #: a swapped/tampered model is refused at startup (never silently
+    #: loaded).
+    pinned_model_hashes: tuple = ()
 
     @field_validator("symbol", "timeframe", "session_id",
                      "feature_version", "dataset_version")
@@ -121,6 +146,18 @@ class RuntimeConfig(BaseModel):
     def _validate_windows(cls, v: int) -> int:
         if not isinstance(v, int) or v < 1:
             raise RuntimeContractError("window ints must be >= 1")
+        return v
+
+    @field_validator("pinned_model_hashes")
+    @classmethod
+    def _validate_pins(cls, v) -> tuple:
+        v = tuple(v or ())
+        for item in v:
+            if not isinstance(item, str) or not item.strip():
+                raise RuntimeContractError(
+                    "pinned_model_hashes entries must be non-empty "
+                    "model hash strings"
+                )
         return v
 
 
@@ -175,6 +212,7 @@ class TradingRuntime:
         calibrator=None,
         state_store: Optional[ExecutionStateStore] = None,
         realism: Optional[ExecutionRealism] = None,
+        readiness_gate: Optional[PaperReadinessGate] = None,
     ) -> None:
         if config is None or ensemble is None:
             raise RuntimeContractError(
@@ -184,6 +222,7 @@ class TradingRuntime:
         self._ensemble = ensemble
         self._calibrator = calibrator
         self._store = state_store
+        self._readiness_gate = readiness_gate
         self._realism = realism or ExecutionRealism(
             half_spread=Decimal("0.02"),
             commission_per_unit=Decimal("0.001"),
@@ -237,6 +276,8 @@ class TradingRuntime:
         self._order_fill_cursor: dict = {}   # order_id -> next bar index
         self._pending_protection: dict = {}  # order_id -> (sl, tp, corr)
         self._pending_exits: dict = {}       # symbol -> (order_id, reason, snapshot)
+        self._restarted = False              # True after state restoration
+        self._restored_runtime_state = None  # persisted operating state
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -270,11 +311,32 @@ class TradingRuntime:
         return self._config
 
     def start(self) -> None:
-        """INIT → RUNNING after component self-checks (fail-closed)."""
+        """INIT → RUNNING through the AUTHORITATIVE fail-closed chain.
+
+        Operational mode (``ephemeral_test_fixture=False``, the
+        default) requires EVERY gate before RUNNING is reachable:
+
+        1. component self-check (ensemble non-empty, feature/dataset
+           versions, pinned model hashes — BLOCKER 21);
+        2. persistence check (state store present + self-check —
+           BLOCKER 1: NO_STATE_STORE ⇒ BLOCKED, never RUNNING);
+        3. paper readiness gate (ALL mandatory gates PASS — BLOCKER 2:
+           one FALSE/absent gate ⇒ REFUSED);
+        4. recovery check (existing state: LOAD → VERIFY → RESTORE →
+           RECONCILE — BLOCKER 4: never INIT → RUNNING across a
+           restart);
+        5. kill-switch check (critical switch active ⇒ HALTED).
+
+        Ephemeral test-fixture mode is the ONLY skip path, is
+        explicitly marked in the config, and is ledgered loudly as
+        EPHEMERAL_TEST_FIXTURE — a non-operational unit-test fixture,
+        never a paper session.
+        """
         if self._state is not RuntimeState.INIT:
             raise RuntimeContractError(
                 f"runtime cannot start from {self._state.value}"
             )
+        # -- 1. component self-checks ----------------------------------
         if not self._ensemble.members:
             raise RuntimeContractError("ensemble empty — refusing to start")
         for member in self._ensemble.members:
@@ -283,6 +345,113 @@ class TradingRuntime:
                 raise RuntimeContractError(
                     f"member {art.model_id} feature_version mismatch"
                 )
+            if art.dataset_version != self._config.dataset_version:
+                raise RuntimeContractError(
+                    f"member {art.model_id} dataset_version mismatch "
+                    f"({art.dataset_version} != "
+                    f"{self._config.dataset_version})"
+                )
+            if self._config.pinned_model_hashes and (
+                art.model_hash not in self._config.pinned_model_hashes
+            ):
+                raise RuntimeContractError(
+                    f"member {art.model_id} model_hash {art.model_hash} "
+                    "is NOT pinned in RuntimeConfig.pinned_model_hashes — "
+                    "refusing to run an unpinned/foreign model "
+                    "(BLOCKER 21: never silently load another model)"
+                )
+
+        if self._config.ephemeral_test_fixture:
+            # Explicitly-marked NON-OPERATIONAL unit-test fixture.
+            self._state = RuntimeState.RUNNING
+            self._started_at = datetime.now(UTC)
+            self._ledgers.record(
+                ledger="incident",
+                event_type="EPHEMERAL_TEST_FIXTURE_STARTED",
+                correlation_id=f"session:{self._config.session_id}",
+                actor="runtime",
+                payload={
+                    "session_id": self._config.session_id,
+                    "mode": "ephemeral_test_fixture",
+                    "operational": False,
+                    "note": "non-operational unit-test fixture — no "
+                            "persistence, no readiness verdict; NOT a "
+                            "paper trading session",
+                },
+            )
+            return
+
+        # -- 2. persistence is MANDATORY (BLOCKER 1) --------------------
+        if self._store is None:
+            raise RuntimeContractError(
+                "START REFUSED — NO_STATE_STORE: an operational paper "
+                "session requires an authoritative persistent "
+                "ExecutionStateStore (fail closed: no persistence, no "
+                "RUNNING)"
+            )
+        problems = self._store.self_check()
+        if problems:
+            self._state = RuntimeState.RECOVERY_REQUIRED
+            raise RuntimeContractError(
+                "START REFUSED — state store self-check FAILED: "
+                + "; ".join(problems)
+                + " (RECOVERY_REQUIRED)"
+            )
+
+        # -- 3. the paper readiness gate is AUTHORITATIVE (BLOCKER 2) --
+        if self._readiness_gate is None:
+            raise RuntimeContractError(
+                "START REFUSED — no PaperReadinessGate wired: an "
+                "operational paper session requires the authoritative "
+                "gate with objective evidence for EVERY mandatory gate"
+            )
+        report = self._readiness_gate.evaluate()
+        if not report.paper_ready:
+            raise RuntimeContractError(
+                "START REFUSED — paper readiness gate verdict is FALSE; "
+                f"failed gates: {list(report.failed_gates)} "
+                "(fail closed — no shortcut, no override)"
+            )
+
+        # -- 4. recovery: LOAD → VERIFY → RESTORE → RECONCILE ----------
+        self._recover_existing_state()
+
+        # A restart from a DEGRADED snapshot stays DEGRADED — data-
+        # quality degradation is never cured by a restart (fail
+        # closed; the bad-bar history is restored with it).
+        if self._restored_runtime_state == "DEGRADED":
+            self._state = RuntimeState.DEGRADED
+            self._ledgers.record(
+                ledger="incident",
+                event_type="RUNTIME_RESUMED_DEGRADED",
+                correlation_id=f"session:{self._config.session_id}",
+                actor="runtime",
+                payload={
+                    "consecutive_bad_bars": self._consecutive_bad_bars,
+                    "reason": "persisted runtime state was DEGRADED; "
+                              "restart does not cure data-quality "
+                              "degradation",
+                },
+            )
+            return
+
+        # -- 5. kill-switch check ----------------------------------------
+        if self._kill_switch.any_critical_active():
+            self._state = RuntimeState.HALTED
+            self._ledgers.record(
+                ledger="incident",
+                event_type="RUNTIME_START_REFUSED_CRITICAL_SWITCH",
+                correlation_id=f"session:{self._config.session_id}",
+                actor="runtime",
+                payload={"reason": "ACCOUNT/GLOBAL kill switch active "
+                                  "— restart never clears a kill switch"},
+            )
+            raise RuntimeContractError(
+                "START REFUSED — critical kill switch (ACCOUNT/GLOBAL) "
+                "is active; a restart NEVER clears a kill switch "
+                "(BLOCKER 12)"
+            )
+
         self._state = RuntimeState.RUNNING
         self._started_at = datetime.now(UTC)
         self._ledgers.record(
@@ -292,11 +461,18 @@ class TradingRuntime:
             actor="runtime",
             payload={"session_id": self._config.session_id,
                      "equity": str(self._config.initial_equity),
-                     "symbol": self._config.symbol},
+                     "symbol": self._config.symbol,
+                     "mode": "operational",
+                     "restarted_from_state": self._restarted},
         )
 
     def halt(self, reason: str) -> None:
-        """Terminal safe stop (operator / critical switch)."""
+        """Terminal safe stop (operator / critical switch).
+
+        HALT is an authoritative state change — it is persisted
+        IMMEDIATELY (BLOCKER 12: a crash right after a halt/kill-switch
+        trip must never lose the state on disk).
+        """
         previous = self._state
         self._state = RuntimeState.HALTED
         self._ledgers.record(
@@ -306,6 +482,7 @@ class TradingRuntime:
             actor="runtime",
             payload={"reason": reason, "from": previous.value},
         )
+        self._persist_safe(f"session:{self._config.session_id}")
 
     def trip_kill_switch(
         self,
@@ -313,14 +490,283 @@ class TradingRuntime:
         reason: str,
         target: Optional[str] = None,
     ) -> None:
-        """Trip a hierarchical switch; critical scopes halt the runtime."""
+        """Trip a hierarchical switch; critical scopes halt the runtime.
+
+        The trip is persisted IMMEDIATELY — a restart must NEVER clear
+        a kill switch (BLOCKER 12).
+        """
         self._kill_switch.trip(
             scope=scope, reason=reason, source="runtime.operator", target=target
         )
+        self._persist_safe(f"kill-switch:{scope.value}:{target or '*'}")
         if scope in (KillSwitchScope.GLOBAL, KillSwitchScope.ACCOUNT):
             self.halt(f"kill switch {scope.value} tripped: {reason}")
         elif scope is KillSwitchScope.PORTFOLIO:
             self._state = RuntimeState.RECONCILIATION_REQUIRED
+            self._persist_safe(f"kill-switch:{scope.value}:{target or '*'}")
+
+    # ------------------------------------------------------------------
+    # Recovery (BLOCKER 4/5/6/9/12/13/20 — integrated, not standalone)
+    # ------------------------------------------------------------------
+    def _identity_block(self) -> dict:
+        """Deterministic session/config/model identity (BLOCKER 21).
+
+        Persisted with every snapshot; a restart with a DIFFERENT
+        config or model set is refused — the runtime never silently
+        continues under another identity.
+        """
+        members = []
+        for member, weight in zip(self._ensemble.members, self._ensemble.weights):
+            art = member.artifact()
+            members.append({
+                "model_id": art.model_id,
+                "model_version": art.model_version,
+                "model_family": art.model_family,
+                "model_hash": art.model_hash,
+                "feature_version": art.feature_version,
+                "dataset_version": art.dataset_version,
+                "seed": art.seed,
+                "weight": round(float(weight), 12),
+            })
+        config_digest = prefixed_hash(
+            "rtcfg.",
+            {
+                "kind": "runtime_config_identity",
+                "config": self._config.model_dump(mode="json"),
+            },
+        )
+        return {
+            "contract_version": RUNTIME_CONTRACT_VERSION,
+            "session_id": self._config.session_id,
+            "symbol": self._config.symbol,
+            "timeframe": self._config.timeframe,
+            "config_digest": config_digest,
+            "ensemble_members": members,
+            "calibrator": (
+                {
+                    "dataset_version": self._calibrator.dataset_version,
+                    "fitted": self._calibrator.fitted,
+                    "ece": round(self._calibrator.ece, 12)
+                    if self._calibrator.ece is not None else None,
+                }
+                if self._calibrator is not None else None
+            ),
+        }
+
+    def _recover_existing_state(self) -> None:
+        """BLOCKER 4: the ACTUAL runtime recovery path.
+
+        START → LOAD SNAPSHOT → VERIFY SNAPSHOT (+ identity binding)
+        → VERIFY hash/ledger integrity → RESTORE OMS → RESTORE
+        ORDERS → RESTORE FILLS → RESTORE POSITIONS → RESTORE KILL
+        SWITCH → RESTORE LEDGER STATE → RESTORE PENDING EXECUTION
+        STATE → RESTORE SL/TP STATE → RECONCILE → only then may the
+        caller proceed to RUNNING. Unprovable state ⇒ RECOVERY_REQUIRED
+        / RECONCILIATION_REQUIRED / HALTED — never automatic resume.
+        """
+        if not self._store.has_snapshot:
+            # Cold start: nothing to recover — a FRESH session is
+            # legal; the first bar will persist the first snapshot.
+            # NOTE: no filesystem path in the payload (BLOCKER 14:
+            # environment-dependent values never enter the audit
+            # chain — deterministic replay must reproduce it).
+            self._ledgers.record(
+                ledger="incident",
+                event_type="RUNTIME_COLD_START",
+                correlation_id=f"session:{self._config.session_id}",
+                actor="runtime",
+                payload={"session_id": self._config.session_id},
+            )
+            return
+
+        # -- LOAD ---------------------------------------------------------
+        try:
+            state = self._store.restore()
+        except StateStoreError as exc:
+            self._state = RuntimeState.RECOVERY_REQUIRED
+            self._ledgers.record(
+                ledger="incident",
+                event_type="RUNTIME_RECOVERY_REQUIRED",
+                correlation_id=f"session:{self._config.session_id}",
+                actor="runtime",
+                payload={"reason": f"persistent state unreadable: {exc}"},
+            )
+            raise RuntimeContractError(
+                f"START REFUSED — RECOVERY_REQUIRED: persistent state "
+                f"cannot be loaded/verified: {exc}"
+            ) from exc
+
+        # -- VERIFY identity binding (never another session/model) --------
+        persisted_identity = state.get("identity", {})
+        current_identity = self._identity_block()
+        if persisted_identity.get("config_digest") != \
+                current_identity["config_digest"]:
+            self._state = RuntimeState.RECOVERY_REQUIRED
+            raise RuntimeContractError(
+                "START REFUSED — persisted state belongs to a DIFFERENT "
+                "config/session/model identity (config_digest mismatch); "
+                "the runtime never silently continues under another "
+                "identity (BLOCKER 21)"
+            )
+        if persisted_identity.get("session_id") != self._config.session_id:
+            self._state = RuntimeState.RECOVERY_REQUIRED
+            raise RuntimeContractError(
+                "START REFUSED — persisted state session "
+                f"{persisted_identity.get('session_id')!r} != configured "
+                f"{self._config.session_id!r}"
+            )
+        # Model identity binding: the persisted ensemble member hashes
+        # (and their order/weights) must equal the CURRENT ensemble —
+        # a swapped/tampered model is refused, never silently loaded
+        # (BLOCKER 21).
+        persisted_members = [
+            m.get("model_hash") for m in
+            persisted_identity.get("ensemble_members", [])
+        ]
+        current_members = [
+            m["model_hash"] for m in current_identity["ensemble_members"]
+        ]
+        if persisted_members != current_members:
+            self._state = RuntimeState.RECOVERY_REQUIRED
+            raise RuntimeContractError(
+                "START REFUSED — persisted state was produced by a "
+                "DIFFERENT model ensemble (member hashes differ); never "
+                "silently load another model (BLOCKER 21): persisted "
+                f"{persisted_members} vs current {current_members}"
+            )
+
+        # -- RESTORE ledger chains FIRST (they must verify) ----------------
+        try:
+            self._ledgers.restore_state(state.get("ledgers", {}))
+        except LedgerError as exc:
+            self._state = RuntimeState.RECOVERY_REQUIRED
+            raise RuntimeContractError(
+                f"START REFUSED — RECOVERY_REQUIRED: {exc}"
+            ) from exc
+        if self._ledgers.head_hashes() != state.get("ledger_heads"):
+            self._state = RuntimeState.RECOVERY_REQUIRED
+            raise RuntimeContractError(
+                "START REFUSED — RECOVERY_REQUIRED: restored ledger heads "
+                "differ from the persisted heads (chain reconstruction "
+                "failed)"
+            )
+
+        # -- RESTORE memory -------------------------------------------------
+        try:
+            self._memory.restore_state(state.get("memory", []))
+        except MemoryError as exc:
+            self._state = RuntimeState.RECOVERY_REQUIRED
+            raise RuntimeContractError(
+                f"START REFUSED — RECOVERY_REQUIRED: {exc}"
+            ) from exc
+        if self._memory.chain_hash != state.get("memory_chain_hash"):
+            self._state = RuntimeState.RECOVERY_REQUIRED
+            raise RuntimeContractError(
+                "START REFUSED — RECOVERY_REQUIRED: restored memory chain "
+                "hash differs from the persisted chain head"
+            )
+
+        # -- RESTORE OMS orders + fills + kill switch ------------------------
+        restored_orders = self._oms.restore_state(state.get("orders", []))
+        restored_switches = self._kill_switch.restore_state(
+            state.get("kill_switch", [])
+        )
+
+        # -- RESTORE positions (incl. SL/TP levels, BLOCKER 9) ----------------
+        positions: dict = {}
+        for record in state.get("positions", []):
+            pos = PositionState.model_validate(record)
+            positions[pos.symbol] = pos
+        self._positions = positions
+
+        # -- RESTORE bar history + bookkeeping --------------------------------
+        bars = []
+        for raw in state.get("bars", []):
+            bar = dict(raw)
+            ts = bar.get("timestamp")
+            if isinstance(ts, str):
+                bar["timestamp"] = datetime.fromisoformat(ts)
+            bars.append(bar)
+        self._bars = bars
+        self._bar_index = state.get("bar_index", -1)
+        self._consecutive_bad_bars = state.get("consecutive_bad_bars", 0)
+        self._equity_realized = Decimal(str(state.get("equity_realized", "0")))
+        self._order_fill_cursor = dict(state.get("order_fill_cursor", {}))
+        self._restored_runtime_state = state.get("runtime_state")
+
+        # pending protection: order_id -> (sl, tp, corr)
+        pending_protection: dict = {}
+        for oid, triple in (state.get("pending_protection", {})).items():
+            sl, tp, corr = triple
+            pending_protection[oid] = (
+                Decimal(str(sl)) if sl is not None else None,
+                Decimal(str(tp)) if tp is not None else None,
+                corr,
+            )
+        self._pending_protection = pending_protection
+
+        # pending exits: symbol -> (order_id, reason, snapshot)
+        pending_exits: dict = {}
+        for symbol, entry in (state.get("pending_exits", {})).items():
+            order_id, reason, snapshot = entry
+            pending_exits[symbol] = (
+                order_id,
+                ExitReason(reason) if isinstance(reason, str) else reason,
+                PositionState.model_validate(snapshot),
+            )
+        self._pending_exits = pending_exits
+
+        # -- RECONCILE before any resume -------------------------------------
+        report = self._reconciliation.reconcile(self._oms, self._positions)
+        if not report.ok:
+            self._state = RuntimeState.RECONCILIATION_REQUIRED
+            self._ledgers.record(
+                ledger="incident",
+                event_type="RUNTIME_RECONCILIATION_REQUIRED",
+                correlation_id=f"session:{self._config.session_id}",
+                actor="runtime",
+                payload={
+                    "mismatches": list(report.mismatches),
+                    "action": "start refused — no automatic resume on "
+                              "unprovable state (BLOCKER 10)",
+                },
+            )
+            raise RuntimeContractError(
+                "START REFUSED — RECONCILIATION_REQUIRED after restart: "
+                + "; ".join(report.mismatches[:3])
+                + " (BLOCKER 10: reconciliation gates resumption)"
+            )
+
+        self._restarted = True
+        self._ledgers.record(
+            ledger="incident",
+            event_type="RUNTIME_STATE_RESTORED",
+            correlation_id=f"session:{self._config.session_id}",
+            actor="runtime",
+            payload={
+                "restored_orders": restored_orders,
+                "restored_switches": restored_switches,
+                "restored_positions": len(positions),
+                "restored_bars": len(bars),
+                "bar_index": self._bar_index,
+                "ledger_events": len(self._ledgers),
+                "memory_records": len(self._memory),
+                "ledger_heads": self._ledgers.head_hashes(),
+                "memory_chain_hash": self._memory.chain_hash,
+                "verdict": "RESTORED + RECONCILED — resume permitted",
+            },
+        )
+
+    @property
+    def restarted(self) -> bool:
+        """True when this runtime instance restored persisted state."""
+        return self._restarted
+
+    @property
+    def operational(self) -> bool:
+        """True for operational paper sessions; False for explicitly
+        marked ephemeral test fixtures."""
+        return not self._config.ephemeral_test_fixture
 
     # ------------------------------------------------------------------
     # Bar processing (the authoritative path)
@@ -395,6 +841,10 @@ class TradingRuntime:
         except Exception as exc:  # insufficient bars yet → HOLD posture
             if bar_fills:
                 self._reconcile_after_fills(correlation_id)
+            # A warm-up bar still mutates authoritative state (bars,
+            # bar cursor) — it is persisted like any accepted bar
+            # (BLOCKER 5: no unpersisted state transitions).
+            self._persist_safe(correlation_id)
             return self._warmup_bar(idx, correlation_id, ts, str(exc))
 
         # -- 3. prediction: ensemble → calibration --------------------------
@@ -518,6 +968,7 @@ class TradingRuntime:
             {"action": decision.action.value, "reason": decision.reason,
              "correlation_id": correlation_id},
             correlation_id=correlation_id,
+            at=ts,
         )
 
         # -- 8. plan + risk gate + submission ---------------------------------
@@ -602,15 +1053,17 @@ class TradingRuntime:
             {"bar_index": idx, "close": str(reference_price),
              "correlation_id": correlation_id},
             correlation_id=correlation_id,
+            at=ts,
         )
         self._memory.record(
             MemoryCategory.REGIME,
             {"regime": regime_state, "crash_probability": crash["probability"],
              "correlation_id": correlation_id},
             correlation_id=correlation_id,
+            at=ts,
         )
-        if self._store is not None:
-            self._persist(correlation_id)
+        # -- 11. persistence (BLOCKER 1: write failure ⇒ safe HALT) -------
+        self._persist_safe(correlation_id)
 
         return BarOutcome(
             bar_index=idx,
@@ -672,7 +1125,8 @@ class TradingRuntime:
             duplicate_order_id=duplicate,
         )
         assessment = self._risk_gate.evaluate(
-            plan, context, correlation_id, ledger=self._ledgers
+            plan, context, correlation_id, ledger=self._ledgers,
+            assessed_at=bar.get("timestamp"),
         )
         if not assessment.passed:
             return [], tuple(c.check for c in assessment.failed_checks)
@@ -809,6 +1263,7 @@ class TradingRuntime:
                      "quantity": str(fill.quantity), "price": str(fill.price),
                      "correlation_id": correlation_id},
                     correlation_id=correlation_id,
+                    at=fill.filled_at,
                 )
             if new_fills:
                 self._order_fill_cursor[order.order_id] = (
@@ -1135,20 +1590,83 @@ class TradingRuntime:
             + unrealized
         )
 
+    def _persist_safe(self, correlation_id: str) -> None:
+        """Persist state; on write failure HALT safely (BLOCKER 1).
+
+        Persistence is authoritative: continuing on unverifiable
+        state is NEVER best-effort. The bar's outcome is still
+        reported honestly, the runtime HALTS, and the NEXT bar is
+        refused.
+        """
+        if self._store is None:
+            return
+        try:
+            self._persist(correlation_id)
+        except StateStoreError as exc:
+            self._state = RuntimeState.HALTED
+            self._ledgers.record(
+                ledger="incident",
+                event_type="RUNTIME_HALTED",
+                correlation_id=correlation_id,
+                actor="runtime",
+                payload={
+                    "reason": f"persistence write failure: {exc}",
+                    "from": "RUNNING",
+                    "action": "safe halt — execution state could not "
+                              "be made durable (BLOCKER 1)",
+                },
+            )
+
     def _persist(self, correlation_id: str) -> None:
+        """Persist the COMPLETE execution state (BLOCKER 5).
+
+        Every execution-critical in-memory field listed in
+        EXECUTION_STATE_FIELDS is persisted atomically: bar history,
+        bar cursor, positions incl. SL/TP, OMS orders incl. fills,
+        kill-switch states, FULL ledger chains (not just heads),
+        structured memory, fill cursors, pending protection/exits,
+        the bad-bar counter, realized equity, and the session/config/
+        model identity block.
+        """
         state = {
+            "schema": EXECUTION_STATE_SCHEMA_VERSION,
+            "identity": self._identity_block(),
             "orders": self._oms.export_state(),
             "kill_switch": self._kill_switch.export_state(),
             "positions": [
                 p.model_dump(mode="json")
                 for p in self._positions.values()
             ],
+            "ledgers": self._ledgers.export_state(),
             "ledger_heads": self._ledgers.head_hashes(),
+            "memory": self._memory.export_state(),
+            "memory_chain_hash": self._memory.chain_hash,
+            "bars": [dict(b) for b in self._bars],
             "bar_index": self._bar_index,
+            "order_fill_cursor": dict(self._order_fill_cursor),
+            "pending_protection": {
+                oid: [str(sl) if sl is not None else None,
+                      str(tp) if tp is not None else None,
+                      corr]
+                for oid, (sl, tp, corr) in self._pending_protection.items()
+            },
+            "pending_exits": {
+                symbol: [order_id, reason.value if hasattr(reason, "value") else str(reason),
+                         snapshot.model_dump(mode="json")]
+                for symbol, (order_id, reason, snapshot)
+                in self._pending_exits.items()
+            },
+            "consecutive_bad_bars": self._consecutive_bad_bars,
             "equity_realized": str(self._equity_realized),
             "session_id": self._config.session_id,
             "runtime_state": self._state.value,
         }
+        problems = validate_execution_state(state)
+        if problems:
+            raise StateStoreError(
+                "refusing to persist an incomplete execution state: "
+                + "; ".join(problems)
+            )
         self._store.snapshot(state, kind="bar_checkpoint")
 
     # -- negative-path bar helpers -----------------------------------------
@@ -1187,6 +1705,10 @@ class TradingRuntime:
                     "reason": "persistent data-quality failures",
                 },
             )
+        # A rejected bar still mutates authoritative state (bad-bar
+        # counter, bar cursor) — persisted like any state transition
+        # (BLOCKER 5: no unpersisted state transitions).
+        self._persist_safe(correlation_id)
         return self._refuse_bar(
             idx, correlation_id, ts,
             f"data quality rejection: {reasons} — NO_TRADE (fail closed)",

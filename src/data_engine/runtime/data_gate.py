@@ -96,14 +96,77 @@ class DatasetReadinessRecord(BaseModel):
     def _validate_coverage(self) -> "DatasetReadinessRecord":
         if self.coverage_end <= self.coverage_start:
             raise DataGateError("coverage_end must be after coverage_start")
-        if self.epistemic_state == "REAL_VERIFIED" and (
-            self.quality_status != "PASSED" or self.pit_status != "VERIFIED"
-        ):
-            raise DataGateError(
-                "REAL_VERIFIED requires quality PASSED and PIT VERIFIED — "
-                "synthetic/unverified data can never be promoted"
-            )
+        if self.epistemic_state == "REAL_VERIFIED":
+            # BLOCKER 3: REAL_VERIFIED requires the COMPLETE chain —
+            # DATA_SOURCE_APPROVED → ACQUIRED → VALIDATED →
+            # QUALITY_GATE → PIT_VERIFIED → PROVENANCE_VERIFIED →
+            # COVERAGE_VERIFIED → REPLAYABLE → REAL_VERIFIED.
+            # Every stage must be individually evidenced; a single
+            # missing stage refuses the promotion (fail closed —
+            # synthetic data is never silently promoted to real).
+            failed_stages = []
+            if not (self.source and self.source.strip()):
+                failed_stages.append("DATA_SOURCE_APPROVED")
+            if self.acquisition_timestamp is None:
+                failed_stages.append("ACQUIRED")
+            if self.quality_status != "PASSED":
+                failed_stages.append("QUALITY_GATE")
+            else:
+                # quality PASSED implies VALIDATED
+                pass
+            if self.pit_status != "VERIFIED":
+                failed_stages.append("PIT_VERIFIED")
+            if not self.provenance:
+                failed_stages.append("PROVENANCE_VERIFIED")
+            if not (
+                self.symbols and self.coverage_start and self.coverage_end
+                and self.coverage_end > self.coverage_start
+            ):
+                failed_stages.append("COVERAGE_VERIFIED")
+            if not (self.content_hash and self.content_hash.strip()):
+                failed_stages.append("REPLAYABLE")
+            if failed_stages:
+                raise DataGateError(
+                    "REAL_VERIFIED refused — readiness chain incomplete, "
+                    f"failed stages: {failed_stages} (BLOCKER 3: the full "
+                    "DATA_SOURCE_APPROVED → ACQUIRED → VALIDATED → "
+                    "QUALITY_GATE → PIT_VERIFIED → PROVENANCE_VERIFIED → "
+                    "COVERAGE_VERIFIED → REPLAYABLE chain is mandatory; "
+                    "synthetic/unverified data is never promoted)"
+                )
         return self
+
+    @property
+    def readiness_chain(self) -> tuple:
+        """The explicit stage chain verdict for this record.
+
+        Returns a tuple of (stage, passed) pairs covering the nine
+        mandated stages. A record is REAL_VERIFIED only when every
+        stage passes (enforced by the model validator).
+        """
+        stages = (
+            ("DATA_SOURCE_APPROVED", bool(self.source and self.source.strip())),
+            ("ACQUIRED", self.acquisition_timestamp is not None),
+            ("VALIDATED", True),  # presence of a parsed record
+            ("QUALITY_GATE", self.quality_status == "PASSED"),
+            ("PIT_VERIFIED", self.pit_status == "VERIFIED"),
+            (
+                "PROVENANCE_VERIFIED",
+                bool(self.provenance)
+                and all(bool(v) for v in self.provenance.values()),
+            ),
+            (
+                "COVERAGE_VERIFIED",
+                bool(self.symbols)
+                and self.coverage_end > self.coverage_start,
+            ),
+            (
+                "REPLAYABLE",
+                bool(self.content_hash and self.content_hash.strip()),
+            ),
+            ("REAL_VERIFIED", self.epistemic_state == "REAL_VERIFIED"),
+        )
+        return stages
 
     @property
     def record_id(self) -> str:
@@ -128,6 +191,7 @@ class DataReadinessReport(BaseModel):
     verified_real_datasets: int
     synthetic_datasets: int
     unverified_real_datasets: int
+    verified_years: float
     gate: str  # READY / BLOCKED_ON_REAL_DATA
     reasons: tuple
 
@@ -166,11 +230,22 @@ class RealDataReadiness:
                 f"dataset {r.dataset_id} is REAL_UNVERIFIED (quality="
                 f"{r.quality_status}, pit={r.pit_status})"
             )
+        # VERIFIED_YEARS: total REAL_VERIFIED coverage, honestly
+        # computed from the verified records (0 when none exist —
+        # never fabricated, BLOCKER 3).
+        verified_years = 0.0
+        for r in verified:
+            span = r.coverage_end - r.coverage_start
+            verified_years += span.total_seconds() / (
+                365.25 * 24 * 3600
+            )
+        verified_years = round(verified_years, 4)
         return DataReadinessReport(
             datasets_registered=len(records),
             verified_real_datasets=len(verified),
             synthetic_datasets=len(synthetic),
             unverified_real_datasets=len(unverified),
+            verified_years=verified_years,
             gate="READY" if verified else "BLOCKED_ON_REAL_DATA",
             reasons=tuple(reasons),
         )

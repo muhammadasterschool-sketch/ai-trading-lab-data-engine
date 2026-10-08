@@ -123,6 +123,47 @@ class TradingMemory:
     def by_category(self, category: MemoryCategory) -> tuple:
         return tuple(r for r in self._records if r.category is category)
 
+    # -- persistence (BLOCKER 20: memory survives restart) ---------------------
+    def export_state(self) -> list:
+        """Serialize every record (structured memory is authoritative
+        trading state — it must not silently disappear on restart)."""
+        return [r.model_dump(mode="json") for r in self._records]
+
+    def restore_state(self, records: Sequence[Mapping]) -> int:
+        """Rebuild memory from a persisted export; VERIFY the chain.
+
+        Any tampered record (hash/chain mismatch) raises
+        :class:`MemoryError` — fail closed. Returns restored count.
+        """
+        if not isinstance(records, Sequence) or isinstance(records, (str, bytes)):
+            raise MemoryError("memory export must be a sequence of records")
+        restored: list = []
+        for record in records:
+            try:
+                restored.append(TradingMemoryRecord.model_validate(record))
+            except Exception as exc:
+                raise MemoryError(
+                    "memory export contains a malformed record — "
+                    f"RECOVERY_REQUIRED ({exc})"
+                ) from exc
+        self._records = restored
+        # Re-derive the chain head from the restored records FIRST,
+        # then verify the full chain (record hashes + links + head).
+        chain = "genesis"
+        for record in restored:
+            chain = prefixed_hash(
+                MEMORY_PREFIX,
+                {"kind": "memory_chain", "prev": chain,
+                 "record": record.record_hash},
+            )
+        self._chain_hash = chain
+        if not self.verify_integrity():
+            raise MemoryError(
+                "restored memory chain FAILED hash verification — "
+                "tampered or corrupted (RECOVERY_REQUIRED)"
+            )
+        return len(restored)
+
     def verify_integrity(self) -> bool:
         """Recompute the full chain (tamper-evidence)."""
         prev = "genesis"

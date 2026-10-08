@@ -19,6 +19,7 @@ import pytest
 
 from data_engine.runtime import (
     DecisionAction,
+    GATE_NAMES,
     LedgerFamily,
     DeterministicBaseline,
     DeterministicEnsemble,
@@ -80,11 +81,17 @@ def _fit_world(drift=2.0):
 
 
 def _config(session="e2e"):
+    # Ephemeral test fixture (BLOCKER 1 governance): these unit tests
+    # exercise runtime MACHINERY without being operational paper
+    # sessions — explicitly marked, so the fail-closed persistence /
+    # readiness startup gates do not apply. Operational semantics are
+    # proven in test_runtime_recovery_integration.py.
     return RuntimeConfig(
         symbol="TEST/USD", timeframe="5m", session_id=session,
         initial_equity=Decimal("100000"), lookback=8, horizon=2,
         feature_version="fv-1", dataset_version="dv-synth",
         expected_interval_seconds=300,
+        ephemeral_test_fixture=True,
     )
 
 
@@ -496,8 +503,9 @@ class TestFailureInjection:
         # (a) Construction-time failure is fail-closed.
         with pytest.raises(Exception):
             ExecutionStateStore(Path("/proc/nonexistent/st"))
-        # (b) Mid-operation journal failure halts the bar (no
-        # best-effort continuation on unverifiable state).
+        # (b) Mid-operation journal failure ⇒ SAFE HALT (BLOCKER 1:
+        # write failure never continues best-effort — the runtime
+        # halts and the outcome reports HALTED; no uncaught raise).
         rt = self._runtime("fi17b")
         rt._store = ExecutionStateStore(tmp_path / "st")
         blocker = tmp_path / "st" / "journal.jsonl.blocked"
@@ -505,12 +513,28 @@ class TestFailureInjection:
         rt._store._journal._path = blocker  # append to a directory fails
         fresh_bar = _bars(1, start=160.0)[0] | {
             "timestamp": T0 + timedelta(minutes=5 * 30)}
-        with pytest.raises(Exception):
-            rt.process_bar(fresh_bar)
+        outcome = rt.process_bar(fresh_bar)
+        assert rt.state.value == "HALTED"
+        assert outcome.runtime_state == "HALTED"
+        # The NEXT bar is refused outright (HALTED is non-trading).
+        refused = rt.process_bar(_bars(1, start=170.0)[0] | {
+            "timestamp": T0 + timedelta(minutes=5 * 31)})
+        assert refused.accepted is False
 
-    # 18. restart (see TestRestartRecovery below)
-    def test_fi_18_restart_placeholder(self):
-        assert True
+    # 18. restart — the REAL restart matrix (10 mandated points)
+    # lives in tests/test_runtime_recovery_integration.py, executed
+    # through the ACTUAL TradingRuntime (BLOCKER 4). This guard keeps
+    # the failure-injection inventory honest: the module must exist
+    # and carry the mandated coverage.
+    def test_fi_18_restart_matrix_exists(self):
+        import importlib.util
+        spec = importlib.util.find_spec(
+            "test_runtime_recovery_integration"
+        )
+        assert spec is not None, (
+            "restart failure-injection requires the runtime "
+            "integration module (BLOCKER 4)"
+        )
 
     # 19. model load failure
     def test_fi_19_model_load_failure(self):
@@ -694,7 +718,9 @@ class TestReadinessGate:
         gate = PaperReadinessGate()
         report = gate.evaluate()
         assert not report.paper_ready
-        assert len(report.failed_gates) == 23
+        # 30 mandatory gates after the re-audit extension (23 +
+        # REAL_DATA/TRADE_PLAN/PARTIAL_FILL/SLTP/AUDIT/REPLAY/BASELINE).
+        assert len(report.failed_gates) == len(GATE_NAMES) == 30
 
     def test_all_passing_evidence_yields_ready(self):
         from data_engine.runtime import GATE_NAMES

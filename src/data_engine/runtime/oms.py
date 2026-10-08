@@ -6,7 +6,8 @@ State machine (mandate §27 — CLOSED set, no skips)::
     CREATED → VALIDATED → RISK_APPROVED → SUBMITTED → ACKNOWLEDGED
         → PARTIALLY_FILLED ⇄ (more fills) → FILLED
     SUBMITTED/ACKNOWLEDGED/PARTIALLY_FILLED → CANCEL_PENDING → CANCELLED
-    live states → EXPIRED (TTL) / UNKNOWN (ambiguous) → RECONCILING
+    live states → EXPIRED (TTL; incl. partial-fill-then-expiry) /
+    UNKNOWN (ambiguous) → RECONCILING
         → FILLED / CANCELLED / FAILED
     CREATED/VALIDATED/RISK_APPROVED → REJECTED / FAILED
 
@@ -73,8 +74,9 @@ TRANSITIONS: dict = {
     }),
     OrderLifecycle.PARTIALLY_FILLED: frozenset({
         OrderLifecycle.PARTIALLY_FILLED, OrderLifecycle.FILLED,
-        OrderLifecycle.CANCEL_PENDING, OrderLifecycle.UNKNOWN,
-        OrderLifecycle.RECONCILING, OrderLifecycle.FAILED,
+        OrderLifecycle.CANCEL_PENDING, OrderLifecycle.EXPIRED,
+        OrderLifecycle.UNKNOWN, OrderLifecycle.RECONCILING,
+        OrderLifecycle.FAILED,
     }),
     OrderLifecycle.CANCEL_PENDING: frozenset({
         OrderLifecycle.CANCELLED, OrderLifecycle.PARTIALLY_FILLED,

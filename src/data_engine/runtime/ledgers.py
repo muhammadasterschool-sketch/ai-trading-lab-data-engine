@@ -299,6 +299,65 @@ class LedgerFamily:
     def __len__(self) -> int:
         return self.total_events()
 
+    # -- persistence (BLOCKER 6: FULL chains, not just heads) -------------------
+    def export_state(self) -> dict:
+        """Serialize EVERY ledger chain completely (events + heads).
+
+        Persisting only head hashes cannot reconstruct the lineage
+        Prediction → Decision → TradePlan → Order → Fill → Position →
+        Exit → Trade → P&L → Incident after restart; the full
+        immutable event set is the minimum authoritative record.
+        """
+        return {
+            name: [event.model_dump(mode="json") for event in chain.events]
+            for name, chain in self._chains.items()
+        }
+
+    def restore_state(self, state: Mapping[str, Any]) -> int:
+        """Rebuild all chains from a persisted export; VERIFY as loaded.
+
+        Every event is re-validated (model contract) and the full hash
+        chain is recomputed — any tampered/edited/reordered record
+        raises :class:`LedgerError` (fail closed: corrupted ledgers
+        force RECOVERY_REQUIRED, never silent trust). Returns the
+        number of restored events.
+        """
+        if not isinstance(state, Mapping):
+            raise LedgerError("ledger export must be a mapping")
+        unknown = set(state) - set(LEDGER_NAMES)
+        if unknown:
+            raise LedgerError(f"unknown ledgers in export: {sorted(unknown)}")
+        restored = 0
+        for name in LEDGER_NAMES:
+            chain = self._chains[name]
+            records = state.get(name, [])
+            if not isinstance(records, Sequence) or isinstance(records, (str, bytes)):
+                raise LedgerError(
+                    f"ledger {name!r} export must be a sequence of events"
+                )
+            events = []
+            for record in records:
+                try:
+                    events.append(LedgerEvent.model_validate(record))
+                except Exception as exc:
+                    raise LedgerError(
+                        f"ledger {name!r} contains a malformed event "
+                        f"(sequence {record.get('sequence') if isinstance(record, Mapping) else '?'}): "
+                        f"{exc} — RECOVERY_REQUIRED"
+                    ) from exc
+            chain._events = events
+            restored += len(events)
+        # Full-chain verification AFTER loading — the restored chains
+        # must recompute to exactly the same hashes they had before
+        # restart (BLOCKER 6: stored ledger → hash verification →
+        # chain reconstruction → same head).
+        if not self.verify():
+            raise LedgerError(
+                "restored ledger chains FAILED hash verification — "
+                "tampered or corrupted (RECOVERY_REQUIRED)"
+            )
+        return restored
+
 
 __all__ = [
     "LEDGER_NAMES",
