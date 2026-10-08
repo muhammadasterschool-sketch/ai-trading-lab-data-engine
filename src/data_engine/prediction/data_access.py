@@ -49,7 +49,22 @@ def _candle_close(candle: Mapping[str, Any]) -> float:
     )
     if close is None:
         raise PredictionDataError("every candle must carry a close price")
-    return float(close)
+    if isinstance(close, bool):
+        # bool is an int subclass — True would silently become 1.0
+        raise PredictionDataError(
+            "close price must be numeric, not bool (RT-PRED-I-001)"
+        )
+    try:
+        value = float(close)
+    except (TypeError, ValueError) as exc:
+        raise PredictionDataError(
+            f"close price must be numeric, got {close!r}"
+        ) from exc
+    if value != value or value in (float("inf"), float("-inf")):
+        raise PredictionDataError(
+            "close price must be finite (NaN/inf rejected — RT-PRED-I-007/I-008)"
+        )
+    return value
 
 
 class PitCandleView(BaseModel):

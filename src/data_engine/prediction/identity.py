@@ -27,6 +27,13 @@ Prefix map (prediction identity family):
 - ``predd.``  drift report identity
 - ``predr.``  registry record identity
 - ``predg.``  outcome-ledger entry identity
+- ``preds.``  dataset manifest / dataset content identity
+- ``predq.``  data-quality report identity
+- ``predx.``  external artifact verification identity
+- ``predw.``  crash-event evaluation identity
+- ``predb.``  benchmark artifact identity
+- ``preda.``  red-team attack record identity
+- ``predc.``  data-source catalog record identity
 """
 
 import platform
@@ -52,6 +59,13 @@ EVIDENCE_PREFIX = "prede."
 DRIFT_PREFIX = "predd."
 REGISTRY_PREFIX = "predr."
 LEDGER_PREFIX = "predg."
+DATASET_PREFIX = "preds."
+QUALITY_PREFIX = "predq."
+VERIFICATION_PREFIX = "predx."
+EVENT_PREFIX = "predw."
+BENCHMARK_PREFIX = "predb."
+ATTACK_PREFIX = "preda."
+SOURCE_CATALOG_PREFIX = "predc."
 
 
 def freeze_number(value: Optional[float]) -> Optional[float]:
@@ -59,11 +73,18 @@ def freeze_number(value: Optional[float]) -> Optional[float]:
 
     ``None`` marks a missing value so it can never be silently hashed as
     a number (fail-closed: callers decide how to treat missing values).
+    Non-finite values (``inf``/``-inf``) are REJECTED — a non-finite
+    number is a data-quality failure, never a hashable identity input
+    (red-team hardening, RT-PRED-I-007).
     """
     if value is None:
         return None
     if value != value:  # NaN check — never hash NaN
         return None
+    if value in (float("inf"), float("-inf")):
+        raise PredictionContractError(
+            "non-finite float rejected from identity payloads (inf)"
+        )
     return round(float(value), 12)
 
 
@@ -212,6 +233,13 @@ __all__ = [
     "DRIFT_PREFIX",
     "REGISTRY_PREFIX",
     "LEDGER_PREFIX",
+    "DATASET_PREFIX",
+    "QUALITY_PREFIX",
+    "VERIFICATION_PREFIX",
+    "EVENT_PREFIX",
+    "BENCHMARK_PREFIX",
+    "ATTACK_PREFIX",
+    "SOURCE_CATALOG_PREFIX",
     "freeze_number",
     "prefixed_hash",
     "prediction_identity",
