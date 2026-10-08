@@ -18,12 +18,15 @@ Phase map (post 4A.1 remediation, phases 4A.2 through graduation):
 - ``data_engine.paper``        11    paper trading + evaluation/graduation
                                  and the live-authorization boundary
                                  (NEVER authorized by this codebase)
+- ``data_engine.prediction``   PRED  prediction & crash intelligence
+                                 (probabilistic, PIT-correct, governed,
+                                 advisory-only — never executes trades)
 
 This module does NOT implement trading strategies and does NOT determine
 whether any strategy is profitable.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 from data_engine.schemas import (
     Candle,
@@ -145,6 +148,32 @@ from data_engine.benchmarks import (
     build_default_suite,
 )
 
+# Prediction & crash intelligence layer (PRED). Imported LAST: the layer
+# integrates with pit (hashing), research_validation (walk-forward plans)
+# and risk (hard limits), all of which are imported above — no cycles.
+from data_engine.prediction import (
+    BlockReason,
+    CrashLabelDefinition,
+    CrashRiskAssessment,
+    CrashRiskEstimator,
+    EstimatorConfig,
+    LogisticCrashModel,
+    ModelRecord,
+    PredictionGateInput,
+    PredictionModelRegistry,
+    PredictionOutcomeLedger,
+    PredictionProvenance,
+    RegimeEngine,
+    ScenarioDefinition,
+    ScenarioEngine,
+    crash_warning_quality,
+    evaluate_prediction_gates,
+    evaluate_walk_forward,
+    evidence_assessment,
+    prediction_risk_decision,
+    systemic_risk_reading,
+)
+
 __all__ = [
     "Candle",
     "Dataset",
@@ -182,5 +211,25 @@ __all__ = [
     "BenchmarkSuite",
     "BenchmarkReport",
     "build_default_suite",
+    "BlockReason",
+    "CrashLabelDefinition",
+    "CrashRiskAssessment",
+    "CrashRiskEstimator",
+    "EstimatorConfig",
+    "LogisticCrashModel",
+    "ModelRecord",
+    "PredictionGateInput",
+    "PredictionModelRegistry",
+    "PredictionOutcomeLedger",
+    "PredictionProvenance",
+    "RegimeEngine",
+    "ScenarioDefinition",
+    "ScenarioEngine",
+    "crash_warning_quality",
+    "evaluate_prediction_gates",
+    "evaluate_walk_forward",
+    "evidence_assessment",
+    "prediction_risk_decision",
+    "systemic_risk_reading",
     "__version__",
 ]

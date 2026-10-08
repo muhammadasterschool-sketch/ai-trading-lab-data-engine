@@ -169,6 +169,16 @@ src/data_engine/
     benchmarks/             30     performance suite over real components;
                                   deterministic operation counts; NO-TRADE
                                   capability proven
+    prediction/             PRED   prediction & crash intelligence —
+                                  probabilistic crash-risk estimates (never
+                                  deterministic claims), PIT-correct
+                                  features/labels/regimes, baseline-first
+                                  models + justification gates, calibration,
+                                  uncertainty, drift, evidence scores,
+                                  human-only model registry, outcome ledger,
+                                  no-prediction states, scenarios (not
+                                  forecasts), systemic-risk measures,
+                                  advisory-only risk integration
 ```
 
 **Live execution boundary:** NEVER authorized by this codebase. The
