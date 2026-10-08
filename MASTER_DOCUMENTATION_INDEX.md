@@ -9,8 +9,8 @@ Document Type:  Master documentation index (SSOT)
 Phase:          Cross-phase (all phases)
 Authority:      A — AUTHORITATIVE (this index is the documentation map of record)
 Status:         CURRENT
-Version:        1.2.0
-Last Updated:   2026-10-08 (runtime-era registration: TRADING_RUNTIME_ARCHITECTURE_AUDIT.md)
+Version:        1.3.0
+Last Updated:   2026-10-08 (pre-paper closure era: PRE_PAPER_BUG_FORENSIC_AND_CLOSURE_REPORT.md)
 Supersedes:     none (first canonical index)
 Superseded By:  —
 Source Evidence: doc_discovery.py inventory (80 pre-existing docs), reference
@@ -156,6 +156,7 @@ Any future phase-owned document SHALL follow the naming standard
 | Path | Auth | Status | Purpose | Supersession |
 |---|---|---|---|---|
 | `TRADING_RUNTIME_ARCHITECTURE_AUDIT.md` | B | Current — audit baseline of record for the FINAL INTEGRATED RUNTIME mandate (§2 FIRST TASK; v1.0.0) | Runtime-integration audit: component inventory, dependency/runtime/execution graphs, ownership tables, missing connections MC-1..12, RT-F1..15 findings, PHASE A–AF implementation order | — |
+| `PRE_PAPER_BUG_FORENSIC_AND_CLOSURE_REPORT.md` | A | Current — **authoritative consolidated bug register** for the pre-paper phase (bug-forensic mandate §26; v1.0.0) | Pre-paper forensic: RT-F1..15 + MC-1..12 + ARCH-F1..4 re-verification record; NEW register BUG-001..009 (3 CRITICAL: limit-order price violation, position-flip basis, additive risk netting); 11/11 executable reproductions; prepared fixes (§5) BLOCKED_BY_AUTHORIZATION; PAPER_READY = NO (PAPER-BLK-1..10) | — |
 
 The remaining §61 spec documents (`TRADING_RUNTIME_ARCHITECTURE.md`, `TRADING_EVENT_CONTRACT.md`, `ORDER_LIFECYCLE_SPEC.md`, `PAPER_TRADING_SPEC.md`, …) are deliberately NOT created until their implementing phase lands (audit-first discipline; §61 "only where needed").
 
@@ -225,6 +226,7 @@ behavior / determinism). Future dedicated documents SHALL use
 | `ZAI_REPOSITORY_PROGRESS_BRIEF.md` | B | Current supporting — the repository progress brief ("what has been done so far") | One-page orientation: timeline, current state, open items | — |
 | `ZAI_AUTONOMOUS_TRADING_SYSTEM_STATUS.md` | B | Current — §76-required living status document for the Autonomous Intelligence + Full System Expansion mandate (v1.0.0 baseline: §78 audit) | Autonomy levels L0–L8, capability matrix, duplicate-system audit, dependency graph, blocker table BLK-1..15, test/data/model inventories, authorization state | — |
 | `TRADING_RUNTIME_ARCHITECTURE_AUDIT.md` | B | Current — runtime-integration audit authority for the FINAL INTEGRATED RUNTIME mandate (see Phase RT section above) | §2 repository audit: the map from component library to governed trading runtime | — |
+| `PRE_PAPER_BUG_FORENSIC_AND_CLOSURE_REPORT.md` | A | Current — authoritative bug register for the pre-paper phase (see Phase RT section above) | Consolidated pre-paper forensic: prior-register verification + BUG-001..009 + paper-readiness blockers PAPER-BLK-1..10 | — |
 
 ---
 
