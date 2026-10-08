@@ -6,23 +6,23 @@ Document Type:  Progress brief (living orientation document)
 Phase:          Cross-phase
 Authority:      B — CURRENT SUPPORTING
 Status:         CURRENT
-Version:        1.2.0
-Last Updated:   2026-10-08 (documentation normalization cycle)
-Supersedes:     v1.1.0 (enhancement-mandate registration update)
+Version:        1.3.0
+Last Updated:   2026-10-08 (prediction & crash intelligence construction cycle)
+Supersedes:     v1.2.0 (documentation normalization update)
 Superseded By:  —
 Source Evidence: git log, MASTER_DOCUMENTATION_INDEX.md, cycle records cited below
 ```
 
 > One-page orientation: what exists in this repository today, how it got here,
-> and what remains. Updated 2026-10-08 after the documentation normalization
-> cycle. Documentation map of record: `MASTER_DOCUMENTATION_INDEX.md`.
+> and what remains. Updated 2026-10-08 after the prediction & crash intelligence
+> construction cycle. Documentation map of record: `MASTER_DOCUMENTATION_INDEX.md`.
 
 | | |
 |---|---|
 | **Remote** | https://github.com/muhammadasterschool-sketch/ai-trading-lab-data-engine |
 | **HEAD** | `main` and `phase-4a/4a1-architecture-correction` in sync (see git log) |
-| **Test suite** | **789 passed** (deterministic; verified 3x) |
-| **Overall status** | Construction era COMPLETE · enhancement era **REGISTERED, NOT STARTED** · READY_WITH_FINDINGS |
+| **Test suite** | **915 passed** (deterministic; verified 3x) |
+| **Overall status** | Construction era COMPLETE · **prediction intelligence layer BUILT & TESTED** · enhancement era REGISTERED, NOT STARTED · READY_WITH_FINDINGS |
 
 ---
 
@@ -49,7 +49,8 @@ computation → backtesting → research validation → risk control → paper t
 | Progress brief | Consolidated progress summary | `3084dcb` (1) | 789 |
 | Enhancement Mandate v2.0 | 50-section enhancement/hardening mandate filed verbatim + registration & gap analysis | `78349e1` (1) | 789 |
 | Progress brief update | Brief refreshed to cover mandate registration | `6d0ad30` (1) | 789 |
-| Documentation normalization | Phase-wise documentation index (SSOT), contradiction register, link audit, doc-control headers — 4 new canonical docs, zero renames | this cycle | 789 |
+| Documentation normalization | Phase-wise documentation index (SSOT), contradiction register, link audit, doc-control headers — 4 new canonical docs, zero renames | `9982edc..228bf20` (2) | 789 |
+| Prediction & Crash Intelligence | New `prediction/` package (24 modules): PIT-correct features/labels/regimes, baseline-first models + justification gate, calibration, uncertainty, drift, evidence scores, human-only model registry, outcome ledger, no-prediction gates, walk-forward + warning quality, crash-risk estimator, scenarios, systemic risk, advisory-only risk integration — T-PRED-001..030 matrix | `67a273e..9ddc23c` (3) | 915 |
 
 ## 3. What was built, phase by phase
 
@@ -91,15 +92,38 @@ addressing, bounded memory), performance benchmarks (`benchmarks/` — 10 real
 component surfaces, timing-excluded hashes), and a full 15-stage end-to-end
 lifecycle test ending in a governed REJECTION with NO TRADE at 10 boundaries.
 
-## 4. Current verified state (all gates green at `018d084`)
+**Prediction & crash intelligence layer (PRED).** The repository is no longer
+only a strategy/backtesting system: `src/data_engine/prediction/` adds a
+governed prediction laboratory. Every crash output is probabilistic — never a
+deterministic claim — and the system refuses instead of guessing
+(NO_SIGNAL / MODEL_UNCERTAIN / DATA_INSUFFICIENT / REGIME_UNKNOWN /
+PREDICTION_BLOCKED with machine-readable reasons). Highlights: PIT candle
+views with revision defense and survivorship-safe universes; a 5-year minimum
+history policy enforced by default; configurable crash labels with a structural
+label/feature boundary proof; a deterministic regime engine with transitions
+recorded as events; baseline-first models with a MODEL_NOT_JUSTIFIED gate;
+Brier/log-loss/ECE calibration with Platt scaling; PSI drift monitoring with
+mandated failure actions; an 11-dimension evidence score that fails toward
+EVIDENCE_INSUFFICIENT; a model lifecycle registry where PAPER/GRADUATE require
+HUMAN approval and AI self-approval is structurally rejected; an append-only
+hash-chained outcome ledger; walk-forward evaluation reusing the Phase 7 plan
+builder; crash-warning quality metrics (lead time, false alarms, misses);
+scenarios that are never forecasts; and an advisory-only risk interface over
+the real Phase 8 hard limits with kill-switch suppression. **Honest limits:**
+no real market datasets exist in the repository (the policy engine and refusal
+states are tested; no coverage claim), a single advanced model family
+(deterministic logistic) is implemented, and microstructure is explicitly
+UNAVAILABLE.
 
-- **789/789 tests pass** — deterministic across repeated runs, cache disabled.
+## 4. Current verified state (all gates green at the prediction-cycle HEAD)
+
+- **915/915 tests pass** — deterministic across repeated runs, cache disabled.
 - **Frozen Phase 3 intact**: 11/11 strategy blobs byte-identical to `13fdc7e`;
-  SUB-18 manifest 13/13 sha256 pins match.
-- **Secret scan**: 0 hits across 200 tracked files; 0 secrets in full history.
-- **Mutation gate**: 15/15 reintroduced defects detected.
-- **Cross-process identity**: `disc20.` / `know42.` / `bmk30.` hashes stable
-  across fresh OS processes.
+  SUB-18 manifest 13/13 sha256 pins match (re-pinned by T-PRED-028).
+- **Secret scan**: 0 hits across 240 tracked files; 0 secrets in full history.
+- **Mutation gate**: 15/15 reintroduced defects detected (4A.1 cycle).
+- **Cross-process identity**: `disc20.` / `know42.` / `bmk30.` / `pred.` hashes
+  stable across fresh OS processes.
 - **Security**: no network/MT5/broker code in `src`; filesystem containment
   fail-closed; zero untracked artifacts; working tree clean.
 
@@ -128,27 +152,36 @@ src/data_engine/
   infra/          reproducibility, metrics (10) paper/ simulator, eval (11)
   discovery/      strategy candidates (mandate) knowledge/ records (mandate)
   benchmarks/     performance surfaces (mandate)
-tests/            789 tests incl. test_pit_view.py (95 IDs) + lifecycle
+  prediction/     prediction & crash intelligence (PRED — 24 modules)
+  …               + core modules (schemas, provider, storage, security…)
+tests/            915 tests incl. test_pit_view.py (95 IDs), lifecycle,
+                 and the T-PRED-001..030 prediction matrix (126 tests)
 docs/             engine design docs
-*.md (root)       60+ governance/audit/implementation records
+*.md (root)       80+ governance/audit/implementation records
 ```
 
 ## 7. What comes next
 
-1. **Execute the Enhancement Mandate v2.0** (`MASTER_ENHANCEMENT_HARDENING_
+1. **Approve real data sources for the prediction layer** — the 5-year
+   history policy, PIT data access, and refusal states are implemented and
+   tested, but the repository contains NO real market datasets; acquisition
+   (with provenance) is an operator decision
+   (`PREDICTION_INTELLIGENCE_IMPLEMENTATION_REPORT.md` §6).
+2. **Execute the Enhancement Mandate v2.0** (`MASTER_ENHANCEMENT_HARDENING_
    MANDATE.md`, registered NOT started): 17 work packages — 3 ABSENT (model
 drift, CI gates, operator plane), 14 PARTIAL. Recommended order in
    `ZAI_ENHANCEMENT_MANDATE_REGISTRATION.md` §6 (CI gates → NO-TRADE decision
    model → data quality → … → operator plane → autonomous lifecycle test →
-   final acceptance).
-2. **Start the 30-day paper-trading evaluation** once a strategy candidate is
+   final acceptance). Note: PSI drift monitoring now exists in `prediction/`;
+   WP-5 remains about wiring it into strategy-lifecycle monitoring.
+3. **Start the 30-day paper-trading evaluation** once a strategy candidate is
    validated and registered (rule is structural and already implemented).
-3. **Dispatch external review windows** — GPT re-audit and Claude fix window
+4. **Dispatch external review windows** — GPT re-audit and Claude fix window
    (F-11 and the 4 MEDIUM findings are queued for the fix window).
-4. **Ratify H-1 containment** — human decision on `PHASE_GOVERNANCE_
+5. **Ratify H-1 containment** — human decision on `PHASE_GOVERNANCE_
    RECONCILIATION.md` recommendation (Option A: containment, no Phase 3
-   amendment).
-5. **Final human acceptance** → graduation decision. Live execution remains
+   amendment). The prediction layer is H-1 independent by construction.
+6. **Final human acceptance** → graduation decision. Live execution remains
    never-authorized without an explicit human-issued token.
 
 ## 8. Key documents in this repository
@@ -156,8 +189,10 @@ drift, CI gates, operator plane), 14 PARTIAL. Recommended order in
 `MASTER_FULL_SYSTEM_CONSTRUCTION_BLUEPRINT.md` (construction authority) ·
 `MASTER_ENHANCEMENT_HARDENING_MANDATE.md` (enhancement authority, v2.0) ·
 `MASTER_DOCUMENTATION_INDEX.md` (documentation SSOT — every doc classified) ·
+`AI_TRADING_LAB_PREDICTION_CRASH_INTELLIGENCE_SPEC.md` (prediction authority) ·
 `GOVERNANCE_DOCUMENT_CONTRADICTION_REGISTER.md` (live contradiction tracking) ·
 `ZAI_ENHANCEMENT_MANDATE_REGISTRATION.md` (gap map, 17 packages) ·
+`PREDICTION_INTELLIGENCE_IMPLEMENTATION_REPORT.md` (PRED cycle record) ·
 `PHASE_4A1_IMPLEMENTATION_RECORD.md` ·
 `PHASES_4A2_TO_GRADUATION_IMPLEMENTATION_RECORD.md` ·
 `PHASES_DISCOVERY_TO_AUTONOMY_IMPLEMENTATION_RECORD.md` ·
