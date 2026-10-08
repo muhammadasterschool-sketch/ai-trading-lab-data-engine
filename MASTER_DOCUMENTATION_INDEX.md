@@ -9,8 +9,8 @@ Document Type:  Master documentation index (SSOT)
 Phase:          Cross-phase (all phases)
 Authority:      A — AUTHORITATIVE (this index is the documentation map of record)
 Status:         CURRENT
-Version:        1.8.0
-Last Updated:   2026-10-09 (paper-readiness re-audit executed: PAPER_TRADING_READINESS_FINAL_REPORT.md v2.0.0 + runtime spec amendments v2.0.0 + 43 integration tests)
+Version:        1.9.0
+Last Updated:   2026-10-09 (ZAI_REPOSITORY_WORK_DONE_SUMMARY.md v1.0.0 registered — operator-requested condensed work-done brief; all work verified pushed at a77c54b)
 Supersedes:     none (first canonical index)
 Superseded By:  —
 Source Evidence: doc_discovery.py inventory (80 pre-existing docs), reference
@@ -243,6 +243,7 @@ behavior / determinism). Future dedicated documents SHALL use
 | `MASTER_DOCUMENTATION_INDEX.md` | A | Current — **THIS DOCUMENT** | Documentation SSOT index | — |
 | `README.md` | B | Current supporting | Package orientation, module map, phase map | — |
 | `ZAI_REPOSITORY_PROGRESS_BRIEF.md` | B | Current supporting — the repository progress brief ("what has been done so far") | One-page orientation: timeline, current state, open items | — |
+| `ZAI_REPOSITORY_WORK_DONE_SUMMARY.md` | B | Current supporting — the operator-requested condensed work-done summary ("repo me abhi tak kiya kiya hai"; v1.0.0) | 5-minute read: TL;DR, hard verified state, era-by-era history, module inventory, verification record, operator decision list | — |
 | `ZAI_AUTONOMOUS_TRADING_SYSTEM_STATUS.md` | B | Current — §76-required living status document for the Autonomous Intelligence + Full System Expansion mandate (v1.0.0 baseline: §78 audit) | Autonomy levels L0–L8, capability matrix, duplicate-system audit, dependency graph, blocker table BLK-1..15, test/data/model inventories, authorization state | — |
 | `TRADING_RUNTIME_ARCHITECTURE_AUDIT.md` | B | Current — runtime-integration audit authority for the FINAL INTEGRATED RUNTIME mandate (see Phase RT section above) | §2 repository audit: the map from component library to governed trading runtime | — |
 | `PRE_PAPER_BUG_FORENSIC_AND_CLOSURE_REPORT.md` | A | Current — authoritative bug register for the pre-paper phase (see Phase RT section above) | Consolidated pre-paper forensic: prior-register verification + BUG-001..009 + paper-readiness blockers PAPER-BLK-1..10 | — |
