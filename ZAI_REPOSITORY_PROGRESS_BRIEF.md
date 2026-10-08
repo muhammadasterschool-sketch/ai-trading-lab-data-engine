@@ -6,16 +6,17 @@ Document Type:  Progress brief (living orientation document)
 Phase:          Cross-phase
 Authority:      B — CURRENT SUPPORTING
 Status:         CURRENT
-Version:        1.4.0
-Last Updated:   2026-10-08 (prediction closure/validation cycle — PRED-F1/F2/F3)
-Supersedes:     v1.3.0 (prediction & crash intelligence construction cycle)
+Version:        1.5.0
+Last Updated:   2026-10-08 (architecture readiness audit — LSTM/Transformer/Ensemble/RL/Autonomy)
+Supersedes:     v1.4.0 (prediction closure/validation cycle — PRED-F1/F2/F3)
 Superseded By:  —
 Source Evidence: git log, MASTER_DOCUMENTATION_INDEX.md, cycle records cited below
 ```
 
 > One-page orientation: what exists in this repository today, how it got here,
-> and what remains. Updated 2026-10-08 after the prediction closure cycle
-> (validation/data/governance capabilities; PRED-F1/F2/F3 closed as specified).
+> and what remains. Updated 2026-10-08 after the read-only architecture
+> readiness audit for the five core objectives (LSTM, Transformer, Randomized
+> Ensemble, Reinforcement Learning, Autonomous Trading).
 > Documentation map of record: `MASTER_DOCUMENTATION_INDEX.md`.
 
 | | |
@@ -23,7 +24,7 @@ Source Evidence: git log, MASTER_DOCUMENTATION_INDEX.md, cycle records cited bel
 | **Remote** | https://github.com/muhammadasterschool-sketch/ai-trading-lab-data-engine |
 | **HEAD** | `main` and `phase-4a/4a1-architecture-correction` in sync (see git log) |
 | **Test suite** | **1,059 passed** (deterministic; verified 3x) |
-| **Overall status** | Construction era COMPLETE · prediction intelligence layer BUILT, TESTED **and closure-validated** (PRED-F1/F2/F3 closed) · empirical validation truthfully BLOCKED on real data · enhancement era REGISTERED, NOT STARTED · READY_WITH_FINDINGS |
+| **Overall status** | Construction era COMPLETE · prediction intelligence layer BUILT, TESTED **and closure-validated** (PRED-F1/F2/F3 closed) · architecture readiness AUDITED (LSTM/Transformer/Ensemble/RL/Autonomy: NOT READY — IMPLEMENTATION_AUTHORIZATION: NOT_AUTHORIZED) · empirical validation truthfully BLOCKED on real data · enhancement era REGISTERED, NOT STARTED · READY_WITH_FINDINGS |
 
 ---
 
@@ -53,6 +54,7 @@ computation → backtesting → research validation → risk control → paper t
 | Documentation normalization | Phase-wise documentation index (SSOT), contradiction register, link audit, doc-control headers — 4 new canonical docs, zero renames | `9982edc..228bf20` (2) | 789 |
 | Prediction & Crash Intelligence | New `prediction/` package (24 modules): PIT-correct features/labels/regimes, baseline-first models + justification gate, calibration, uncertainty, drift, evidence scores, human-only model registry, outcome ledger, no-prediction gates, walk-forward + warning quality, crash-risk estimator, scenarios, systemic risk, advisory-only risk integration — T-PRED-001..030 matrix | `67a273e..9ddc23c` (3) | 915 |
 | Prediction closure & validation | 7 closure modules (datasets + quality gates + source registry + artifact verification + event evaluation + benchmark harness + red-team matrix); PRED-F3 estimator re-verification; crash completion; **PRED-F1/F2/F3 CLOSED**; 45/45 red-team attacks defended; claim categories strictly separated; 4 closure docs + WP-12 CI spec | `56ffa6e..02496b7` (7) | 1,059 |
+| Architecture readiness audit (READ-ONLY) | Forensic audit toward the five core objectives (LSTM / Transformer / Randomized Ensemble / RL / Autonomous Trading): 24-area survey (A–X), temporal-leakage-path analysis, 12-section structured report with per-family readiness tables and IMPLEMENTATION_AUTHORIZATION: **NOT_AUTHORIZED**; 12 new findings registered (ARCH-F1..F12); zero source files modified — brief update commit only | this commit (1) | 1,059 |
 
 ## 3. What was built, phase by phase
 
@@ -144,6 +146,7 @@ UNAVAILABLE.
 | H-1 / F-04 | HIGH | **OPEN / CONTAINED** | `Candle.to_hash()` non-deterministic when `provider_timestamp` unset; dormant path (zero active callers); Phase 4 identity prohibited from using it at 3 layers. Human ratification of containment pending. |
 | F-11 | MEDIUM | registered | `QuantEngine` does not merge `IndicatorSpec.parameters` defaults — bare `sma` yields all-None; pre-parameterized names (`sma20`, `rsi14`) work. |
 | PRED-F1/F2/F3 | — | **CLOSED (closure cycle)** | Benchmark protocol + blocked/refusal harness; 45-attack red-team matrix; estimator artifact re-verification. Evidence: `PREDICTION_VALIDATION_EVALUATION_REPORT.md` §3–5/§7. |
+| ARCH-F1..F12 | 5 MEDIUM + 6 LOW + 1 INFO | **registered (read-only audit)** | Kill-switch reset unauthenticated (`risk/engine.py:174-176`); latent NameErrors on dormant paths (`ingestion.py:191`, `quant_boundary.py:118/:175`); purge/embargo defaults unsafe for future overlapping sequence windows; walk-forward plan builder lacks a purge parameter; risk violation chain lacks `verify()`; + hygiene items. Full register with file:line evidence in the audit deliverable (kept outside the repository per the read-only mandate). |
 | REAL-DATA / WP-12 / MODEL-APPROVAL / PAT-ROTATION | — | **HUMAN_DECISION_REQUIRED** | Real data source approval (candidate matrix ready); GitHub Actions CI (workflow spec ready, deliberately not installed); prediction registry approval owner; rotate the chat-exposed GitHub PAT. |
 | — | 4 MEDIUM + 8 LOW | registered | Counting nuances, CRLF decision recorded-not-acted, stale blueprint status lines. |
 
@@ -189,23 +192,37 @@ docs/             engine design docs
 2. **Decide GitHub Actions CI (WP-12)** — the workflow is specified and
    installation-ready (`WP_12_CI_IMPLEMENTATION_SPEC.md`); one operator
    decision record installs it. Local gates remain authoritative until then.
-3. **Execute the Enhancement Mandate v2.0** (`MASTER_ENHANCEMENT_HARDENING_
+3. **Advanced-model families remain NOT_AUTHORIZED until sequenced** — the
+   architecture readiness audit verified that the governed substrate is
+   reusable as-is (PIT views, label boundary, ordered gates, model registry,
+   calibration, drift, provenance — all family-agnostic), but the sequence/
+   window layer, NN training infrastructure, sequence-scaled purge policy,
+   model-competition arena, and autonomy supervisor do not exist yet, while
+   ADVANCED_ML: DEFERRED and REAL_DATA_VALIDATION: BLOCKED stand. Dependency
+   order: real data source approval → WP-12 CI → authorized fix window
+   (ARCH-F1/F3/F4/F6, H-1 ratification) → common components (sequence,
+   scaler, training governor, purge re-parameterization, arena) → real-data
+   baselines → per-family justification-gated implementation (LSTM →
+   Transformer → Ensemble → RL) → paper-scope autonomy supervisor. Live
+   execution stays never-authorized.
+4. **Execute the Enhancement Mandate v2.0** (`MASTER_ENHANCEMENT_HARDENING_
    MANDATE.md`, registered NOT started): 17 work packages — 3 ABSENT (model
 drift, CI gates, operator plane), 14 PARTIAL. Recommended order in
    `ZAI_ENHANCEMENT_MANDATE_REGISTRATION.md` §6. Note: PSI drift monitoring
    now exists in `prediction/`; WP-5 remains about wiring it into
    strategy-lifecycle monitoring.
-4. **Name the prediction registry approval owner** — the registry rejects
+5. **Name the prediction registry approval owner** — the registry rejects
    AI approvals structurally; the first human approval record activates the
    model lifecycle (DRAFT→…→GRADUATE needs a named owner).
-5. **Start the 30-day paper-trading evaluation** once a strategy candidate is
+6. **Start the 30-day paper-trading evaluation** once a strategy candidate is
    validated and registered (rule is structural and already implemented).
-6. **Dispatch external review windows** — GPT re-audit and Claude fix window
-   (F-11 and the 4 MEDIUM findings are queued for the fix window).
-7. **Ratify H-1 containment** — human decision on `PHASE_GOVERNANCE_
+7. **Dispatch external review windows** — GPT re-audit and Claude fix window
+   (F-11, the 4 MEDIUM findings, and the ARCH-F1/F3/F4/F6 audit findings are
+   queued for the fix window).
+8. **Ratify H-1 containment** — human decision on `PHASE_GOVERNANCE_
    RECONCILIATION.md` recommendation (Option A: containment, no Phase 3
    amendment). The prediction layer is H-1 independent by construction.
-8. **Rotate the GitHub PAT** (exposed in chat multiple times) and **final
+9. **Rotate the GitHub PAT** (exposed in chat multiple times) and **final
    human acceptance** → graduation decision. Live execution remains
    never-authorized without an explicit human-issued token.
 
@@ -233,3 +250,10 @@ boundary) ·
 `FINAL_FULL_REPOSITORY_FORENSIC_AUDIT.md` ·
 `AI_TRADING_LAB_FINAL_ACCEPTANCE_AUDIT.md` ·
 `ZAI_REPOSITORY_PROGRESS_BRIEF.md` (this document)
+
+Read-only audit deliverable (maintained **outside** the repository, per the
+audit's no-modification mandate): `AI_TRADING_LAB_ARCHITECTURE_READINESS_
+AUDIT.md` — 12-section forensic report, A–X area survey, per-family
+readiness tables (LSTM / Transformer / Ensemble / RL / Autonomous Trading),
+and IMPLEMENTATION_AUTHORIZATION: NOT_AUTHORIZED with the sequenced path
+that would change it.
