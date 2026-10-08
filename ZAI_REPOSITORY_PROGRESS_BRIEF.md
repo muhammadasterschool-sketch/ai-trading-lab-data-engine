@@ -6,9 +6,9 @@ Document Type:  Progress brief (living orientation document)
 Phase:          Cross-phase
 Authority:      B — CURRENT SUPPORTING
 Status:         CURRENT
-Version:        1.8.0
-Last Updated:   2026-10-08 (pre-paper bug forensic mandate: PRE_PAPER_BUG_FORENSIC_AND_CLOSURE_REPORT.md)
-Supersedes:     v1.7.0 (FINAL INTEGRATED RUNTIME mandate — §2 FIRST TASK audit: TRADING_RUNTIME_ARCHITECTURE_AUDIT.md)
+Version:        1.9.0
+Last Updated:   2026-10-08 (P0 security credential cleanup + staged readiness program P0–P8 registered: SECURITY_CREDENTIAL_FORENSIC_REPORT.md)
+Supersedes:     v1.8.0 (pre-paper bug forensic mandate: PRE_PAPER_BUG_FORENSIC_AND_CLOSURE_REPORT.md)
 Superseded By:  —
 Source Evidence: git log, MASTER_DOCUMENTATION_INDEX.md, cycle records cited below
 ```
@@ -22,15 +22,18 @@ Source Evidence: git log, MASTER_DOCUMENTATION_INDEX.md, cycle records cited bel
 > FORENSIC AND CLOSURE mandate (v1.8.0 — see
 > `PRE_PAPER_BUG_FORENSIC_AND_CLOSURE_REPORT.md`: 3 CRITICAL new defects
 > reproduced — limit-order price violation, position-flip basis, additive
-> risk netting; PAPER_READY = NO).
+> risk netting; PAPER_READY = NO), and the P0 security credential cleanup +
+> forensic baseline (v1.9.0 — see `SECURITY_CREDENTIAL_FORENSIC_REPORT.md`:
+> 0 secrets in tree / history / configuration; credential exposure #4
+> contained by policy; staged readiness program P0–P8 registered; P0 COMPLETE).
 > Documentation map of record: `MASTER_DOCUMENTATION_INDEX.md`.
 
 | | |
 |---|---|
 | **Remote** | https://github.com/muhammadasterschool-sketch/ai-trading-lab-data-engine |
 | **HEAD** | `main` and `phase-4a/4a1-architecture-correction` in sync (see git log) |
-| **Test suite** | **1,059 passed** (deterministic; verified 3x) |
-| **Overall status** | Construction era COMPLETE · prediction intelligence layer BUILT, TESTED **and closure-validated** (PRED-F1/F2/F3 closed) · architecture readiness AUDITED (5 families NOT READY) · expansion era REGISTERED + §78 audit baseline COMPLETE (autonomy L0 achieved, L1–L5 components partial, L6 absent, L7/L8 never authorized — see `ZAI_AUTONOMOUS_TRADING_SYSTEM_STATUS.md`) · **runtime-integration era REGISTERED + PHASE A audit COMPLETE** (`TRADING_RUNTIME_ARCHITECTURE_AUDIT.md`: no runtime/event bus/persistence yet; risk gate + reconciliation + audit logger UNWIRED from the paper order path — RT-F1..F15 registered; PHASE B–AF gated) · **pre-paper bug forensic COMPLETE** (`PRE_PAPER_BUG_FORENSIC_AND_CLOSURE_REPORT.md`: RT-F1..15 + MC-1..12 + ARCH-F1..4 all re-verified CONFIRMED; NEW BUG-001..009 (3 CRITICAL) reproduced 11/11; fixes prepared and BLOCKED_BY_AUTHORIZATION; PAPER_READY = **NO**) · empirical validation truthfully BLOCKED on real data · enhancement era REGISTERED, NOT STARTED · READY_WITH_FINDINGS |
+| **Test suite** | **1,059 passed** (deterministic; verified 4x) |
+| **Overall status** | Construction era COMPLETE · prediction intelligence layer BUILT, TESTED **and closure-validated** (PRED-F1/F2/F3 closed) · architecture readiness AUDITED (5 families NOT READY) · expansion era REGISTERED + §78 audit baseline COMPLETE (autonomy L0 achieved, L1–L5 components partial, L6 absent, L7/L8 never authorized — see `ZAI_AUTONOMOUS_TRADING_SYSTEM_STATUS.md`) · **runtime-integration era REGISTERED + PHASE A audit COMPLETE** (`TRADING_RUNTIME_ARCHITECTURE_AUDIT.md`: no runtime/event bus/persistence yet; risk gate + reconciliation + audit logger UNWIRED from the paper order path — RT-F1..F15 registered; PHASE B–AF gated) · **pre-paper bug forensic COMPLETE** (`PRE_PAPER_BUG_FORENSIC_AND_CLOSURE_REPORT.md`: RT-F1..15 + MC-1..12 + ARCH-F1..4 all re-verified CONFIRMED; NEW BUG-001..009 (3 CRITICAL) reproduced 11/11; fixes prepared and BLOCKED_BY_AUTHORIZATION; PAPER_READY = **NO**) · **P0 security credential cleanup COMPLETE** (`SECURITY_CREDENTIAL_FORENSIC_REPORT.md`: 0 secrets in working tree / full 52-commit history / config; exposed PAT verified STILL ACTIVE via API — rotation advisory standing; staged readiness program P0–P8 registered, P0 done, P1 correction window awaiting human authorization) · empirical validation truthfully BLOCKED on real data · enhancement era REGISTERED, NOT STARTED · READY_WITH_FINDINGS |
 
 ---
 
@@ -63,7 +66,8 @@ computation → backtesting → research validation → risk control → paper t
 | Architecture readiness audit (READ-ONLY) | Forensic audit toward the five core objectives (LSTM / Transformer / Randomized Ensemble / RL / Autonomous Trading): 24-area survey (A–X), temporal-leakage-path analysis, 12-section structured report with per-family readiness tables and IMPLEMENTATION_AUTHORIZATION: **NOT_AUTHORIZED**; 12 new findings registered (ARCH-F1..F12); zero source files modified — brief update commit only | `7d691c8` (1) | 1,059 |
 | Autonomous expansion §78 audit baseline | **Autonomous Intelligence + Full System Expansion mandate (78 sections) registered**; §78 FIRST COMMAND audit executed (read-only): `ZAI_AUTONOMOUS_TRADING_SYSTEM_STATUS.md` v1.0.0 — autonomy levels L0–L8 mapped (L0 achieved; L1–L5 partial components; L6 absent; L7/L8 not authorized), decision-loop stage mapping, state-machine vocabulary gap, duplicate-system audit (zero duplicates; 2 unification flags + 1 naming collision), dependency graph (STAGE 0–9), blocker table BLK-1..15, test inventory (35 files); documentation index v1.1.0 | `3567c69` (1) | 1,059 |
 | Runtime-integration §2 audit (PHASE A) | **FINAL INTEGRATED RUNTIME + MEMORY + LEDGER + PAPER/LIVE EXECUTION mandate (64 sections) registered**; §2 FIRST TASK repository audit executed (3 parallel read-only source surveys + first-hand defect re-verification, ARCH-F4 and the CLI check-boundary inversion reproduced by execution): `TRADING_RUNTIME_ARCHITECTURE_AUDIT.md` v1.0.0 — 29 inspection points answered, dependency/runtime/execution graphs, ownership tables, missing-connection register MC-1..12 (risk gate / reconciliation / audit logger / evaluation gates UNWIRED from the paper order path), RT-F1..F15 new findings, PHASE A–AF implementation order mapped to repo reality, RUNTIME_IMPLEMENTATION_AUTHORIZATION: PHASE_A_COMPLETE__NEXT_PHASES_GATED; documentation index v1.2.0 | `e060690` (1) | 1,059 |
-| Pre-paper bug forensic & closure | **FINAL PRE-PAPER BUG FORENSIC AND CLOSURE mandate (32 sections) registered**; read-only forensic executed (first-hand re-verification of RT-F1..15, MC-1..12, ARCH-F1..4 — all CONFIRMED, zero false positives; adversarial deep-dives on limit-order safety, partial fills, audit mutability, memory persistence, ledgers, SL/TP, position accounting, reconciliation, state machine, bypass, CLI truthfulness; AST frozen-model mutable-field sweep): `PRE_PAPER_BUG_FORENSIC_AND_CLOSURE_REPORT.md` v1.0.0 — NEW register **BUG-001..009** (3 CRITICAL: BUY limit fills ABOVE the limit / SELL below it, test-pinned; position flip carries the old side's basis into the new side (P&L doubles in error); additive risk netting rejects risk-REDUCING orders and TRIPS the kill switch; + HIGH missing-fill reconciliation blindness; + audit-logger mutability/unkeyed chain; + CLI "OPERATIONAL" untruthfulness; + robustness/deep-immutability items), **11/11 executable reproductions**, all fixes PREPARED and BLOCKED_BY_AUTHORIZATION (fix window = pending human decision), PAPER_READY = NO (PAPER-BLK-1..10); documentation index v1.3.0 | this commit (1) | 1,059 |
+| Pre-paper bug forensic & closure | **FINAL PRE-PAPER BUG FORENSIC AND CLOSURE mandate (32 sections) registered**; read-only forensic executed (first-hand re-verification of RT-F1..15, MC-1..12, ARCH-F1..4 — all CONFIRMED, zero false positives; adversarial deep-dives on limit-order safety, partial fills, audit mutability, memory persistence, ledgers, SL/TP, position accounting, reconciliation, state machine, bypass, CLI truthfulness; AST frozen-model mutable-field sweep): `PRE_PAPER_BUG_FORENSIC_AND_CLOSURE_REPORT.md` v1.0.0 — NEW register **BUG-001..009** (3 CRITICAL: BUY limit fills ABOVE the limit / SELL below it, test-pinned; position flip carries the old side's basis into the new side (P&L doubles in error); additive risk netting rejects risk-REDUCING orders and TRIPS the kill switch; + HIGH missing-fill reconciliation blindness; + audit-logger mutability/unkeyed chain; + CLI "OPERATIONAL" untruthfulness; + robustness/deep-immutability items), **11/11 executable reproductions**, all fixes PREPARED and BLOCKED_BY_AUTHORIZATION (fix window = pending human decision), PAPER_READY = NO (PAPER-BLK-1..10); documentation index v1.3.0 | `24bf426` (1) | 1,059 |
+| P0 security credential cleanup + forensic baseline | **Staged readiness program P0–P8 registered as the program of record** (P0 security cleanup → P1 correction window → P2 independent re-audit → P3 Stage-0 decision gate → P4 paper runtime → P5 paper E2E gate → P6 shadow → P7 canary → P8 final live audit; LIVE never authorizable by stage outcomes alone). P0 EXECUTED: `SECURITY_CREDENTIAL_FORENSIC_REPORT.md` v1.0.0 — full credential sweep (working tree incl. hidden files, 261 tracked files, `.git/config`, docs, scripts, logs, artifacts) + full-history sweeps (string `-S` and real-token-shape `-G` across all 52 commits): **0 credentials anywhere** (only string-family occurrence = the WP-12 CI spec's own scan regex); exposed PAT verified STILL ACTIVE via GitHub API (login = repo owner); push of the pending `24bf426` + this commit executed per explicit operator live instruction (one-off credential use, never stored — `.git/config` grep-verified 0 tokens; rotation advisory standing, exposure #4); 1,059/1,059 tests + final gate 5/5 re-verified; documentation index v1.4.0 | this commit (1) | 1,059 |
 
 ## 3. What was built, phase by phase
 
@@ -130,13 +134,16 @@ UNAVAILABLE.
 
 ## 4. Current verified state (all gates green at the closure-cycle HEAD)
 
-- **1,059/1,059 tests pass** — deterministic across repeated runs (3×),
+- **1,059/1,059 tests pass** — deterministic across repeated runs (4×),
   cache disabled.
 - **Frozen Phase 3 intact**: 11/11 strategy blobs byte-identical to `13fdc7e`;
   SUB-18 manifest 13/13 sha256 pins match (re-pinned by T-PRED-028).
-- **Secret scan**: 0 hits across 257 tracked files; 0 secrets in full history;
-  0 tracked symlinks; 0 path-traversal/exec patterns; 0 private endpoints
-  (5-family security scan, closure cycle).
+- **Secret scan**: 0 hits across 261 tracked files; **0 real-token-shape
+  strings across the full 52-commit history on all refs** (`-S`/`-G` sweeps —
+  see `SECURITY_CREDENTIAL_FORENSIC_REPORT.md` §5); 0 tokens in `.git/config`
+  (verified after every push); 0 tracked symlinks; 0 path-traversal/exec
+  patterns; 0 private endpoints (5-family security scan, closure cycle + P0
+  credential sweep).
 - **Mutation gate**: 15/15 reintroduced defects detected (4A.1 cycle).
 - **Cross-process identity**: `disc20.` / `know42.` / `bmk30.` / `pred.` hashes
   stable across fresh OS processes.
@@ -158,7 +165,7 @@ UNAVAILABLE.
 | ARCH-F1..F12 | 5 MEDIUM + 6 LOW + 1 INFO | **registered (read-only audit)** | Kill-switch reset unauthenticated (`risk/engine.py:174-176`); latent NameErrors on dormant paths (`ingestion.py:191`, `quant_boundary.py:118/:175`); purge/embargo defaults unsafe for future overlapping sequence windows; walk-forward plan builder lacks a purge parameter; risk violation chain lacks `verify()`; + hygiene items. Full register with file:line evidence in the audit deliverable (kept outside the repository per the read-only mandate). |
 | RT-F1..F15 | 3 HIGH + 4 MEDIUM + 8 LOW | **registered (runtime-integration audit; zero source modified)** | Risk gate + kill switch NOT wired into the paper order path; `ReconciliationEngine` zero src callers; `AuditLogger` never invoked; no persistence in the execution domain (kill switch does not survive restart); order-vocabulary divergence paper vs frozen strategy; CLI check-boundary inverted (verified exit 1); `ingest_from_file` dead path; no model-loading/reconstruction path. Full register with evidence in `TRADING_RUNTIME_ARCHITECTURE_AUDIT.md` §12. **All 15 re-verified CONFIRMED by the pre-paper forensic.** |
 | **BUG-001..009** | 3 CRITICAL + 1 HIGH + 2 MEDIUM + 3 LOW | **CONFIRMED_OPEN (pre-paper forensic; fixes prepared, BLOCKED_BY_AUTHORIZATION)** | BUG-001 limit-order fills violate the limit (BUY above / SELL below — spread+impact stacked on the limit reference; **pinned by test_pt_04:123**); BUG-002 position flip carries the old side's average cost into the new opposite side (downstream realized P&L doubled in error); BUG-003 additive risk netting rejects reductions/closes and TRIPS the kill switch (pinned by test_risk_portfolio.py:80); BUG-004 reconciliation blind to missing fills of FILLED orders; BUG-005 AuditLogger not deeply immutable + unkeyed re-forgeable chain; BUG-006 CLI reports OPERATIONAL with no runtime; BUG-007 unvalidated bar ordering; BUG-008 43 frozen-model mutable fields; BUG-009 NaN silently skipped in analytics. Full 12-column register + prepared fixes + regression-test specs in `PRE_PAPER_BUG_FORENSIC_AND_CLOSURE_REPORT.md` §3/§5. |
-| REAL-DATA / WP-12 / MODEL-APPROVAL / PAT-ROTATION | — | **HUMAN_DECISION_REQUIRED** | Real data source approval (candidate matrix ready); GitHub Actions CI (workflow spec ready, deliberately not installed); prediction registry approval owner; rotate the chat-exposed GitHub PAT. |
+| REAL-DATA / WP-12 / MODEL-APPROVAL / PAT-ROTATION | — | **HUMAN_DECISION_REQUIRED** | Real data source approval (candidate matrix ready); GitHub Actions CI (workflow spec ready, deliberately not installed); prediction registry approval owner; **rotate the chat-exposed GitHub PAT (4th exposure; verified STILL ACTIVE via API on 2026-10-08 — revoke immediately; one-off push use per operator instruction documented in `SECURITY_CREDENTIAL_FORENSIC_REPORT.md` §6.3)**. |
 | — | 4 MEDIUM + 8 LOW | registered | Counting nuances, CRLF decision recorded-not-acted, stale blueprint status lines. |
 
 **Gated (not defects):** 30-day paper-trading evaluation not yet started (no
@@ -241,6 +248,19 @@ docs/             engine design docs
    ledgers, SL/TP, lineage). Also decide the audit-chain keyed-MAC custody
    policy (report §5.5). No daemon/scheduler/live activation may be started
    at any point without the separate paper-activation phase.
+3c. **Execute the staged readiness program P0–P8 (program of record, registered
+   2026-10-08).** P0 (security credential cleanup + forensic baseline) is
+   COMPLETE (`SECURITY_CREDENTIAL_FORENSIC_REPORT.md` — repo-side baseline
+   clean; PAT rotation still owed by the operator). The governing sequence
+   from here: **P1 correction window** (same authorization request as item 3b:
+   BUG-001..009 + ARCH-F1/F3/F4/F6 + RT-F7/F8/F13 hygiene, non-frozen modules
+   only) → **P2 independent re-audit** of those closures (READ ONLY, evidence
+   over documentation) → **P3 Stage-0 decision gate** (real data / WP-12 CI /
+   H-1 — the same human decisions as items 1, 2 and 8) → **P4 paper runtime +
+   prediction + memory + ledgers** → **P5 paper E2E forensic gate** → **P6
+   shadow mode** → **P7 sandbox/canary** → **P8 final live + autonomous
+   readiness audit**. Live activation always requires separate explicit human
+   authorization outside the program; the AI never authorizes itself.
 4. **Execute the Enhancement Mandate v2.0** (`MASTER_ENHANCEMENT_HARDENING_
    MANDATE.md`, registered NOT started): 17 work packages — 3 ABSENT (model
 drift, CI gates, operator plane), 14 PARTIAL. Recommended order in
@@ -258,8 +278,9 @@ drift, CI gates, operator plane), 14 PARTIAL. Recommended order in
 8. **Ratify H-1 containment** — human decision on `PHASE_GOVERNANCE_
    RECONCILIATION.md` recommendation (Option A: containment, no Phase 3
    amendment). The prediction layer is H-1 independent by construction.
-9. **Rotate the GitHub PAT** (exposed in chat multiple times) and **final
-   human acceptance** → graduation decision. Live execution remains
+9. **Rotate the GitHub PAT** (exposed in chat four times; verified STILL ACTIVE
+   on 2026-10-08 — see `SECURITY_CREDENTIAL_FORENSIC_REPORT.md` §3) and
+   **final human acceptance** → graduation decision. Live execution remains
    never-authorized without an explicit human-issued token.
 
 ## 8. Key documents in this repository
@@ -291,6 +312,8 @@ expansion-era §76 living document) ·
 `TRADING_RUNTIME_ARCHITECTURE_AUDIT.md` (runtime-integration audit authority) ·
 `PRE_PAPER_BUG_FORENSIC_AND_CLOSURE_REPORT.md` (authoritative pre-paper bug
 register — BUG-001..009, PAPER-BLK-1..10, prepared fixes) ·
+`SECURITY_CREDENTIAL_FORENSIC_REPORT.md` (P0 credential forensic baseline +
+staged readiness program P0–P8 registration) ·
 
 Read-only audit deliverable (maintained **outside** the repository, per the
 audit's no-modification mandate): `AI_TRADING_LAB_ARCHITECTURE_READINESS_

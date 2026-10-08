@@ -9,8 +9,8 @@ Document Type:  Master documentation index (SSOT)
 Phase:          Cross-phase (all phases)
 Authority:      A — AUTHORITATIVE (this index is the documentation map of record)
 Status:         CURRENT
-Version:        1.3.0
-Last Updated:   2026-10-08 (pre-paper closure era: PRE_PAPER_BUG_FORENSIC_AND_CLOSURE_REPORT.md)
+Version:        1.4.0
+Last Updated:   2026-10-08 (P0 security credential cleanup era: SECURITY_CREDENTIAL_FORENSIC_REPORT.md)
 Supersedes:     none (first canonical index)
 Superseded By:  —
 Source Evidence: doc_discovery.py inventory (80 pre-existing docs), reference
@@ -195,6 +195,7 @@ The remaining §61 spec documents (`TRADING_RUNTIME_ARCHITECTURE.md`, `TRADING_E
 
 | Path | Auth | Status | Purpose | Supersession |
 |---|---|---|---|---|
+| `SECURITY_CREDENTIAL_FORENSIC_REPORT.md` | C | Current audit evidence — P0 deliverable of the staged readiness program (v1.0.0) | Credential exposure forensic (4th chat exposure, value withheld, verified STILL ACTIVE via API); full tree/config/history sweeps (0 credentials); push hygiene record; staged readiness program P0–P8 registration (P0 COMPLETE, P1 correction window AWAITING HUMAN AUTHORIZATION); NO TRADING IMPLEMENTATION PERFORMED | — |
 | `FILESYSTEM_SECURITY_FORENSIC_AUDIT.md` | E | Historical audit evidence (pre-B8 remediation findings) | Filesystem security forensic audit | remediation recorded in 4A.1 closure; preserved as evidence |
 | `HASH_FORENSIC_AUDIT.md` | E | Historical audit evidence — pre-remediation verdicts (incl. Candle.to_hash CONTAMINATED); current interpretation: H-1 OPEN/CONTAINED | Hash forensic audit | interpretation superseded by `H1_FORMAL_DECISION_ANALYSIS.md`; evidence preserved |
 | `PHASE_OWNERSHIP_FORENSIC_AUDIT.md` | E | Historical audit evidence | Phase ownership forensics | superseded by construction records; preserved |
