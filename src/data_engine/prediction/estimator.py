@@ -18,6 +18,10 @@ from typing import Mapping, Optional, Sequence
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from data_engine.prediction.artifact_verification import (
+    verify_input_snapshot,
+    verify_model_artifact,
+)
 from data_engine.prediction.contracts import (
     BlockReason,
     DriftState,
@@ -134,8 +138,20 @@ class CrashRiskEstimator:
         validation_passed: bool = True,
         training_samples: int = 0,
         evidence_values: Optional[Mapping[str, object]] = None,
+        expected_model_hash: Optional[str] = None,
+        expected_input_hash: Optional[str] = None,
+        expected_dataset_id: Optional[str] = None,
     ) -> CrashRiskAssessment:
-        """Produce one governed crash-risk assessment at ``as_of``."""
+        """Produce one governed crash-risk assessment at ``as_of``.
+
+        PRED-F3 closure: externally-relevant artifact claims are
+        RECOMPUTED inside this method (``verify_model_artifact`` /
+        ``verify_input_snapshot``) — caller-asserted hash flags are
+        never trusted. Supply ``expected_model_hash`` / ``expected_dataset_id``
+        from the registry to bind the assessment to a registered
+        artifact; mismatches fail closed with
+        ``MODEL_ARTIFACT_MISMATCH`` / ``INPUT_HASH_MISMATCH``.
+        """
         config = self._config
         horizon = label_definition.forward_horizon
 
@@ -147,6 +163,7 @@ class CrashRiskEstimator:
             "severity_threshold": label_definition.threshold,
             "model_id": self._model.model_id,
             "model_version": self._model.model_version,
+            "dataset_version": self._dataset_id,
         }
         placeholder_id = "pred.PENDING"
 
@@ -225,6 +242,23 @@ class CrashRiskEstimator:
             )
         )
 
+        # 5.5 Artifact verification (PRED-F3) — recomputed, never trusted --
+        artifact_verification = verify_model_artifact(
+            self._model,
+            expected_hash=expected_model_hash,
+            expected_feature_count=len(FEATURE_SCHEMA),
+            expected_dataset_id=expected_dataset_id,
+            declared_dataset_id=self._dataset_id,
+        )
+        notes.extend(artifact_verification.failures)
+        input_verification = verify_input_snapshot(
+            closes,
+            view.dropped_future_bars,
+            view.dropped_revision_bars,
+            expected_hash=expected_input_hash,
+        )
+        notes.extend(input_verification.failures)
+
         # 6. Gates (§27) --------------------------------------------------
         from data_engine.prediction.gates import (
             PredictionGateInput,
@@ -241,9 +275,12 @@ class CrashRiskEstimator:
                 min_training_samples=config.min_training_samples,
                 calibration_valid=calibration_valid,
                 validation_passed=validation_passed,
-                feature_schema_match=len(last_row.values) == len(FEATURE_SCHEMA),
-                model_artifact_hash_match=True,
-                input_hash_match=True,
+                feature_schema_match=(
+                    len(last_row.values) == len(FEATURE_SCHEMA)
+                    and artifact_verification.schema_compatible is not False
+                ),
+                model_artifact_hash_match=artifact_verification.verified,
+                input_hash_match=input_verification.verified,
                 horizon_bars=horizon,
                 max_horizon_bars=config.max_horizon_bars,
                 history_bars=view.visible_count,
@@ -336,6 +373,12 @@ class CrashRiskEstimator:
                 model_version=self._model.model_version,
                 pit_cutoff=common["pit_cutoff"],
                 prediction_time=prediction_time,
+                dataset_version=self._dataset_id,
+                evidence_window_start=(
+                    view.bars[0]["timestamp"].isoformat()
+                    if view.bars else None
+                ),
+                evidence_window_end=common["pit_cutoff"],
                 uncertainty=band,
                 restricted=gate_result.restricted,
                 notes=tuple(notes)
@@ -350,6 +393,10 @@ class CrashRiskEstimator:
             status = classify_risk_level(
                 probability, config.risk_thresholds
             )
+
+        evidence_window_start = (
+            view.bars[0]["timestamp"].isoformat() if view.bars else None
+        )
 
         prediction_id = prediction_identity(
             model_id=self._model.model_id,
@@ -406,6 +453,9 @@ class CrashRiskEstimator:
             model_version=self._model.model_version,
             pit_cutoff=common["pit_cutoff"],
             prediction_time=prediction_time,
+            dataset_version=self._dataset_id,
+            evidence_window_start=evidence_window_start,
+            evidence_window_end=common["pit_cutoff"],
             uncertainty=band,
             restricted=gate_result.restricted,
             notes=tuple(notes),

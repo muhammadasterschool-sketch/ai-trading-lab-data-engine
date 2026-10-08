@@ -71,6 +71,10 @@ class CrashRiskAssessment(BaseModel):
     ``status`` is a RiskLevel value when a probabilistic band was
     produced, or a PredictionControlState value when the system refused.
     ``blocked_reason`` is mandatory for every refusal (§27).
+    Closure-mandate §7 fields: ``dataset_version`` (the dataset the
+    assessment ran against), ``evidence_window_start/end`` (the PIT
+    window the evidence was drawn from), and the derived
+    ``warning_state``.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -89,6 +93,9 @@ class CrashRiskAssessment(BaseModel):
     model_version: str
     pit_cutoff: str
     prediction_time: str
+    dataset_version: str = "UNRECORDED"
+    evidence_window_start: Optional[str] = None
+    evidence_window_end: Optional[str] = None
     uncertainty: Optional[UncertaintyBand] = None
     blocked_reason: Optional[BlockReason] = None
     restricted: bool = False
@@ -124,6 +131,16 @@ class CrashRiskAssessment(BaseModel):
             state.value for state in PredictionControlState
         }
 
+    @property
+    def warning_state(self) -> str:
+        """Derived warning state (closure mandate §7).
+
+        WARNING_ACTIVE while the risk band is elevated or worse;
+        WARNING_INACTIVE for low/no-signal bands; REFUSED carries no
+        warning at all (a refusal is not a quiet all-clear).
+        """
+        return crash_warning_state(self.status)
+
     def output_payload(self) -> dict:
         """Canonical core payload — the hashed output content."""
         from data_engine.prediction.identity import freeze_number
@@ -144,6 +161,9 @@ class CrashRiskAssessment(BaseModel):
             "model_version": self.model_version,
             "pit_cutoff": self.pit_cutoff,
             "prediction_time": self.prediction_time,
+            "dataset_version": self.dataset_version,
+            "evidence_window_start": self.evidence_window_start,
+            "evidence_window_end": self.evidence_window_end,
             "uncertainty": (
                 None
                 if self.uncertainty is None
@@ -169,6 +189,41 @@ class CrashRiskAssessment(BaseModel):
         return prefixed_hash(OUTPUT_PREFIX, self.output_payload())
 
 
+def crash_warning_state(status: str) -> str:
+    """Map an assessment status to its warning state (§7, §29).
+
+    INACTIVE for NO_SIGNAL/LOW_RISK, ACTIVE for ELEVATED/HIGH/EXTREME,
+    REFUSED for every control state — the system never emits a warning
+    it cannot justify, and never mutes a refusal into an all-clear.
+    """
+    if status in {
+        RiskLevel.ELEVATED_RISK.value,
+        RiskLevel.HIGH_RISK.value,
+        RiskLevel.EXTREME_RISK.value,
+    }:
+        return "WARNING_ACTIVE"
+    if status in {state.value for state in PredictionControlState}:
+        return "REFUSED"
+    return "WARNING_INACTIVE"
+
+
+#: Closure-mandate §7 risk-state vocabulary mapped onto the project's
+#: existing (closed) vocabulary — no new states were invented; the
+#: mapping is recorded so audits can translate between the two.
+RISK_STATE_VOCABULARY_MAP = {
+    "NORMAL": (RiskLevel.NO_SIGNAL.value, RiskLevel.LOW_RISK.value),
+    "ELEVATED_RISK": (RiskLevel.ELEVATED_RISK.value,),
+    "HIGH_RISK": (RiskLevel.HIGH_RISK.value,),
+    "CRISIS": (RiskLevel.EXTREME_RISK.value,),
+    "INSUFFICIENT_EVIDENCE": (
+        PredictionControlState.EVIDENCE_INSUFFICIENT.value,
+    ),
+    "INVALID": (
+        PredictionControlState.PREDICTION_BLOCKED.value,
+    ),  # + mandatory BlockReason
+}
+
+
 def _common_defaults(
     *,
     pit_cutoff: str,
@@ -179,6 +234,7 @@ def _common_defaults(
     model_id: str,
     model_version: str,
     regime: str = "UNKNOWN",
+    dataset_version: str = "UNRECORDED",
 ) -> dict:
     return {
         "pit_cutoff": pit_cutoff,
@@ -189,6 +245,7 @@ def _common_defaults(
         "model_id": model_id,
         "model_version": model_version,
         "regime": regime,
+        "dataset_version": dataset_version,
     }
 
 
@@ -202,6 +259,7 @@ def blocked_assessment(
     """Refusing assessment: PREDICTION_BLOCKED with machine reason (§27)."""
     payload = {**_common_defaults(**common), "prediction_id": prediction_id}
     payload.setdefault("regime", "UNKNOWN")
+    payload.setdefault("dataset_version", "UNRECORDED")
     return CrashRiskAssessment(
         **payload,
         status=PredictionControlState.PREDICTION_BLOCKED.value,
@@ -224,6 +282,7 @@ def uncertain_assessment(
 ) -> CrashRiskAssessment:
     """MODEL_UNCERTAIN assessment — probability recorded, never hidden (§19)."""
     payload = {**_common_defaults(**common), "prediction_id": prediction_id}
+    payload.setdefault("dataset_version", "UNRECORDED")
     return CrashRiskAssessment(
         **payload,
         status=PredictionControlState.MODEL_UNCERTAIN.value,
@@ -243,4 +302,6 @@ __all__ = [
     "CrashRiskAssessment",
     "blocked_assessment",
     "uncertain_assessment",
+    "crash_warning_state",
+    "RISK_STATE_VOCABULARY_MAP",
 ]
