@@ -9,8 +9,8 @@ Document Type:  Master documentation index (SSOT)
 Phase:          Cross-phase (all phases)
 Authority:      A — AUTHORITATIVE (this index is the documentation map of record)
 Status:         CURRENT
-Version:        1.5.0
-Last Updated:   2026-10-08 (P1 correction window executed: P1_CORRECTION_WINDOW_REPORT.md)
+Version:        1.6.0
+Last Updated:   2026-10-09 (P2 independent re-audit executed: P2_INDEPENDENT_CORRECTION_RE_AUDIT_REPORT.md)
 Supersedes:     none (first canonical index)
 Superseded By:  —
 Source Evidence: doc_discovery.py inventory (80 pre-existing docs), reference
@@ -197,6 +197,7 @@ The remaining §61 spec documents (`TRADING_RUNTIME_ARCHITECTURE.md`, `TRADING_E
 |---|---|---|---|---|
 | `SECURITY_CREDENTIAL_FORENSIC_REPORT.md` | C | Current audit evidence — P0 deliverable of the staged readiness program (v1.0.0) | Credential exposure forensic (4th chat exposure, value withheld, verified STILL ACTIVE via API); full tree/config/history sweeps (0 credentials); push hygiene record; staged readiness program P0–P8 registration (P0 COMPLETE, P1 correction window AWAITING HUMAN AUTHORIZATION); NO TRADING IMPLEMENTATION PERFORMED | — |
 | `P1_CORRECTION_WINDOW_REPORT.md` | C | Current audit evidence — P1 execution record (v1.0.0): 16/16 authorized findings corrected with objective evidence (1141/1141 tests x3, 0/17 AFTER-probes defective, 31/31 BUG-008 mutations blocked, frozen gates 11/11 + 13/13); closure verdicts deferred to the P2 re-audit; local commits 1277331 + docs (NOT pushed per rule 11) | Correction-window execution record for BUG-001..009 + ARCH-F1/F3/F4/F6 + RT-F7/F8/F13 | — |
+| `P2_INDEPENDENT_CORRECTION_RE_AUDIT_REPORT.md` | C | Current audit evidence — P2 independent re-audit record (v1.0.0, READ-ONLY): every P1 correction re-verified first-hand (diffs + probes + 1141/1141 x2 + 8 category subsets); **verdicts 15 CLOSED · 1 PARTIAL (BUG-008 residual rule-deferred) · 0 OPEN · 0 REGRESSED; P2 VERDICT: CONDITIONAL PASS**; frozen integrity re-verified blob-level; security scans 0; exposed PAT re-verified STILL ACTIVE (exposure #5 — rotation OPEN); OBS-1 mode-sweep recorded; open-blocker register (CRED-ROTATION / BUG-008-RESIDUAL / KEYED-MAC / PAPER-BLK-1..6 / P3 Stage-0 / OBS-1); P3 NOT AUTHORIZED | Independent re-audit of the P1 correction window (staged readiness program stage 2) | — |
 | `FILESYSTEM_SECURITY_FORENSIC_AUDIT.md` | E | Historical audit evidence (pre-B8 remediation findings) | Filesystem security forensic audit | remediation recorded in 4A.1 closure; preserved as evidence |
 | `HASH_FORENSIC_AUDIT.md` | E | Historical audit evidence — pre-remediation verdicts (incl. Candle.to_hash CONTAMINATED); current interpretation: H-1 OPEN/CONTAINED | Hash forensic audit | interpretation superseded by `H1_FORMAL_DECISION_ANALYSIS.md`; evidence preserved |
 | `PHASE_OWNERSHIP_FORENSIC_AUDIT.md` | E | Historical audit evidence | Phase ownership forensics | superseded by construction records; preserved |
