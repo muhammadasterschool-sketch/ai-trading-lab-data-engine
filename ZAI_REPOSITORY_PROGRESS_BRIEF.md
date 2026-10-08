@@ -6,17 +6,19 @@ Document Type:  Progress brief (living orientation document)
 Phase:          Cross-phase
 Authority:      B — CURRENT SUPPORTING
 Status:         CURRENT
-Version:        1.6.0
-Last Updated:   2026-10-08 (Autonomous Intelligence + Full System Expansion mandate — §78 audit baseline)
-Supersedes:     v1.5.0 (architecture readiness audit — LSTM/Transformer/Ensemble/RL/Autonomy)
+Version:        1.7.0
+Last Updated:   2026-10-08 (FINAL INTEGRATED RUNTIME mandate — §2 FIRST TASK audit: TRADING_RUNTIME_ARCHITECTURE_AUDIT.md)
+Supersedes:     v1.6.0 (Autonomous Intelligence + Full System Expansion mandate — §78 audit baseline)
 Superseded By:  —
 Source Evidence: git log, MASTER_DOCUMENTATION_INDEX.md, cycle records cited below
 ```
 
 > One-page orientation: what exists in this repository today, how it got here,
 > and what remains. Updated 2026-10-08 after the architecture readiness audit
-> (v1.5.0) and the Autonomous Intelligence + Full System Expansion mandate
-> §78 audit baseline (v1.6.0 — see `ZAI_AUTONOMOUS_TRADING_SYSTEM_STATUS.md`).
+> (v1.5.0), the Autonomous Intelligence + Full System Expansion mandate
+> §78 audit baseline (v1.6.0 — see `ZAI_AUTONOMOUS_TRADING_SYSTEM_STATUS.md`),
+> and the FINAL INTEGRATED RUNTIME mandate §2 repository audit (v1.7.0 — see
+> `TRADING_RUNTIME_ARCHITECTURE_AUDIT.md`).
 > Documentation map of record: `MASTER_DOCUMENTATION_INDEX.md`.
 
 | | |
@@ -24,7 +26,7 @@ Source Evidence: git log, MASTER_DOCUMENTATION_INDEX.md, cycle records cited bel
 | **Remote** | https://github.com/muhammadasterschool-sketch/ai-trading-lab-data-engine |
 | **HEAD** | `main` and `phase-4a/4a1-architecture-correction` in sync (see git log) |
 | **Test suite** | **1,059 passed** (deterministic; verified 3x) |
-| **Overall status** | Construction era COMPLETE · prediction intelligence layer BUILT, TESTED **and closure-validated** (PRED-F1/F2/F3 closed) · architecture readiness AUDITED (5 families NOT READY) · **expansion era REGISTERED + §78 audit baseline COMPLETE** (autonomy L0 achieved, L1–L5 components partial, L6 absent, L7/L8 never authorized — see `ZAI_AUTONOMOUS_TRADING_SYSTEM_STATUS.md`) · empirical validation truthfully BLOCKED on real data · enhancement era REGISTERED, NOT STARTED · READY_WITH_FINDINGS |
+| **Overall status** | Construction era COMPLETE · prediction intelligence layer BUILT, TESTED **and closure-validated** (PRED-F1/F2/F3 closed) · architecture readiness AUDITED (5 families NOT READY) · expansion era REGISTERED + §78 audit baseline COMPLETE (autonomy L0 achieved, L1–L5 components partial, L6 absent, L7/L8 never authorized — see `ZAI_AUTONOMOUS_TRADING_SYSTEM_STATUS.md`) · **runtime-integration era REGISTERED + PHASE A audit COMPLETE** (`TRADING_RUNTIME_ARCHITECTURE_AUDIT.md`: no runtime/event bus/persistence yet; risk gate + reconciliation + audit logger UNWIRED from the paper order path — RT-F1..F15 registered; PHASE B–AF gated) · empirical validation truthfully BLOCKED on real data · enhancement era REGISTERED, NOT STARTED · READY_WITH_FINDINGS |
 
 ---
 
@@ -55,7 +57,8 @@ computation → backtesting → research validation → risk control → paper t
 | Prediction & Crash Intelligence | New `prediction/` package (24 modules): PIT-correct features/labels/regimes, baseline-first models + justification gate, calibration, uncertainty, drift, evidence scores, human-only model registry, outcome ledger, no-prediction gates, walk-forward + warning quality, crash-risk estimator, scenarios, systemic risk, advisory-only risk integration — T-PRED-001..030 matrix | `67a273e..9ddc23c` (3) | 915 |
 | Prediction closure & validation | 7 closure modules (datasets + quality gates + source registry + artifact verification + event evaluation + benchmark harness + red-team matrix); PRED-F3 estimator re-verification; crash completion; **PRED-F1/F2/F3 CLOSED**; 45/45 red-team attacks defended; claim categories strictly separated; 4 closure docs + WP-12 CI spec | `56ffa6e..02496b7` (7) | 1,059 |
 | Architecture readiness audit (READ-ONLY) | Forensic audit toward the five core objectives (LSTM / Transformer / Randomized Ensemble / RL / Autonomous Trading): 24-area survey (A–X), temporal-leakage-path analysis, 12-section structured report with per-family readiness tables and IMPLEMENTATION_AUTHORIZATION: **NOT_AUTHORIZED**; 12 new findings registered (ARCH-F1..F12); zero source files modified — brief update commit only | `7d691c8` (1) | 1,059 |
-| Autonomous expansion §78 audit baseline | **Autonomous Intelligence + Full System Expansion mandate (78 sections) registered**; §78 FIRST COMMAND audit executed (read-only): `ZAI_AUTONOMOUS_TRADING_SYSTEM_STATUS.md` v1.0.0 — autonomy levels L0–L8 mapped (L0 achieved; L1–L5 partial components; L6 absent; L7/L8 not authorized), decision-loop stage mapping, state-machine vocabulary gap, duplicate-system audit (zero duplicates; 2 unification flags + 1 naming collision), dependency graph (STAGE 0–9), blocker table BLK-1..15, test inventory (35 files); documentation index v1.1.0 | this commit (1) | 1,059 |
+| Autonomous expansion §78 audit baseline | **Autonomous Intelligence + Full System Expansion mandate (78 sections) registered**; §78 FIRST COMMAND audit executed (read-only): `ZAI_AUTONOMOUS_TRADING_SYSTEM_STATUS.md` v1.0.0 — autonomy levels L0–L8 mapped (L0 achieved; L1–L5 partial components; L6 absent; L7/L8 not authorized), decision-loop stage mapping, state-machine vocabulary gap, duplicate-system audit (zero duplicates; 2 unification flags + 1 naming collision), dependency graph (STAGE 0–9), blocker table BLK-1..15, test inventory (35 files); documentation index v1.1.0 | `3567c69` (1) | 1,059 |
+| Runtime-integration §2 audit (PHASE A) | **FINAL INTEGRATED RUNTIME + MEMORY + LEDGER + PAPER/LIVE EXECUTION mandate (64 sections) registered**; §2 FIRST TASK repository audit executed (3 parallel read-only source surveys + first-hand defect re-verification, ARCH-F4 and the CLI check-boundary inversion reproduced by execution): `TRADING_RUNTIME_ARCHITECTURE_AUDIT.md` v1.0.0 — 29 inspection points answered, dependency/runtime/execution graphs, ownership tables, missing-connection register MC-1..12 (risk gate / reconciliation / audit logger / evaluation gates UNWIRED from the paper order path), RT-F1..F15 new findings, PHASE A–AF implementation order mapped to repo reality, RUNTIME_IMPLEMENTATION_AUTHORIZATION: PHASE_A_COMPLETE__NEXT_PHASES_GATED; documentation index v1.2.0 | this commit (1) | 1,059 |
 
 ## 3. What was built, phase by phase
 
@@ -148,6 +151,7 @@ UNAVAILABLE.
 | F-11 | MEDIUM | registered | `QuantEngine` does not merge `IndicatorSpec.parameters` defaults — bare `sma` yields all-None; pre-parameterized names (`sma20`, `rsi14`) work. |
 | PRED-F1/F2/F3 | — | **CLOSED (closure cycle)** | Benchmark protocol + blocked/refusal harness; 45-attack red-team matrix; estimator artifact re-verification. Evidence: `PREDICTION_VALIDATION_EVALUATION_REPORT.md` §3–5/§7. |
 | ARCH-F1..F12 | 5 MEDIUM + 6 LOW + 1 INFO | **registered (read-only audit)** | Kill-switch reset unauthenticated (`risk/engine.py:174-176`); latent NameErrors on dormant paths (`ingestion.py:191`, `quant_boundary.py:118/:175`); purge/embargo defaults unsafe for future overlapping sequence windows; walk-forward plan builder lacks a purge parameter; risk violation chain lacks `verify()`; + hygiene items. Full register with file:line evidence in the audit deliverable (kept outside the repository per the read-only mandate). |
+| RT-F1..F15 | 3 HIGH + 4 MEDIUM + 8 LOW | **registered (runtime-integration audit; zero source modified)** | Risk gate + kill switch NOT wired into the paper order path; `ReconciliationEngine` zero src callers; `AuditLogger` never invoked; no persistence in the execution domain (kill switch does not survive restart); order-vocabulary divergence paper vs frozen strategy; CLI check-boundary inverted (verified exit 1); `ingest_from_file` dead path; no model-loading/reconstruction path. Full register with evidence in `TRADING_RUNTIME_ARCHITECTURE_AUDIT.md` §12. |
 | REAL-DATA / WP-12 / MODEL-APPROVAL / PAT-ROTATION | — | **HUMAN_DECISION_REQUIRED** | Real data source approval (candidate matrix ready); GitHub Actions CI (workflow spec ready, deliberately not installed); prediction registry approval owner; rotate the chat-exposed GitHub PAT. |
 | — | 4 MEDIUM + 8 LOW | registered | Counting nuances, CRLF decision recorded-not-acted, stale blueprint status lines. |
 
@@ -203,6 +207,20 @@ docs/             engine design docs
    supervisor, paper-scope only). ADVANCED_ML: DEFERRED and
    REAL_DATA_VALIDATION: BLOCKED stand until human-lifted. Live execution
    stays never-authorized.
+3a. **Execute the FINAL INTEGRATED RUNTIME mandate** (64 sections; governing
+   audit: `TRADING_RUNTIME_ARCHITECTURE_AUDIT.md`). **PHASE A (repository
+   audit) is COMPLETE**; implementation follows PHASE B–AF order: PHASE B
+   (runtime interface specs — may proceed as documentation) → PHASE C (typed
+   event model + event bus) → PHASE D (`TradingRuntime` composition root) →
+   … → PHASE L (wire the existing `RiskEngine` into the order path) → … →
+   PHASE T (wire reconciliation with a blocking verdict) → PHASE AB (paper
+   trading activation) → PHASE AC–AE (shadow/canary/broker-sandbox — all NEW)
+   → PHASE AF (LIVE adapter — never without explicit external human
+   authorization). Source-modifying phases sequence behind the same STAGE-0
+   human decisions (CI enable, authorized fix window incl. RT-F7/F8, H-1
+   ratification, real-data approval). The runtime mandate and the expansion
+   mandate are one construction program seen from two lenses: PHASE B–AB
+   operationalizes the components the expansion mandate staged as STAGE 4–8.
 4. **Execute the Enhancement Mandate v2.0** (`MASTER_ENHANCEMENT_HARDENING_
    MANDATE.md`, registered NOT started): 17 work packages — 3 ABSENT (model
 drift, CI gates, operator plane), 14 PARTIAL. Recommended order in
@@ -215,8 +233,8 @@ drift, CI gates, operator plane), 14 PARTIAL. Recommended order in
 6. **Start the 30-day paper-trading evaluation** once a strategy candidate is
    validated and registered (rule is structural and already implemented).
 7. **Dispatch external review windows** — GPT re-audit and Claude fix window
-   (F-11, the 4 MEDIUM findings, and the ARCH-F1/F3/F4/F6 audit findings are
-   queued for the fix window).
+   (F-11, the 4 MEDIUM findings, and the ARCH-F1/F3/F4/F6 + RT-F7/F8 audit
+   findings are queued for the fix window).
 8. **Ratify H-1 containment** — human decision on `PHASE_GOVERNANCE_
    RECONCILIATION.md` recommendation (Option A: containment, no Phase 3
    amendment). The prediction layer is H-1 independent by construction.
@@ -249,7 +267,11 @@ boundary) ·
 `AI_TRADING_LAB_FINAL_ACCEPTANCE_AUDIT.md` ·
 `ZAI_REPOSITORY_PROGRESS_BRIEF.md` (this document) ·
 `ZAI_AUTONOMOUS_TRADING_SYSTEM_STATUS.md` (autonomous trading system status —
-expansion-era §76 living document)
+expansion-era §76 living document) ·
+`TRADING_RUNTIME_ARCHITECTURE_AUDIT.md` (runtime-integration audit authority —
+FINAL INTEGRATED RUNTIME mandate §2 deliverable: dependency/runtime/execution
+graphs, ownership tables, MC-1..12 missing connections, RT-F1..15 findings,
+PHASE A–AF implementation order)
 
 Read-only audit deliverable (maintained **outside** the repository, per the
 audit's no-modification mandate): `AI_TRADING_LAB_ARCHITECTURE_READINESS_

@@ -9,8 +9,8 @@ Document Type:  Master documentation index (SSOT)
 Phase:          Cross-phase (all phases)
 Authority:      A — AUTHORITATIVE (this index is the documentation map of record)
 Status:         CURRENT
-Version:        1.1.0
-Last Updated:   2026-10-08 (expansion-era registration: ZAI_AUTONOMOUS_TRADING_SYSTEM_STATUS.md)
+Version:        1.2.0
+Last Updated:   2026-10-08 (runtime-era registration: TRADING_RUNTIME_ARCHITECTURE_AUDIT.md)
 Supersedes:     none (first canonical index)
 Superseded By:  —
 Source Evidence: doc_discovery.py inventory (80 pre-existing docs), reference
@@ -151,6 +151,14 @@ Any future phase-owned document SHALL follow the naming standard
 | `PREDICTION_DATA_SOURCE_PROVENANCE_POLICY.md` | B | Current supporting — governing data policy companion | Dataset epistemic states, quality gates, source governance, approval templates | — |
 | `WP_12_CI_IMPLEMENTATION_SPEC.md` | B | Current supporting — PENDING HUMAN AUTHORIZATION | Implementation-ready GitHub Actions workflow spec; WP-12 = HUMAN_DECISION_REQUIRED | — |
 
+## Phase RT — Final Integrated Runtime (runtime-integration era)
+
+| Path | Auth | Status | Purpose | Supersession |
+|---|---|---|---|---|
+| `TRADING_RUNTIME_ARCHITECTURE_AUDIT.md` | B | Current — audit baseline of record for the FINAL INTEGRATED RUNTIME mandate (§2 FIRST TASK; v1.0.0) | Runtime-integration audit: component inventory, dependency/runtime/execution graphs, ownership tables, missing connections MC-1..12, RT-F1..15 findings, PHASE A–AF implementation order | — |
+
+The remaining §61 spec documents (`TRADING_RUNTIME_ARCHITECTURE.md`, `TRADING_EVENT_CONTRACT.md`, `ORDER_LIFECYCLE_SPEC.md`, `PAPER_TRADING_SPEC.md`, …) are deliberately NOT created until their implementing phase lands (audit-first discipline; §61 "only where needed").
+
 ## Cross-Phase Implementation Records
 
 | Path | Auth | Status | Purpose | Supersession |
@@ -216,6 +224,7 @@ behavior / determinism). Future dedicated documents SHALL use
 | `README.md` | B | Current supporting | Package orientation, module map, phase map | — |
 | `ZAI_REPOSITORY_PROGRESS_BRIEF.md` | B | Current supporting — the repository progress brief ("what has been done so far") | One-page orientation: timeline, current state, open items | — |
 | `ZAI_AUTONOMOUS_TRADING_SYSTEM_STATUS.md` | B | Current — §76-required living status document for the Autonomous Intelligence + Full System Expansion mandate (v1.0.0 baseline: §78 audit) | Autonomy levels L0–L8, capability matrix, duplicate-system audit, dependency graph, blocker table BLK-1..15, test/data/model inventories, authorization state | — |
+| `TRADING_RUNTIME_ARCHITECTURE_AUDIT.md` | B | Current — runtime-integration audit authority for the FINAL INTEGRATED RUNTIME mandate (see Phase RT section above) | §2 repository audit: the map from component library to governed trading runtime | — |
 
 ---
 
