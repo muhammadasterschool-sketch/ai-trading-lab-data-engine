@@ -158,6 +158,21 @@ from data_engine.runtime.readiness import (
     PaperReadinessGate,
     ReadinessReport,
 )
+from data_engine.runtime.rl import (
+    GovernedRLPolicy,
+    RLAction,
+    RLActionProposal,
+    RLGovernanceError,
+    RLObservation,
+    RLPolicyConfig,
+    propose_rl_action,
+)
+from data_engine.runtime.metrics import (
+    COUNTER_NAMES,
+    GAUGE_NAMES,
+    MetricsError,
+    RuntimeMetrics,
+)
 
 __all__ = [
     "RUNTIME_CONTRACT_VERSION",
@@ -217,4 +232,9 @@ __all__ = [
     "RecoveryManager", "RecoveryReport",
     "BarOutcome", "RuntimeConfig", "TradingRuntime",
     "GATE_NAMES", "GateEvidence", "PaperReadinessGate", "ReadinessReport",
+    # governed RL advisor (mandate §28/§44)
+    "GovernedRLPolicy", "RLAction", "RLActionProposal", "RLGovernanceError",
+    "RLObservation", "RLPolicyConfig", "propose_rl_action",
+    # runtime observability (mandate §26)
+    "COUNTER_NAMES", "GAUGE_NAMES", "MetricsError", "RuntimeMetrics",
 ]

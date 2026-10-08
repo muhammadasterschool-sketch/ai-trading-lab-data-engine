@@ -31,6 +31,7 @@ Guarantees:
 """
 
 import math
+import time
 from datetime import datetime, timedelta, UTC
 from decimal import Decimal
 from typing import Any, Mapping, Optional, Sequence
@@ -71,6 +72,7 @@ from data_engine.runtime.kill_switch import (
 )
 from data_engine.runtime.ledgers import LedgerError, LedgerFamily
 from data_engine.runtime.memory import MemoryError, TradingMemory
+from data_engine.runtime.metrics import RuntimeMetrics
 from data_engine.runtime.oms import OMS, OMSOrder
 from data_engine.runtime.pnl import PnLEngine, PositionState
 from data_engine.runtime.readiness import (
@@ -80,6 +82,11 @@ from data_engine.runtime.readiness import (
 )
 from data_engine.runtime.reconciliation import RuntimeReconciliation
 from data_engine.runtime.risk_gate import RiskContext, RiskGate
+from data_engine.runtime.rl import (
+    GovernedRLPolicy,
+    RLGovernanceError,
+    RLObservation,
+)
 from data_engine.runtime.sequence import (
     SequenceSpec,
     build_sequence_set,
@@ -213,6 +220,7 @@ class TradingRuntime:
         state_store: Optional[ExecutionStateStore] = None,
         realism: Optional[ExecutionRealism] = None,
         readiness_gate: Optional[PaperReadinessGate] = None,
+        rl_policy: Optional[GovernedRLPolicy] = None,
     ) -> None:
         if config is None or ensemble is None:
             raise RuntimeContractError(
@@ -223,6 +231,21 @@ class TradingRuntime:
         self._calibrator = calibrator
         self._store = state_store
         self._readiness_gate = readiness_gate
+        # Governed RL advisor (mandate §28/§44): DISABLED by default —
+        # None means the RL layer is not part of this session. When
+        # enabled it is ADVISORY-ONLY: proposals are recorded to the
+        # decision ledger + memory; they have NO execution authority
+        # (the Decision/Risk/KillSwitch/OMS chain disposes of every
+        # bar independently of the proposal).
+        if rl_policy is not None and not isinstance(rl_policy, GovernedRLPolicy):
+            raise RuntimeContractError(
+                "rl_policy must be a GovernedRLPolicy (advisor-only contract)"
+            )
+        self._rl_policy = rl_policy
+        # Runtime observability (mandate §26): deterministic counters
+        # + UNHASHED wall-clock latency gauges (INV-01: gauges are
+        # observability, never identity; metrics are never persisted).
+        self._metrics = RuntimeMetrics()
         self._realism = realism or ExecutionRealism(
             half_spread=Decimal("0.02"),
             commission_per_unit=Decimal("0.001"),
@@ -301,6 +324,16 @@ class TradingRuntime:
     @property
     def memory(self) -> TradingMemory:
         return self._memory
+
+    @property
+    def metrics(self) -> RuntimeMetrics:
+        """Runtime observability counters + latency gauges (§26)."""
+        return self._metrics
+
+    @property
+    def rl_policy(self) -> Optional[GovernedRLPolicy]:
+        """The governed RL advisor, or None when RL is DISABLED."""
+        return self._rl_policy
 
     @property
     def positions(self) -> Mapping[str, PositionState]:
@@ -475,6 +508,7 @@ class TradingRuntime:
         """
         previous = self._state
         self._state = RuntimeState.HALTED
+        self._metrics.increment("halts")
         self._ledgers.record(
             ledger="incident",
             event_type="RUNTIME_HALTED",
@@ -498,6 +532,7 @@ class TradingRuntime:
         self._kill_switch.trip(
             scope=scope, reason=reason, source="runtime.operator", target=target
         )
+        self._metrics.increment("kill_switch_trips")
         self._persist_safe(f"kill-switch:{scope.value}:{target or '*'}")
         if scope in (KillSwitchScope.GLOBAL, KillSwitchScope.ACCOUNT):
             self.halt(f"kill switch {scope.value} tripped: {reason}")
@@ -738,6 +773,7 @@ class TradingRuntime:
             )
 
         self._restarted = True
+        self._metrics.increment("recovery_events")
         self._ledgers.record(
             ledger="incident",
             event_type="RUNTIME_STATE_RESTORED",
@@ -772,8 +808,20 @@ class TradingRuntime:
     # Bar processing (the authoritative path)
     # ------------------------------------------------------------------
     def process_bar(self, bar: Mapping) -> BarOutcome:
-        """Process ONE bar through the full governed chain."""
+        """Process ONE bar through the full governed chain (§26 timing)."""
+        t0 = time.perf_counter()
+        try:
+            return self._process_bar_body(bar)
+        finally:
+            # Wall-clock latency is OBSERVABILITY ONLY (INV-01: never
+            # identity, never persisted, never a decision input).
+            self._metrics.set_gauge(
+                "cycle_latency_seconds", time.perf_counter() - t0
+            )
+
+    def _process_bar_body(self, bar: Mapping) -> BarOutcome:
         self._bar_index += 1
+        self._metrics.increment("bars_processed")
         idx = self._bar_index
         correlation_id = f"corr-{self._config.session_id}-{idx:06d}"
         ts = bar.get("timestamp")
@@ -781,6 +829,7 @@ class TradingRuntime:
 
         # -- 0. operating-state guard -------------------------------------
         if self._state in NON_TRADING_STATES:
+            self._metrics.increment("bars_refused")
             return self._refuse_bar(idx, correlation_id, ts,
                                     f"runtime is {self._state.value}")
 
@@ -799,6 +848,7 @@ class TradingRuntime:
             r for r in rejections if r.bar_index == len(context_bars) - 1
         )
         if new_bar_rejections:
+            self._metrics.increment("bad_bars")
             return self._bad_bar(idx, correlation_id, ts,
                                  new_bar_rejections, bar)
 
@@ -845,6 +895,7 @@ class TradingRuntime:
             # bar cursor) — it is persisted like any accepted bar
             # (BLOCKER 5: no unpersisted state transitions).
             self._persist_safe(correlation_id)
+            self._metrics.increment("warmup_bars")
             return self._warmup_bar(idx, correlation_id, ts, str(exc))
 
         # -- 3. prediction: ensemble → calibration --------------------------
@@ -946,7 +997,11 @@ class TradingRuntime:
         )
         if decision.action is DecisionAction.NO_TRADE:
             self._ledgers.record_no_trade(decision)
+            self._metrics.count_no_trade_reason(decision.reason)
+        elif decision.action is DecisionAction.HOLD:
+            self._metrics.increment("decisions_hold")
         else:
+            self._metrics.increment("decisions_trade")
             self._ledgers.record(
                 ledger="decision",
                 event_type=f"DECISION_{decision.action.value}",
@@ -974,6 +1029,26 @@ class TradingRuntime:
         # -- 8. plan + risk gate + submission ---------------------------------
         reference_price = Decimal(str(bar["close"]))
         equity = self._current_equity(reference_price)
+
+        # -- 7b. governed RL advisor (mandate §28/§44; DISABLED by default) --
+        # ADVISORY-ONLY: the proposal is ledgered + remembered for
+        # audit and CANNOT create, alter or submit an order. The
+        # authoritative Decision/Risk/KillSwitch/OMS chain above and
+        # below is completely independent of this record.
+        if self._rl_policy is not None:
+            self._record_rl_proposal(
+                artifact=artifact,
+                uncertainty=uncertainty,
+                regime_state=regime_state,
+                crash=crash,
+                position=position,
+                reference_price=reference_price,
+                equity=equity,
+                ts=ts,
+                correlation_id=correlation_id,
+                parent_id=decision.decision_id,
+            )
+
         if decision.action not in (DecisionAction.HOLD, DecisionAction.NO_TRADE):
             plan = self._plan_builder.build(
                 decision=decision,
@@ -1087,6 +1162,92 @@ class TradingRuntime:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+    def _record_rl_proposal(
+        self,
+        artifact: PredictionArtifact,
+        uncertainty: UncertaintyReport,
+        regime_state: str,
+        crash: dict,
+        position: PositionState,
+        reference_price: Decimal,
+        equity: Decimal,
+        ts: Optional[datetime],
+        correlation_id: str,
+        parent_id: str,
+    ) -> None:
+        """Build + ledger + remember ONE governed RL proposal (§28/§44).
+
+        ADVISORY-ONLY record path: nothing here touches the OMS, the
+        gateway, the risk gate or the kill switch. A proposal failure
+        is an incident (never a trading action). The observation is
+        constructed STRICTLY from this bar's already-computed state
+        (PIT-safe: no next-bar information can exist yet).
+        """
+        try:
+            observation = RLObservation(
+                symbol=artifact.symbol,
+                probability=artifact.probability,
+                confidence=uncertainty.confidence,
+                disagreement=uncertainty.ensemble_disagreement,
+                regime=regime_state,
+                crash_probability=float(crash.get("probability", 1.0)),
+                position_quantity=position.quantity,
+                reference_price=reference_price,
+                equity=equity,
+                unrealized_pnl=self._pnl_engine.unrealized(
+                    position, reference_price
+                ),
+            )
+            proposal = self._rl_policy.propose(observation)
+        except RLGovernanceError as exc:
+            self._ledgers.record(
+                ledger="incident",
+                event_type="RL_ADVISOR_REFUSED",
+                correlation_id=correlation_id,
+                actor="runtime.rl_advisor",
+                payload={
+                    "reason": "observation contract violation",
+                    "error": str(exc),
+                    "action": "advisor output discarded (fail safe)",
+                },
+            )
+            return
+        self._ledgers.record(
+            ledger="decision",
+            event_type="RL_ACTION_PROPOSED",
+            correlation_id=correlation_id,
+            actor="runtime.rl_advisor",
+            payload={
+                "proposal_id": proposal.proposal_id,
+                "policy_version": proposal.policy_version,
+                "policy_hash": proposal.policy_hash,
+                "action": proposal.action.value,
+                "target_units": str(proposal.target_units),
+                "magnitude_units": str(proposal.magnitude_units),
+                "advisory_only": True,
+                "bounds_ok": proposal.bounds_ok,
+                "ood_flag": proposal.ood_flag,
+                "veto_reasons": list(proposal.veto_reasons),
+            },
+            parent_id=parent_id,
+        )
+        self._memory.record(
+            MemoryCategory.MODEL,
+            {"kind": "rl_action_proposal",
+             "proposal_id": proposal.proposal_id,
+             "action": proposal.action.value,
+             "target_units": str(proposal.target_units),
+             "advisory_only": True,
+             "correlation_id": correlation_id},
+            correlation_id=correlation_id,
+            at=ts,
+        )
+        self._metrics.increment("rl_proposals")
+        if not proposal.bounds_ok:
+            self._metrics.increment("rl_proposals_vetoed")
+        if proposal.ood_flag:
+            self._metrics.increment("rl_proposals_ood")
+
     def _execute_plan(
         self,
         plan: TradePlan,
@@ -1129,6 +1290,9 @@ class TradingRuntime:
             assessed_at=bar.get("timestamp"),
         )
         if not assessment.passed:
+            self._metrics.increment(
+                "orders_risk_rejected", len(assessment.failed_checks)
+            )
             return [], tuple(c.check for c in assessment.failed_checks)
 
         order, created = self._oms.create_order(
@@ -1140,6 +1304,7 @@ class TradingRuntime:
         if not created:
             # Idempotent duplicate — no new order, no execution.
             return [], ()
+        self._metrics.increment("orders_created")
         self._oms.validate_order(order.order_id)
         self._oms.risk_approve(order.order_id, assessment)
         self._oms.submit(
@@ -1257,6 +1422,9 @@ class TradingRuntime:
                 self._oms.apply_fill(order.order_id, fill)
                 self._apply_fill_to_position(fill, correlation_id)
                 fills.append(fill)
+                self._metrics.increment("fills")
+                if order.remaining_quantity > 0:
+                    self._metrics.increment("partial_fill_events")
                 self._memory.record(
                     MemoryCategory.EXECUTION,
                     {"order_id": order.order_id, "fill_id": fill.fill_id,
@@ -1395,6 +1563,7 @@ class TradingRuntime:
         report = self._reconciliation.reconcile(self._oms, self._positions)
         if not report.ok:
             self._state = RuntimeState.RECONCILIATION_REQUIRED
+            self._metrics.increment("reconciliation_mismatches")
             self._ledgers.record(
                 ledger="incident",
                 event_type="RUNTIME_RECONCILIATION_REQUIRED",

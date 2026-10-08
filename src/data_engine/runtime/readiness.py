@@ -23,15 +23,23 @@ from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from data_engine.runtime.contracts import RuntimeContractError
 
-#: The mandatory component gates (mandate §52 + re-audit BLOCKER 24).
+#: The mandatory component gates (mandate §52 + re-audit BLOCKER 24
+#: + the RL-governance mandate: "RL safety/integration" is itself a
+#: mandatory gate — a missing/ungoverned RL layer must be VISIBLE,
+#: never silently absent).
 #:
 #: The re-audit extended the original 23 gates with the seven the
 #: paper-readiness logic REQUIRES but the first implementation
 #: omitted: REAL_DATA_READY (synthetic data is never silently
 #: promoted), TRADE_PLAN_READY, PARTIAL_FILL_READY, SLTP_READY
 #: (protection recovery), AUDIT_READY, REPLAY_READY, and
-#: BASELINE_READY. Every gate requires an explicit evidence object —
-#: absent evidence defaults to FALSE (fail closed, §53).
+#: BASELINE_READY. The RL-governance cycle added RL_GOV_READY:
+#: PASS requires objective evidence that the RL layer is EITHER
+#: governed-and-integrated (advisor-only, bounded, vetoable, versioned)
+#: OR explicitly DISABLED / NON-AUTHORITATIVE — and in BOTH cases
+#: structurally incapable of bypassing Risk/KillSwitch/OMS. Every
+#: gate requires an explicit evidence object — absent evidence
+#: defaults to FALSE (fail closed, §53).
 GATE_NAMES = (
     "DATA_READY",
     "REAL_DATA_READY",
@@ -44,6 +52,7 @@ GATE_NAMES = (
     "UNCERTAINTY_READY",
     "REGIME_READY",
     "CRASH_READY",
+    "RL_GOV_READY",
     "DECISION_READY",
     "TRADE_PLAN_READY",
     "RISK_READY",

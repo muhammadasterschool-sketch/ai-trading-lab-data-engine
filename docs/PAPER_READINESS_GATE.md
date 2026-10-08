@@ -1,19 +1,19 @@
 # PAPER READINESS GATE
 
-**Document ID:** TRA-PRG-001 · **Version:** 2.0.0 · **Status:** AUTHORITATIVE (implemented)
+**Document ID:** TRA-PRG-001 · **Version:** 2.1.0 · **Status:** AUTHORITATIVE (implemented)
 **Applies to:** `src/data_engine/runtime/readiness.py`
-**Mandate:** §52/§53/§66 + paper-readiness re-audit BLOCKER 2/3/24
+**Mandate:** §52/§53/§66 + paper-readiness re-audit BLOCKER 2/3/24 + RL-governance cycle ("RL safety/integration" mandatory gate)
 
 ---
 
-## 1. The Mandatory Component Gates (30 — re-audit extension)
+## 1. The Mandatory Component Gates (31 — re-audit + RL-governance extensions)
 
 DATA_READY · REAL_DATA_READY · PIT_READY · SEQUENCE_READY ·
 BASELINE_READY · MODEL_READY · PREDICTION_READY ·
 CALIBRATION_READY · UNCERTAINTY_READY · REGIME_READY ·
-CRASH_READY · DECISION_READY · TRADE_PLAN_READY · RISK_READY ·
-KILLSWITCH_READY · OMS_READY · EXECUTION_READY · PERSISTENCE_READY ·
-RECOVERY_READY · PARTIAL_FILL_READY · SLTP_READY ·
+CRASH_READY · RL_GOV_READY · DECISION_READY · TRADE_PLAN_READY ·
+RISK_READY · KILLSWITCH_READY · OMS_READY · EXECUTION_READY ·
+PERSISTENCE_READY · RECOVERY_READY · PARTIAL_FILL_READY · SLTP_READY ·
 RECONCILIATION_READY · LEDGER_READY · MEMORY_READY · AUDIT_READY ·
 REPLAY_READY · OBSERVABILITY_READY · SECURITY_READY · TESTS_READY ·
 GOVERNANCE_READY
@@ -38,12 +38,23 @@ mandatory and fail-closed exactly like the original 23:
 - **BASELINE_READY** — the deterministic baseline exists and is
   evaluated against (walk-forward).
 
+The 2026-10-09 RL-governance cycle added the thirty-first gate:
+
+- **RL_GOV_READY** — TRUE only with objective evidence that the RL
+  layer is EITHER governed-and-integrated (advisor-only, bounded,
+  versioned, veto-able — see `docs/RL_RUNTIME_GOVERNANCE_SPEC.md`)
+  OR explicitly DISABLED / NON-AUTHORITATIVE — and in BOTH cases
+  structurally incapable of bypassing Risk / KillSwitch / OMS
+  (verified by import-surface and method-surface tests). An
+  ungoverned, failed or silently-absent RL layer blocks operational
+  startup exactly like any other failing gate.
+
 ## 2. Fail-Closed Rules (§53)
 
 - EVERY gate requires an explicit `GateEvidence` object (component +
   check + evidence + passed). Absent evidence defaults to FALSE —
   never neutral.
-- ALL 30 must be TRUE; one FALSE ⇒ `PAPER_READY = FALSE`.
+- ALL 31 must be TRUE; one FALSE ⇒ `PAPER_READY = FALSE`.
 - There is NO manual override, NO environment-variable bypass (the
   gate reads no environment — structurally tested), NO hidden
   default-true.
@@ -75,7 +86,7 @@ marking. Such runtimes are ledgered as
 (`rt.operational is False`), and never constitute paper sessions.
 An operational paper session (`ephemeral_test_fixture=False`, the
 fail-closed default) REQUIRES the persistent state store AND a
-passing 30-gate readiness verdict — structurally, at startup.
+passing 31-gate readiness verdict — structurally, at startup.
 
 ## 5. Current Verdict (2026-10-09, re-audit cycle)
 

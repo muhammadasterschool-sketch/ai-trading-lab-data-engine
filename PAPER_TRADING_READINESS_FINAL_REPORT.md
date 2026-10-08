@@ -1,14 +1,70 @@
 # PAPER TRADING READINESS FINAL REPORT
 
-**Document ID:** PPR-FR-002 · **Version:** 2.0.0 · **Date:** 2026-10-09
+**Document ID:** PPR-FR-002 · **Version:** 2.1.0 · **Date:** 2026-10-09
 **Prepared by:** ZAI implementation + verification agent (paper-readiness
-re-audit mandate: blocker closure + runtime-integration forensic re-audit)
+re-audit mandate: blocker closure + runtime-integration forensic re-audit;
+RL-governance cycle: RL runtime + observability metrics + 31st gate)
 **Repository:** muhammadasterschool-sketch/ai-trading-lab-data-engine
 **Branch:** phase-4a/4a1-architecture-correction
-**Baseline at start:** 8ca2fea (v1.0.0 report cycle complete; remote
-main = phase branch = 8ca2fea; tree clean)
-**Supersedes:** v1.0.0 (archived at
+**Baseline at start:** 9ddadde (v2.0.0 report + work-done summary pushed;
+remote main = phase branch = 9ddadde; tree clean)
+**Supersedes:** v2.0.0 (whose content remains authoritative below —
+this amendment appends the RL-governance cycle; v1.0.0 archived at
 `docs/PAPER_TRADING_READINESS_FINAL_REPORT_v1.md`)
+
+---
+
+## 0. RL-GOVERNANCE CYCLE AMENDMENT (v2.1.0, 2026-10-09)
+
+The Z.AI MASTER REMEDIATION/IMPLEMENTATION mandate re-issued the
+paper-blocker table. First-hand re-verification against the code
+found the table STALE in 12 of 14 rows (those blockers were already
+BUILT and evidence-verified in the v2.0.0 cycle) and identified
+exactly TWO genuine gaps, both now closed:
+
+1. **RL runtime — WAS GENUINELY ABSENT** (no RL code anywhere in
+   `src/`). CLOSED as a GOVERNED ADVISOR: new module
+   `src/data_engine/runtime/rl.py` (frozen observation contract,
+   bounded long-only action vocabulary, deterministic
+   risk-tempered baseline policy with policy_hash identity, hard
+   position/turnover/exposure/drawdown bounds with STRICT
+   degrade-to-HOLD semantics, OOD + confidence + crash fences,
+   cross-process-verifiable `propose_rl_action`) wired into
+   `TradingRuntime(rl_policy=...)` as a RECORD-ONLY advisor
+   (DISABLED by default; one decision-ledger event + one memory
+   record per bar; structurally incapable of reaching OMS/risk/
+   kill-switch — import-surface and method-surface tests). HONEST
+   LIMIT: the policy is a deterministic baseline, NOT a trained RL
+   agent — no empirical RL performance is claimed.
+2. **Runtime observability metrics — were unwired** (BarOutcome
+   existed; no metrics registry in the runtime). CLOSED: new
+   `src/data_engine/runtime/metrics.py` (`RuntimeMetrics`, closed
+   counter vocabulary incl. no-trade reason histogram, kills,
+   halts, reconciliation mismatches, recovery events, RL counters;
+   latency gauges measured but EXCLUDED from identity and
+   persistence per INV-01; snapshot_hash deterministic over
+   counters only).
+
+**Readiness gate extended 30 → 31 mandatory gates:** `RL_GOV_READY`
+(FALSE ⇒ startup refused; PASS requires governed-and-integrated OR
+explicitly-DISABLED evidence — an ungoverned RL layer can no longer
+be silently absent). Spec: `docs/RL_RUNTIME_GOVERNANCE_SPEC.md`
+(TRA-RLG-001 v1.0.0); gate spec TRA-PRG-001 v2.1.0.
+
+**Evidence this cycle:** suite 1,378 → **1,447 passed + 1 skipped
+×2 deterministic** (+69 new tests: 45 RL-governance incl.
+subprocess cross-process identity, 23 metrics, +1 operational
+RL_GOV refusal); cross-process replay re-verified DETERMINISTIC
+(orders=8, fills=24, bar_index=69); frozen 13/13 before and after;
+security 0 secrets/312 files · 0 dangerous ops/24 runtime modules.
+
+**VERDICT UNCHANGED: PAPER_READY = FALSE — STATUS =
+BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY.** The RL_GOV and observability
+gates now PASS with objective evidence; the FALSE gates remain
+REAL_DATA_READY (VERIFIED_YEARS = 0) and GOVERNANCE_READY (H-1,
+CI/WP-12, PAT rotation — human decisions that no code may
+fabricate). LIVE TRADING remains NOT AUTHORIZED; no live surface
+exists.
 
 ---
 
@@ -335,6 +391,7 @@ AND CALIBRATION_READY     (PASS)
 AND UNCERTAINTY_READY     (PASS)
 AND REGIME_READY          (PASS)
 AND CRASH_READY           (PASS)
+AND RL_GOV_READY          (PASS — governed advisor, v2.1.0 cycle)
 AND DECISION_READY        (PASS)
 AND TRADE_PLAN_READY      (PASS)
 AND RISK_READY            (PASS — structural)
@@ -350,9 +407,9 @@ AND LEDGER_READY          (PASS — full-chain recovery)
 AND MEMORY_READY          (PASS — persisted + verified)
 AND AUDIT_READY           (PASS — continuous chains)
 AND REPLAY_READY          (PASS — cross-process ×2)
-AND OBSERVABILITY_READY   (PASS)
+AND OBSERVABILITY_READY   (PASS — RuntimeMetrics wired, v2.1.0)
 AND SECURITY_READY        (PASS — scans; PAT rotation OPEN)
-AND TESTS_READY           (PASS — 1378 ×2 deterministic)
+AND TESTS_READY           (PASS — 1447 ×2 deterministic, v2.1.0)
 AND GOVERNANCE_READY      (FALSE — H-1/CI/human decisions open)
 ```
 

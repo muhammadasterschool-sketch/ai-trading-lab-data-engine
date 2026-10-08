@@ -73,7 +73,7 @@ def _op_config(session, pins=()):
 
 
 def _ready_gate(failed=()):
-    """A gate with objective evidence for ALL 30 mandatory gates.
+    """A gate with objective evidence for ALL 31 mandatory gates.
 
     ``failed`` names gates whose evidence is submitted with
     passed=False (one FALSE ⇒ PAPER_READY=FALSE ⇒ start REFUSED).
@@ -357,6 +357,16 @@ class TestReadinessGateAuthoritative:
         with pytest.raises(Exception, match="GOVERNANCE_READY"):
             rt.start()
 
+    def test_rl_gov_gate_false_refuses_start(self, tmp_path):
+        """RL-governance cycle: an ungoverned/failed RL layer must
+        block operational startup (mandatory gate RL_GOV_READY)."""
+        rt = _operational(
+            "b2-rlgov", tmp_path / "g6b",
+            gate=_ready_gate(failed=["RL_GOV_READY"]),
+        )
+        with pytest.raises(Exception, match="RL_GOV_READY"):
+            rt.start()
+
     def test_all_mandatory_gates_true_permits_startup(self, tmp_path):
         """The ONLY path to operational RUNNING: every gate PASS."""
         rt = _operational("b2-all", tmp_path / "g7",
@@ -365,13 +375,14 @@ class TestReadinessGateAuthoritative:
         assert rt.state is RuntimeState.RUNNING
 
     def test_gate_completeness_mandated_set(self):
-        """BLOCKER 24: the mandated gates all exist."""
+        """BLOCKER 24 + RL-governance cycle: the mandated gates all
+        exist, including RL_GOV_READY ("RL safety/integration")."""
         required = {
             "DATA_READY", "REAL_DATA_READY", "PIT_READY", "SEQUENCE_READY",
             "BASELINE_READY", "MODEL_READY", "PREDICTION_READY",
             "CALIBRATION_READY", "UNCERTAINTY_READY", "REGIME_READY",
-            "CRASH_READY", "DECISION_READY", "TRADE_PLAN_READY",
-            "RISK_READY", "KILLSWITCH_READY", "OMS_READY",
+            "CRASH_READY", "RL_GOV_READY", "DECISION_READY",
+            "TRADE_PLAN_READY", "RISK_READY", "KILLSWITCH_READY", "OMS_READY",
             "EXECUTION_READY", "PERSISTENCE_READY", "RECOVERY_READY",
             "PARTIAL_FILL_READY", "SLTP_READY", "RECONCILIATION_READY",
             "LEDGER_READY", "MEMORY_READY", "AUDIT_READY", "REPLAY_READY",

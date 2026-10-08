@@ -6,13 +6,15 @@ Document Type:  Work-done summary (operator-requested brief)
 Phase:          Cross-phase
 Authority:      B — CURRENT SUPPORTING
 Status:         CURRENT
-Version:        1.0.0
-Last Updated:   2026-10-09 (operator instruction: "sab push karke ek brief doc banao
-                 jisme batao ke is repo mai abhi tak kiya kiya hai")
-Supersedes:     — (condensed companion; ZAI_REPOSITORY_PROGRESS_BRIEF.md v1.13.0
-                 remains the detailed living brief)
+Version:        2.0.0
+Last Updated:   2026-10-09 (RL-governance cycle: the last genuinely-missing
+                 blocker — RL runtime — closed as a governed advisor + runtime
+                 observability metrics + readiness gate 30→31; mandate's
+                 blocker table re-verified first-hand: 12/14 rows were already
+                 closed by the v2.0.0 re-audit cycle)
+Supersedes:     v1.0.0 (initial work-done brief)
 Superseded By:  —
-Source Evidence: git log (60 commits), session worklog, cycle reports cited below
+Source Evidence: git log (61+ commits), session worklog, cycle reports cited below
 ```
 
 > **The short story of everything done in this repository so far.**
@@ -45,18 +47,19 @@ authorized.
 
 | Item | State |
 |---|---|
-| HEAD | `a77c54b` — pushed to BOTH `main` and `phase-4a/4a1-architecture-correction` (`git ls-remote` verified) |
-| Test suite | **1,378 passed + 1 skipped** (re-run this session, 34.55s; previously verified ×2 deterministic + cross-process replay ×2 bit-identical) |
-| Frozen Phase 3 | **13/13** manifest entries intact (blob-level sha256; re-verified this session via `frozen_integrity_check.py`) |
-| Security | 0 secrets in tree / history / config; 0 dangerous ops in runtime package; **1 exposed PAT — rotation STILL owed by operator (exposure #8)** |
-| Paper verdict | **PAPER_READY = FALSE** — STATUS = BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY (30-gate readiness, fail-closed startup) |
+| HEAD | pushed to BOTH `main` and `phase-4a/4a1-architecture-correction` (`git ls-remote` verified each cycle) |
+| Test suite | **1,447 passed + 1 skipped** (×2 deterministic + cross-process replay bit-identical; was 1,378 before the RL-governance cycle) |
+| Frozen Phase 3 | **13/13** manifest entries intact (blob-level sha256; verified before AND after every implementation cycle) |
+| Security | 0 secrets in tree / history / config; 0 dangerous ops in runtime package; **1 exposed PAT — rotation STILL owed by operator (exposure #9)** |
+| Paper verdict | **PAPER_READY = FALSE** — STATUS = BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY (31-gate readiness, fail-closed startup) |
 | Live verdict | **LIVE TRADING — NOT AUTHORIZED** (no live/broker surface exists at all) |
 | Real data | **VERIFIED_YEARS = 0** (nine-stage REAL_VERIFIED chain built; no real dataset supplied yet) |
-| Scale | 311 tracked files · 44 test files · 60 commits on the working branch |
+| RL runtime | **Governed advisor BUILT** (advisor-only, bounded, versioned, DISABLED by default; NOT a trained policy — honestly labeled) |
+| Scale | ~315 tracked files · 46 test files · 61+ commits on the working branch |
 
 ---
 
-## 3. What was done, era by era (60 commits)
+## 3. What was done, era by era (61+ commits)
 
 ### Era 0 — Phase 3 strategy foundation (FROZEN, before this work)
 The repo's starting point: a strategy backtest engine (`src/data_engine/strategy/`).
@@ -128,7 +131,7 @@ reconciliation; structured memory; recovery; deterministic replay; 23-gate
 readiness. +194 tests, 11 authoritative specs, 3 governance decision records
 (no approval fabricated).
 
-### Era 7 — Paper-readiness re-audit (current HEAD `a77c54b`, → 1,378)
+### Era 7 — Paper-readiness re-audit (→ 1,378)
 The 28-blocker closure + runtime-integration forensic re-audit: persistence
 made MANDATORY (no store ⇒ REFUSED; write failure ⇒ safe HALT); readiness
 gate AUTHORITATIVE at startup, 23 → 30 gates; recovery integrated into
@@ -142,6 +145,26 @@ gaps); +43 integration tests incl. 10 mandated restart points; cross-process
 deterministic replay ×2. All 28 blockers dispositioned in
 `PAPER_TRADING_READINESS_FINAL_REPORT.md` v2.0.0.
 
+### Era 8 — RL-governance cycle (current, → 1,447)
+The re-issued master mandate's blocker table was verified FIRST-HAND:
+12 of 14 rows were already closed (stale table); the two genuine gaps
+closed now: **(1) RL runtime** — `runtime/rl.py` governed advisor (frozen
+observation contract, bounded long-only actions, deterministic
+risk-tempered baseline policy with `policy_hash` identity, hard
+position/turnover/exposure/drawdown bounds with strict degrade-to-HOLD,
+OOD/confidence/crash fences, cross-process `propose_rl_action`) wired as a
+RECORD-ONLY advisor (DISABLED by default; structurally incapable of
+reaching OMS/risk/kill-switch — import + method surface tests; honest
+label: deterministic baseline, NOT a trained agent); **(2) runtime
+observability** — `runtime/metrics.py` `RuntimeMetrics` (closed counter
+vocabulary, no-trade reason histogram, kill/halt/reconciliation/recovery/RL
+counters, latency gauges EXCLUDED from identity and persistence per INV-01).
+Readiness gate 30 → **31 gates** (`RL_GOV_READY`: ungoverned RL blocks
+startup). +69 tests (45 RL + 23 metrics + 1 operational refusal).
+Specs: `docs/RL_RUNTIME_GOVERNANCE_SPEC.md` v1.0.0, gate spec v2.1.0,
+final report v2.1.0. VERDICT UNCHANGED: PAPER_READY = FALSE —
+BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY.
+
 ---
 
 ## 4. What exists in the repo today
@@ -152,13 +175,13 @@ deterministic replay ×2. All 28 blockers dispositioned in
 | `src/data_engine/quant/` | Quant primitives: returns, volatility, momentum, trend, MAs, drawdown, statistics |
 | `src/data_engine/actions/`, `derivatives/` | Corporate actions, PIT universe, calendar; futures, rollover, continuous series |
 | `src/data_engine/prediction/` | ~30-module governed prediction & crash intelligence layer |
-| `src/data_engine/runtime/` | The authoritative 22-module paper-trading runtime (Era 6–7) |
+| `src/data_engine/runtime/` | The authoritative 24-module paper-trading runtime — incl. the governed RL advisor + metrics (Era 6–8) |
 | `src/data_engine/strategy/` | **FROZEN Phase 3** backtest engine (13/13 manifest-pinned) |
 | `src/data_engine/risk/`, `paper/` | Risk engine/portfolio; paper simulator/gateway/evaluation |
 | `src/data_engine/research/`, `research_validation/`, `experiment_registry/` | Governance, validation suite, registry |
 | `src/data_engine/hermes/`, `knowledge/`, `discovery/`, `benchmarks/`, `infra/` | Orchestration, memory, strategy discovery, benchmarks, observability |
-| `tests/` (44 files) | 1,378 tests: PIT, identity, red-team, risk, paper, runtime E2E, failure-injection (24 scenarios), restart/recovery, determinism |
-| root + `docs/` | ~80 governance/audit/spec documents, indexed by authority class |
+| `tests/` (46 files) | 1,447 tests: PIT, identity, red-team, risk, paper, runtime E2E, failure-injection (24 scenarios), restart/recovery, determinism, RL governance, metrics |
+| root + `docs/` | ~85 governance/audit/spec documents, indexed by authority class |
 
 ---
 
@@ -187,7 +210,7 @@ verdict.
 
 ## 7. What remains — the operator decision list
 
-1. **Rotate the exposed PAT** (pasted in chat 8 times; verified still active;
+1. **Rotate the exposed PAT** (pasted in chat 9 times; verified still active;
    never reproduced in any repo artifact — but rotation is now overdue).
 2. **Supply + verify real market data** through the nine-stage REAL_VERIFIED
    chain (today VERIFIED_YEARS = 0 — the single biggest blocker to an honest
@@ -196,11 +219,14 @@ verdict.
 4. **Authorize CI/WP-12** (`CI_WP12_GATE_DECISION_RECORD.md`).
 5. **Decide the BUG-008 residual path** (13 frozen-pinned fields: manifest
    refresh or runtime adapters) and **keyed-MAC custody**.
+6. *(Optional, later)* Register a TRAINED RL policy through the model registry
+   with out-of-sample evidence — the current advisor is an honestly-labeled
+   deterministic baseline, and swapping it requires a new policy version/hash.
 
 ## 8. Five documents to read first
 
 1. `ZAI_REPOSITORY_PROGRESS_BRIEF.md` — the detailed living brief (v1.13.0)
-2. `PAPER_TRADING_READINESS_FINAL_REPORT.md` — final verdict + 28-blocker disposition (v2.0.0)
-3. `MASTER_DOCUMENTATION_INDEX.md` — authority map of ~80 documents
-4. `PHASE_4A1_IMPLEMENTATION_RECORD.md` — frozen Phase 3 manifest of record
-5. `ZAI_DEFECT_REGISTER.md` — honest open-items register
+2. `PAPER_TRADING_READINESS_FINAL_REPORT.md` — final verdict + blocker dispositions (v2.1.0)
+3. `MASTER_DOCUMENTATION_INDEX.md` — authority map of ~85 documents
+4. `docs/RL_RUNTIME_GOVERNANCE_SPEC.md` — the governed RL advisor contract (v1.0.0)
+5. `PHASE_4A1_IMPLEMENTATION_RECORD.md` — frozen Phase 3 manifest of record
