@@ -19,9 +19,11 @@ an external controller.
 
 from decimal import Decimal
 from typing import Any, Mapping, Optional, Sequence
+import warnings
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
+from data_engine.pit.immutable import freeze
 from data_engine.pit.hashing import deterministic_hash
 
 #: Phase 8 contract version.
@@ -124,6 +126,12 @@ class ExposureReport(BaseModel):
     sector_breaches: tuple[str, ...]
     total_exposure: str
 
+    @field_validator("by_asset", "by_sector")
+    @classmethod
+    def _freeze_exposure_maps(cls, v: dict) -> dict:
+        # BUG-008: deep-immutable record containers.
+        return freeze(v) if v is not None else v
+
     @property
     def report_hash(self) -> str:
         return "expo8." + deterministic_hash(
@@ -145,7 +153,22 @@ class RiskEngine:
     The engine evaluates proposed ORDERS and WEIGHT VECTORS. Every
     breach raises (fail closed) AND is recorded. The kill switch trips
     on any breach when configured ``trip_on_breach=True`` (the default
-    for production posture; testing may disable).
+    for production posture; the opt-out is permitted for testing but
+    is NEVER silent — it emits a warning at construction and is
+    introspectable via the ``trip_on_breach`` property, ARCH-F1).
+
+    ``check_order`` uses SIGNED position netting (BUG-003
+    correction): ``units`` is the order's SIGNED size (positive buy,
+    negative sell) and ``current_units`` the SIGNED current position;
+    the projected position is ``current + units``. Risk-REDUCING and
+    risk-CLOSING orders therefore never breach and never trip the
+    kill switch; a flip breaches only on the residual (or on the
+    order's own oversized magnitude).
+
+    Kill-switch RESET is human-principal gated (ARCH-F1 correction):
+    ``reset_kill_switch`` refuses every non-human principal. Tripping
+    remains open to any caller (the fail-safe direction); only
+    clearing a tripped switch is privileged.
     """
 
     def __init__(
@@ -157,6 +180,15 @@ class RiskEngine:
         self._trip_on_breach = trip_on_breach
         self._kill_switch = False
         self._records: list[ViolationRecord] = []
+        if not trip_on_breach:
+            # ARCH-F1: the auto-trip opt-out is explicit, never quiet.
+            warnings.warn(
+                "RiskEngine constructed with trip_on_breach=False: "
+                "kill-switch auto-trip is DISABLED for this instance — "
+                "breaches will raise and record without tripping the "
+                "switch (testing posture, ARCH-F1)",
+                stacklevel=2,
+            )
 
     # ------------------------------------------------------------------
     @property
@@ -164,15 +196,49 @@ class RiskEngine:
         return self._limits
 
     @property
+    def trip_on_breach(self) -> bool:
+        """Whether breaches auto-trip the kill switch (ARCH-F1)."""
+        return self._trip_on_breach
+
+    @property
     def kill_switch_active(self) -> bool:
         return self._kill_switch
 
     def trip_kill_switch(self) -> None:
-        """Trip the kill switch (external controller action)."""
+        """Trip the kill switch (external controller action).
+
+        Tripping is deliberately unprivileged: the fail-safe direction
+        must always be reachable.
+        """
         self._kill_switch = True
 
-    def reset_kill_switch(self) -> None:
-        """Reset the kill switch (external controller action)."""
+    def reset_kill_switch(
+        self,
+        principal: Optional[str] = None,
+        principal_kind: str = "machine",
+    ) -> None:
+        """Reset the kill switch — HUMAN principal required (ARCH-F1).
+
+        A tripped kill switch may only be cleared by an identified
+        HUMAN principal, mirroring the repository's human-only
+        authorization conventions (research governance PrincipalKind,
+        prediction-registry approver_kind). Machine principals,
+        unidentified callers, and unknown kinds are structurally
+        refused — the AI can never clear its own kill switch.
+        """
+        if not isinstance(principal, str) or not principal.strip():
+            raise RiskViolationError(
+                "kill-switch reset requires an identified principal "
+                "(ARCH-F1): provide principal=<id>, "
+                "principal_kind='human'"
+            )
+        if principal_kind != "human":
+            raise RiskViolationError(
+                f"kill-switch reset refused for principal_kind="
+                f"{principal_kind!r} (ARCH-F1): only a HUMAN principal "
+                "may reset the kill switch — machine principals are "
+                "structurally rejected"
+            )
         self._kill_switch = False
 
     @property
@@ -216,19 +282,46 @@ class RiskEngine:
         units: Decimal,
         current_units: Optional[Decimal] = None,
     ) -> None:
-        """Validate a proposed order's position size (raises on breach)."""
+        """Validate a proposed order's resulting position (raises on
+        breach).
+
+        BUG-003 correction — SIGNED netting: ``units`` is the order's
+        signed size (positive buy, negative sell) and
+        ``current_units`` the signed current position. The projected
+        position is ``current + units``; a breach occurs iff
+        ``abs(projected) > max_position_units`` (the resulting position
+        is oversized — including the flip residual) or
+        ``abs(units) > max_position_units`` (the order itself is
+        oversized). Reductions and closes of an existing position
+        never breach and never trip the kill switch.
+        """
         self._guard()
         if not isinstance(units, Decimal) or not units.is_finite() or units == 0:
             raise RiskViolationError(
                 "order units must be a non-zero finite Decimal"
             )
-        projected = abs(units) + (
-            abs(current_units) if current_units is not None else Decimal(0)
+        signed_current = (
+            current_units if current_units is not None else Decimal(0)
         )
-        if projected > self._limits.max_position_units:
+        if not isinstance(signed_current, Decimal) or not signed_current.is_finite():
+            raise RiskViolationError(
+                "current_units must be a finite Decimal when provided"
+            )
+        projected = signed_current + units
+        if abs(projected) > self._limits.max_position_units:
             detail = (
                 f"position {symbol}: projected {projected} units exceeds "
                 f"max {self._limits.max_position_units}"
+            )
+            self._record("max_position_units", detail)
+            if self._trip_on_breach:
+                self._kill_switch = True
+            raise RiskViolationError(detail)
+        if abs(units) > self._limits.max_position_units:
+            detail = (
+                f"position {symbol}: order size {units} units exceeds "
+                f"max {self._limits.max_position_units} (order itself "
+                "oversized)"
             )
             self._record("max_position_units", detail)
             if self._trip_on_breach:

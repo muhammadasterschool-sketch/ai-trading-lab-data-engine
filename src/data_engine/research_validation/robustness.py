@@ -19,9 +19,10 @@ the sweep results — no randomness, no environment dependence.
 from itertools import product
 from typing import Any, Callable, Mapping, Sequence
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from data_engine.pit.hashing import deterministic_hash
+from data_engine.pit.immutable import freeze
 
 #: Identity prefix for robustness report hashes.
 ROBUSTNESS_PREFIX = "rob7."
@@ -45,6 +46,12 @@ class RobustnessReport(BaseModel):
     evaluations: tuple[dict, ...]
     plateau: dict
     stable: bool
+
+    @field_validator("plateau")
+    @classmethod
+    def _freeze_plateau(cls, v: dict) -> dict:
+        # BUG-008: deep-immutable record containers.
+        return freeze(v) if v is not None else v
 
     @property
     def report_hash(self) -> str:

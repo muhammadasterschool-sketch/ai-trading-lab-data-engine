@@ -114,13 +114,19 @@ class TestSimulator:
 
     def test_pt_04_limit_orders(self):
         simulator = ExecutionSimulator(REALISM)
-        # Buy limit 101.5: bar 1 low is 101 -> crosses -> fills at 101.5
+        # Buy limit 101.5: bar 1 low is 101 -> crosses -> fills AT the
+        # limit, never above it (BUG-001 correction: the limit is a
+        # price PROTECTION — passive fill at 101.5 with zero charged
+        # costs, since the all-in ask 102.05102 is above the limit).
         fill = simulator.simulate(
             make_order(order_type=OrderType.LIMIT, limit="101.5"),
             make_bars(),
         )
         assert fill is not None
-        assert fill.price > D("101.5")  # adverse adjustments on top
+        assert fill.price <= D("101.5")  # BUG-001: never fill ABOVE the limit
+        assert fill.price == D("101.5")  # passive fill at the limit price
+        assert fill.spread_cost == D("0")
+        assert fill.slippage_cost == D("0")
         # Buy limit 90 never crosses -> no fill
         no_fill = simulator.simulate(
             make_order(order_type=OrderType.LIMIT, limit="90"),

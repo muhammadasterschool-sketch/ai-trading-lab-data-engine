@@ -15,6 +15,7 @@ The LLM must NOT replace deterministic computation for numerical
 market calculations.
 """
 
+from datetime import datetime, UTC
 from enum import Enum
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field

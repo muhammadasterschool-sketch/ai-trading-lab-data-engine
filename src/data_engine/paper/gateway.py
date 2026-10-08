@@ -5,13 +5,22 @@
   exist anywhere in the gateway — there is nothing to leak.
 - ``PnLCalculator`` / ``ReconciliationEngine`` (blueprint 5.55):
   realized/unrealized P&L; order->fill->position reconciliation with
-  discrepancy failures (fail closed, never papered over).
+  discrepancy failures (fail closed, never papered over). Since the
+  BUG-004 correction, ``reconcile`` additionally accepts gateway
+  records (status-aware input) and enforces the fills-if-and-only-if-
+  FILLED invariant.
 - ``AuditLogger`` (blueprint 5.51): hash-chained immutable execution
-  audit trail.
+  audit trail. Since the BUG-005 correction, payloads are deep-copied
+  on write and on read, and entries carry ``timestamp`` /
+  ``component`` / ``event_id`` observability fields.
 - ``AnalyticsEngine``: paper metrics over the equity curve
   (deterministic; reuses no frozen Phase 3 code — duck-typed floats).
+  Since the BUG-009 correction, non-finite curve points fail closed.
 """
 
+import copy
+import math
+from datetime import datetime, UTC
 from decimal import Decimal
 from typing import Mapping, Optional, Sequence
 
@@ -122,17 +131,40 @@ class ReconciliationEngine:
 
     def reconcile(
         self,
-        orders: Sequence[PaperOrder],
+        orders: Sequence,
         fills: Sequence[Fill],
         positions: Mapping[str, PaperPosition],
     ) -> dict:
         """Full three-way reconciliation.
 
-        Checks: (1) every fill's order exists; (2) every filled order
-        has its fill; (3) replaying fills from zero reproduces the
-        stated positions EXACTLY (quantity + realized P&L).
+        ``orders`` may be either:
+
+        - a sequence of :class:`PaperOrder` — legacy, status-blind
+          input: check (2) is NOT verifiable without statuses and is
+          honestly skipped; or
+        - a sequence of :class:`GatewayRecord` — status-aware input
+          (BUG-004 correction): check (2) is enforced — a fill exists
+          if and only if the order's status is FILLED.
+
+        Checks: (1) every fill's order exists; (2) [status-aware
+        input only] every FILLED order has exactly one fill and no
+        SUBMITTED/CANCELLED/REJECTED order has any; (3) replaying
+        fills from zero reproduces the stated positions EXACTLY
+        (quantity + realized P&L).
         """
-        order_ids = {o.client_order_id for o in orders}
+        status_by_order: Optional[dict[str, OrderStatus]] = None
+        if orders and all(
+            hasattr(o, "status") and hasattr(o, "order") for o in orders
+        ):
+            # Status-aware input (GatewayRecord sequence).
+            status_by_order = {
+                r.order.client_order_id: r.status for r in orders
+            }
+            order_list = [r.order for r in orders]
+        else:
+            order_list = list(orders)
+
+        order_ids = {o.client_order_id for o in order_list}
         orphan_fills = sorted(
             {f.client_order_id for f in fills} - order_ids
         )
@@ -148,6 +180,32 @@ class ReconciliationEngine:
                     "(single-fill model violated)"
                 )
             fill_by_order[fill.client_order_id] = fill
+
+        if status_by_order is not None:
+            # BUG-004: the docstring's check (2) is now implemented for
+            # status-aware input — a FILLED order whose fill record went
+            # missing no longer reconciles clean.
+            missing_fills = sorted(
+                order_id
+                for order_id, status in status_by_order.items()
+                if status is OrderStatus.FILLED
+                and order_id not in fill_by_order
+            )
+            if missing_fills:
+                raise ReconciliationError(
+                    f"filled orders without fills: {missing_fills[:5]}"
+                )
+            ghost_status_fills = sorted(
+                order_id
+                for order_id, status in status_by_order.items()
+                if status is not OrderStatus.FILLED
+                and order_id in fill_by_order
+            )
+            if ghost_status_fills:
+                raise ReconciliationError(
+                    "fills attached to non-filled orders: "
+                    f"{ghost_status_fills[:5]}"
+                )
 
         replayed: dict[str, PaperPosition] = {}
         for fill in sorted(fills, key=lambda f: (f.filled_at, f.fill_id)):
@@ -173,7 +231,7 @@ class ReconciliationEngine:
                 "reconciliation failed: " + "; ".join(mismatches[:5])
             )
         return {
-            "orders": len(orders),
+            "orders": len(order_list),
             "fills": len(fills),
             "symbols": sorted(positions),
             "status": "reconciled",
@@ -181,20 +239,47 @@ class ReconciliationEngine:
 
 
 class AuditLogger:
-    """Hash-chained immutable execution audit trail."""
+    """Hash-chained immutable execution audit trail.
+
+    BUG-005 hardening: ``log()`` deep-copies the caller's payload and
+    ``entries`` returns deep copies — historical records can no longer
+    be mutated through caller references or through the returned
+    tuple. Entries additionally carry ``timestamp``, ``component``
+    and ``event_id`` observability fields (audit timestamps are
+    wall-clock BY DESIGN, mirroring the security audit trail FS-21
+    convention; they never participate in any Phase 4 identity).
+
+    The chain remains UNKEYED (SHA-256): it is tamper-EVIDENT against
+    accidental corruption and in-place rewrites, but a full history
+    rewrite with chain recompute can still verify — the keyed-MAC
+    custody decision is a registered pending HUMAN decision (pre-paper
+    forensic report §5.5) and is deliberately NOT made here.
+    """
 
     def __init__(self) -> None:
         self._entries: list[dict] = []
 
-    def log(self, event: str, payload: dict) -> str:
-        """Append one audit event; returns its chain hash."""
-        prev = self._entries[-1]["chain_hash"] if self._entries else "0" * 64
+    def log(
+        self, event: str, payload: dict, component: str = "paper.gateway"
+    ) -> str:
+        """Append one audit event; returns its chain hash.
+
+        ``payload`` is deep-copied on write: later mutation of the
+        caller's dict cannot alter the historical record (BUG-005).
+        """
+        payload_copy = copy.deepcopy(payload) if payload is not None else {}
+        timestamp = datetime.now(UTC).isoformat()
         index = len(self._entries)
+        event_id = f"evt-{index:06d}-{event}"
+        prev = self._entries[-1]["chain_hash"] if self._entries else "0" * 64
         chain_hash = deterministic_hash(
             {
                 "contract_version": PHASE_11_CONTRACT_VERSION,
                 "event": event,
-                "payload": payload,
+                "payload": payload_copy,
+                "component": component,
+                "event_id": event_id,
+                "timestamp": timestamp,
                 "prev_chain_hash": prev,
                 "index": index,
             }
@@ -202,7 +287,10 @@ class AuditLogger:
         self._entries.append(
             {
                 "event": event,
-                "payload": payload,
+                "payload": payload_copy,
+                "component": component,
+                "event_id": event_id,
+                "timestamp": timestamp,
                 "chain_hash": chain_hash,
                 "prev_chain_hash": prev,
                 "index": index,
@@ -218,6 +306,9 @@ class AuditLogger:
                     "contract_version": PHASE_11_CONTRACT_VERSION,
                     "event": entry["event"],
                     "payload": entry["payload"],
+                    "component": entry["component"],
+                    "event_id": entry["event_id"],
+                    "timestamp": entry["timestamp"],
                     "prev_chain_hash": prev,
                     "index": entry["index"],
                 }
@@ -232,22 +323,40 @@ class AuditLogger:
 
     @property
     def entries(self) -> tuple[dict, ...]:
-        return tuple(self._entries)
+        """Deep copies of the entries (BUG-005): read-only by value."""
+        return tuple(copy.deepcopy(entry) for entry in self._entries)
 
 
 class AnalyticsEngine:
-    """Deterministic paper analytics over an equity curve."""
+    """Deterministic paper analytics over an equity curve.
+
+    BUG-009: non-finite curve points (NaN/inf) fail closed with
+    ``ValueError`` — plausible-but-wrong metrics computed over
+    silently-skipped NaN points are exactly the failure mode the
+    pre-paper forensic forbids.
+    """
 
     @staticmethod
-    def total_pnl(equity_curve: Sequence[float]) -> float:
+    def _require_finite(values: Sequence[float], name: str) -> None:
+        for i, value in enumerate(values):
+            if not math.isfinite(value):
+                raise ValueError(
+                    f"{name}[{i}] is not finite (NaN/inf) — analytics "
+                    "fail closed on non-finite equity data (BUG-009)"
+                )
+
+    @classmethod
+    def total_pnl(cls, equity_curve: Sequence[float]) -> float:
         if len(equity_curve) < 2:
             raise ValueError("equity curve needs >= 2 points")
+        cls._require_finite(equity_curve, "equity_curve")
         return equity_curve[-1] - equity_curve[0]
 
-    @staticmethod
-    def max_drawdown(equity_curve: Sequence[float]) -> float:
+    @classmethod
+    def max_drawdown(cls, equity_curve: Sequence[float]) -> float:
         if len(equity_curve) < 2:
             raise ValueError("equity curve needs >= 2 points")
+        cls._require_finite(equity_curve, "equity_curve")
         peak = equity_curve[0]
         worst = 0.0
         for value in equity_curve:
@@ -256,15 +365,15 @@ class AnalyticsEngine:
                 worst = max(worst, (peak - value) / peak)
         return worst
 
-    @staticmethod
-    def sharpe(returns: Sequence[float], periods_per_year: int = 252) -> float:
+    @classmethod
+    def sharpe(cls, returns: Sequence[float], periods_per_year: int = 252) -> float:
         if len(returns) < 2:
             raise ValueError("sharpe needs >= 2 returns")
+        cls._require_finite(returns, "returns")
         mean = sum(returns) / len(returns)
         variance = sum((r - mean) ** 2 for r in returns) / (len(returns) - 1)
         if variance <= 0:
             raise ValueError("zero-variance returns: sharpe undefined")
-        import math
         return (mean / math.sqrt(variance)) * (periods_per_year ** 0.5)
 
     def summarize(

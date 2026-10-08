@@ -17,6 +17,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from data_engine.pit.immutable import freeze
 from data_engine.pit.hashing import (
     PROHIBITED_IDENTITY_FIELDS,
     deterministic_hash,
@@ -88,7 +89,9 @@ class KnowledgeRecord(BaseModel):
     record_id: str
     record_type: RecordType
     principal: Principal
-    content: dict[str, Any] = Field(default_factory=dict)
+    content: dict[str, Any] = Field(
+        default_factory=dict, validate_default=True
+    )
     subject_refs: SubjectRefs = Field(default_factory=SubjectRefs)
     version: int = Field(default=1, ge=1)
     validation_ref: Optional[str] = Field(default=None, min_length=16)
@@ -106,7 +109,9 @@ class KnowledgeRecord(BaseModel):
     def _validate_content(cls, v: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(v, dict):
             raise ValueError("content must be a structured mapping")
-        return v
+        # BUG-008: deep-immutable record containers (validate_default
+        # covers the default_factory={} case as well).
+        return freeze(v)
 
     @property
     def identity_payload(self) -> dict[str, Any]:
@@ -170,7 +175,9 @@ class MemoryRecord(BaseModel):
     session_id: str
     sequence: int = Field(ge=0)
     principal: Principal
-    content: dict[str, Any] = Field(default_factory=dict)
+    content: dict[str, Any] = Field(
+        default_factory=dict, validate_default=True
+    )
 
     @field_validator("session_id")
     @classmethod
@@ -178,6 +185,14 @@ class MemoryRecord(BaseModel):
         if not isinstance(v, str) or not v.strip():
             raise ValueError("session_id must be a non-empty string")
         return v.strip()
+
+    @field_validator("content")
+    @classmethod
+    def _freeze_content(cls, v: dict[str, Any]) -> dict[str, Any]:
+        # BUG-008: deep-immutable record containers.
+        if not isinstance(v, dict):
+            raise ValueError("content must be a structured mapping")
+        return freeze(v)
 
     @property
     def record_hash(self) -> str:

@@ -11,7 +11,9 @@ Every calculation result is traceable to:
 from datetime import datetime, UTC
 from enum import Enum
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
+
+from data_engine.pit.immutable import freeze
 
 
 class QuantEngineVersion:
@@ -44,6 +46,12 @@ class CalculationMetadata(BaseModel):
     engine_version: str = Field(default_factory=QuantEngineVersion.version_string)
     calculation_timestamp: str = Field(default_factory=QuantEngineVersion.calculation_timestamp)
 
+    @field_validator("parameters")
+    @classmethod
+    def _freeze_parameters(cls, v: Dict) -> Dict:
+        # BUG-008: deep-immutable record containers.
+        return freeze(v) if v is not None else v
+
     def model_dump_traceable(self) -> Dict:
         """Return a fully traceable dict representation."""
         return self.model_dump()
@@ -62,7 +70,15 @@ class QuantResult(BaseModel):
     success: bool = True
     error: Optional[str] = None
     warning_count: int = 0
-    warnings: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(
+        default_factory=list, validate_default=True
+    )
+
+    @field_validator("values", "warnings")
+    @classmethod
+    def _freeze_series(cls, v: List) -> List:
+        # BUG-008: deep-immutable record containers.
+        return freeze(v) if v is not None else v
 
     @property
     def is_valid(self) -> bool:
@@ -84,6 +100,12 @@ class IndicatorResult(BaseModel):
     timeframe: str
     instrument: str
     engine_version: str = Field(default_factory=QuantEngineVersion.version_string)
+
+    @field_validator("values")
+    @classmethod
+    def _freeze_values(cls, v: List) -> List:
+        # BUG-008: deep-immutable record containers.
+        return freeze(v) if v is not None else v
 
     def __len__(self) -> int:
         return len(self.values)
@@ -110,6 +132,12 @@ class IndicatorSeries(BaseModel):
     timestamps: List[datetime]
     values: List[Optional[float]]
     timeframe: str
+
+    @field_validator("timestamps", "values")
+    @classmethod
+    def _freeze_series(cls, v: List) -> List:
+        # BUG-008: deep-immutable record containers.
+        return freeze(v) if v is not None else v
 
     def __len__(self) -> int:
         return len(self.values)

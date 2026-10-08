@@ -13,6 +13,7 @@ from data_engine.validation import DataValidator
 from data_engine.provenance import ProvenanceRecord, DatasetVersion
 from data_engine.quarantine import QuarantineManager
 from data_engine.data_blocked import DATA_QUALITY_BLOCKED, DataQualityBlockedError
+from data_engine.evidence import EvidenceProvenance  # ARCH-F3: used at line 191, previously never imported
 
 
 class IngestionResult(BaseModel):
@@ -78,12 +79,9 @@ class DataIngester:
             )
 
         # Build instrument
-        instrument_obj = provider.fetch_instrument_info(instrument) or Instrument(
-            symbol=instrument,
-            asset_class=None,  # Will be classified later
-            base_asset=instrument.split("/")[0] if "/" in instrument else instrument,
-            quote_asset=instrument.split("/")[1] if "/" in instrument else "USD",
-        )
+        instrument_obj = provider.fetch_instrument_info(instrument)
+        if instrument_obj is None:
+            instrument_obj = self._fallback_instrument(instrument)
 
         # Build provenance
         provenance = self._build_provenance(
@@ -155,6 +153,39 @@ class DataIngester:
             blocked=False,
         )
 
+    def _fallback_instrument(self, instrument: str):
+        """Fallback instrument when the provider supplies no metadata.
+
+        RT-F8 correction companion: the previous fallback passed
+        ``asset_class=None`` — a value the Instrument contract can
+        never validate — so the file-provider ingestion path died with
+        a ValidationError even after the FS-06 root fix. This fallback
+        classifies the symbol with the repository's own classifier
+        (``instruments.InstrumentRegistry.classify_asset_class``) and
+        FAILS CLOSED for symbols it cannot honestly classify — no
+        fabricated asset classes.
+        """
+        from data_engine.instruments import InstrumentRegistry
+        from data_engine.schemas import Instrument
+
+        asset_class = InstrumentRegistry().classify_asset_class(instrument)
+        if asset_class is None:
+            raise ValueError(
+                f"provider supplied no instrument metadata for "
+                f"{instrument!r} and the symbol cannot be classified — "
+                "refusing to fabricate an asset class (fail closed)"
+            )
+        if "/" in instrument:
+            base, quote = instrument.split("/", 1)
+        else:
+            base, quote = instrument, "USD"
+        return Instrument(
+            symbol=instrument,
+            asset_class=asset_class,
+            base_asset=base,
+            quote_asset=quote,
+        )
+
     def get_raw_data(self, key: str) -> Optional[List]:
         """Retrieve immutable raw data by key."""
         return self._raw_store.get(key)
@@ -163,9 +194,42 @@ class DataIngester:
         return f"{provider_name}::{instrument}::{timeframe.value}::{start.isoformat()}::{end.isoformat()}"
 
     def _compute_raw_hash(self, candles: List[Candle]) -> str:
+        """Deterministic raw-data hash (ARCH-F6 correction).
+
+        The OLD implementation chained ``Candle.to_hash()`` — which is
+        wall-clock contaminated through the ``provider_timestamp``
+        default factory (H-1 / F-04 family): two structurally identical
+        candle lists hashed differently depending on construction
+        time. This implementation hashes the CANONICAL market-data
+        fields of each candle via the PIT deterministic hash and
+        deliberately EXCLUDES ``provider_timestamp``: identical market
+        data now hashes identically, keeping the H-1 containment
+        posture (the dormant path never invokes the contaminated
+        ``to_hash``) without amending the frozen Candle model.
+        """
         import hashlib
-        data = "[" + ",".join(str(c.to_hash()) for c in candles) + "]"
-        return hashlib.sha256(data.encode()).hexdigest()
+        from data_engine.pit.hashing import deterministic_hash
+        digests = [
+            deterministic_hash(
+                {
+                    "timestamp": c.timestamp.isoformat(),
+                    "open": c.open,
+                    "high": c.high,
+                    "low": c.low,
+                    "close": c.close,
+                    "volume": c.volume,
+                    "timeframe": c.timeframe.value,
+                    "bid": c.bid,
+                    "ask": c.ask,
+                    "spread": c.spread,
+                    "currency": c.currency,
+                }
+            )
+            for c in candles
+        ]
+        return hashlib.sha256(
+            ("[" + ",".join(digests) + "]").encode()
+        ).hexdigest()
 
     def _build_provenance(self, provider, instrument, timeframe, start, end,
                           evidence_provenance, dataset_id, dataset_version, source_hash):
@@ -204,14 +268,41 @@ def ingest_from_file(
     """Convenience function to ingest from a file-based provider.
 
     Used for backtesting with archived data from evtradelabs.com etc.
+
+    RT-F8 correction: the data directory is derived from the caller's
+    ``file_path`` and supplied EXPLICITLY as the provider's approved
+    data root (FS-04) — the previous implementation hard-coded
+    ``endpoint="./data"`` with NO approved root, so the FS-06
+    fail-closed containment layer rejected every read before it
+    happened (dead path). The security invariant is unchanged: file
+    I/O still fails closed without an approved root; the approval is
+    now supplied by the calling operator instead of being absent.
+
+    Filename convention: the file provider constructs its filename
+    from the validated instrument and timeframe — ``file_path`` must
+    therefore be named ``{instrument}_{timeframe.value}.csv`` inside
+    its directory (a mismatch fails closed with an explicit contract
+    error instead of a silently empty dataset).
     """
+    from pathlib import Path
     from data_engine.schemas import ProviderConfig
     from data_engine.provider import ProviderFactory
 
+    resolved = Path(file_path).expanduser().resolve()
+    expected_name = f"{instrument}_{timeframe.value}.csv"
+    if resolved.name != expected_name:
+        raise ValueError(
+            f"ingest_from_file contract (RT-F8): file must be named "
+            f"{expected_name!r} for instrument {instrument!r} / "
+            f"timeframe {timeframe.value!r}, got {resolved.name!r}"
+        )
+    data_dir = resolved.parent
     config = ProviderConfig(
         provider_name="file",
         provider_type="file",
-        endpoint="./data",
+        endpoint=str(data_dir),
+        approved_data_root=str(data_dir),  # FS-04: explicit caller approval
+        instrument_allowlist=[instrument],  # FS-14: caller names the instrument
         timezone="UTC",
     )
     provider = ProviderFactory.create(config)

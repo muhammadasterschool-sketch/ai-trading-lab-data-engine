@@ -13,6 +13,18 @@ mandates (spread, fees, slippage, latency):
   bar_volume), applied adversely. Oversized orders (quantity >
   participation_cap * bar_volume) are REJECTED — a paper fill that
   real markets could not execute is a realism failure, not a feature.
+- **Limit protection (BUG-001 correction)**: a resting LIMIT order
+  never fills through its limit. The executable price is the market
+  all-in price capped at the limit: BUY fills at
+  ``min(limit, open + half_spread + impact)`` — never ABOVE the
+  limit; SELL fills at ``max(limit, open - half_spread - impact)`` —
+  never BELOW it. Adverse costs are charged only up to the limit;
+  price improvement lands in the fill price itself, never as a
+  negative "cost". MARKET orders retain the full adverse stack.
+- **Bar ordering (BUG-007 correction)**: bar series must be strictly
+  increasing in timestamp; duplicates or regressions raise
+  ``SimulationError`` instead of silently corrupting the
+  submission-bar scan.
 
 All realism parameters arrive in an immutable ``ExecutionRealism``
 config; every fill records its full cost decomposition.
@@ -118,13 +130,19 @@ class ExecutionSimulator:
           after the submission bar (latency).
         - LIMIT orders fill only on a bar (at/after the lag) whose
           price crosses the limit (buy: low <= limit; sell: high >=
-          limit), at the limit price.
+          limit), at the limit price or better — never through the
+          limit (BUG-001).
 
         Oversized orders (participation cap) raise SimulationError —
         they are realism failures, not silent partial fills.
+        Bar series with duplicate or non-increasing timestamps raise
+        SimulationError (BUG-007).
         """
         if not bars:
             raise SimulationError("no bars to simulate against")
+        # BUG-007: the submission-bar scan assumes strictly increasing
+        # timestamps — validate instead of silently mis-locating.
+        self._validate_bar_order(bars)
         # Locate the submission bar (last bar at or before submitted_at)
         submit_idx = None
         for idx, bar in enumerate(bars):
@@ -151,29 +169,107 @@ class ExecutionSimulator:
             )
 
         if order.order_type is OrderType.MARKET:
-            reference = Decimal(str(bar["open"]))
-            return self._fill_at_reference(order, reference, fill_idx, bar)
-        # LIMIT
+            return self._fill_market(order, fill_idx, bar)
+        return self._fill_limit(order, fill_idx, bar)
+
+    # ------------------------------------------------------------------
+    def _validate_bar_order(self, bars: Sequence[Mapping]) -> None:
+        """BUG-007: reject duplicate or non-increasing bar timestamps."""
+        previous: Optional[datetime] = None
+        for idx, bar in enumerate(bars):
+            ts = _bar_time(bar)
+            if previous is not None and ts <= previous:
+                raise SimulationError(
+                    f"bar {idx} timestamp {ts.isoformat()} is not strictly "
+                    "increasing — bar series must be ascending and "
+                    "duplicate-free (BUG-007)"
+                )
+            previous = ts
+
+    def _impact_per_unit(
+        self, quantity: Decimal, volume: Decimal, reference: Decimal
+    ) -> Decimal:
+        """Deterministic per-unit market impact at ``reference``."""
+        return self._realism.impact_rate * (quantity / volume) * reference
+
+    def _fill_market(
+        self, order: PaperOrder, fill_idx: int, bar: Mapping
+    ) -> Fill:
+        """MARKET: fill at the lag-bar open with the full adverse stack."""
+        open_ = Decimal(str(bar["open"]))
+        volume = Decimal(str(bar.get("volume") or 0))
+        impact_price = self._impact_per_unit(order.quantity, volume, open_)
+        if order.side is OrderSide.BUY:
+            price = open_ + self._realism.half_spread + impact_price
+        else:
+            price = open_ - self._realism.half_spread - impact_price
+        return self._make_fill(
+            order, price, self._realism.half_spread, impact_price,
+            fill_idx, bar,
+        )
+
+    def _fill_limit(
+        self, order: PaperOrder, fill_idx: int, bar: Mapping
+    ) -> Optional[Fill]:
+        """LIMIT (BUG-001): never fill through the submitted limit.
+
+        The executable price is the market all-in price capped at the
+        limit: BUY fills at ``min(limit, open + hs + impact)`` (never
+        above the limit); SELL fills at ``max(limit, open - hs -
+        impact)`` (never below it). A marketable limit takes the
+        market all-in price (price improvement vs. the limit); a
+        passive limit fills AT the limit with costs charged only up
+        to the limit. The cost decomposition satisfies the exact
+        accounting identity
+        ``price * qty == base * qty +/- (spread_cost + slippage_cost)``
+        with ``base = min(limit, open)`` (BUY) / ``max(limit, open)``
+        (SELL).
+        """
         low = Decimal(str(bar["low"]))
         high = Decimal(str(bar["high"]))
-        if order.side is OrderSide.BUY and low <= order.limit_price:
-            return self._fill_at_reference(order, order.limit_price, fill_idx, bar)
-        if order.side is OrderSide.SELL and high >= order.limit_price:
-            return self._fill_at_reference(order, order.limit_price, fill_idx, bar)
-        return None
-
-    def _fill_at_reference(
-        self, order: PaperOrder, reference: Decimal, fill_idx: int, bar: Mapping
-    ) -> Fill:
-        """Build the fill at ``reference`` with adverse spread + impact."""
+        crossed = (
+            order.side is OrderSide.BUY and low <= order.limit_price
+        ) or (order.side is OrderSide.SELL and high >= order.limit_price)
+        if not crossed:
+            return None
+        open_ = Decimal(str(bar["open"]))
         volume = Decimal(str(bar.get("volume") or 0))
-        impact_price = (
-            self._realism.impact_rate * (order.quantity / volume) * reference
-        )
+        impact_price = self._impact_per_unit(order.quantity, volume, open_)
+        half_spread = self._realism.half_spread
         if order.side is OrderSide.BUY:
-            price = reference + self._realism.half_spread + impact_price
+            all_in = open_ + half_spread + impact_price
+            price = min(order.limit_price, all_in)
+            base = min(order.limit_price, open_)
+            gap = price - base
         else:
-            price = reference - self._realism.half_spread - impact_price
+            all_in = open_ - half_spread - impact_price
+            price = max(order.limit_price, all_in)
+            base = max(order.limit_price, open_)
+            gap = base - price
+        # The decomposition is exact by construction: gap is DEFINED as
+        # price - base (>= 0), impact is charged first up to the gap,
+        # and the remainder is the charged spread — so the accounting
+        # identity price*qty == base*qty +/- costs holds exactly in
+        # Decimal arithmetic. (No hs+impact upper-bound guard: under
+        # 28-digit Decimal division, gap may exceed hs+impact by a
+        # final-digit rounding dust — economically irrelevant, and a
+        # guard there would spuriously reject legitimate fills.)
+        impact_charged = min(impact_price, gap)
+        spread_charged = gap - impact_charged
+        return self._make_fill(
+            order, price, spread_charged, impact_charged, fill_idx, bar,
+        )
+
+    def _make_fill(
+        self,
+        order: PaperOrder,
+        price: Decimal,
+        spread_charged: Decimal,
+        impact_charged: Decimal,
+        fill_idx: int,
+        bar: Mapping,
+    ) -> Fill:
+        """Build the fill at ``price`` with the charged cost components."""
         return Fill(
             fill_id=f"{order.client_order_id}-F{fill_idx}",
             client_order_id=order.client_order_id,
@@ -182,8 +278,8 @@ class ExecutionSimulator:
             quantity=order.quantity,
             price=price,
             commission=self._realism.commission_per_unit * order.quantity,
-            slippage_cost=impact_price * order.quantity,
-            spread_cost=self._realism.half_spread * order.quantity,
+            slippage_cost=impact_charged * order.quantity,
+            spread_cost=spread_charged * order.quantity,
             filled_at=_bar_time(bar),
         )
 

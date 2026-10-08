@@ -23,9 +23,10 @@ Invariants (blueprint 5.21):
 from datetime import datetime, UTC
 from typing import Any, Mapping, Optional, Sequence
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from data_engine.pit.hashing import deterministic_hash
+from data_engine.pit.immutable import freeze
 from data_engine.quant.registry import get_registry
 
 #: Identity prefix for feature dataset hashes.
@@ -55,7 +56,9 @@ class FeatureSpec(BaseModel):
 
     output_name: str
     indicator: str
-    parameters: dict[str, Any] = {}
+    parameters: dict[str, Any] = Field(
+        default_factory=dict, validate_default=True
+    )
 
     @field_validator("output_name", "indicator")
     @classmethod
@@ -63,6 +66,12 @@ class FeatureSpec(BaseModel):
         if not isinstance(v, str) or not v.strip():
             raise ValueError("feature names must be non-empty strings")
         return v.strip()
+
+    @field_validator("parameters")
+    @classmethod
+    def _freeze_parameters(cls, v: dict) -> dict:
+        # BUG-008: deep-immutable record containers.
+        return freeze(v) if v is not None else v
 
     @property
     def spec_hash(self) -> str:

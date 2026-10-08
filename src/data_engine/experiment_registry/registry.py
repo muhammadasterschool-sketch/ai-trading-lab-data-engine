@@ -29,6 +29,7 @@ from typing import Optional, Sequence
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from data_engine.pit.hashing import deterministic_hash
+from data_engine.pit.immutable import freeze
 
 #: Identity prefix for experiment-registry entry hashes.
 EXPERIMENT_REGISTRY_PREFIX = "expr5."
@@ -106,6 +107,13 @@ class ReproducibilityRun(BaseModel):
     observed_output_hash: str
     expected_output_hash: str
     run_at: datetime
+
+    @field_validator("environment_pin")
+    @classmethod
+    def _freeze_environment_pin(cls, v: dict) -> dict:
+        # BUG-008: deep-immutable record containers — the environment
+        # pin participates in reproducibility identity.
+        return freeze(v) if v is not None else v
 
     @field_validator("run_label")
     @classmethod

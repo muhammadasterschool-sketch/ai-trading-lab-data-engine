@@ -8,3 +8,9 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Runtime artifacts (RT-F13 correction): execution-time outputs never
+# belong in version control — the security audit trail is written at
+# runtime by the FS-21/22 recorder and must stay untracked.
+src/audit.log
+*.log

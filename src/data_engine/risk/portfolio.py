@@ -23,6 +23,7 @@ from typing import Mapping, Optional
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from data_engine.pit.hashing import deterministic_hash
+from data_engine.pit.immutable import freeze
 from data_engine.risk.engine import RiskEngine, RiskLimits
 
 #: Phase 8 contract version.
@@ -49,7 +50,8 @@ class Allocation(BaseModel):
     def _validate_weights(cls, v: dict) -> dict:
         if not v:
             raise PortfolioError("allocation must be non-empty")
-        return v
+        # BUG-008: deep-immutable record containers.
+        return freeze(v)
 
     @property
     def allocation_hash(self) -> str:

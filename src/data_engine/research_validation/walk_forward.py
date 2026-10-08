@@ -23,6 +23,7 @@ from typing import Any, Callable, Optional, Sequence
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from data_engine.pit.hashing import deterministic_hash
+from data_engine.pit.immutable import freeze
 
 #: Identity prefix for walk-forward report hashes.
 WALK_FORWARD_PREFIX = "wf7."
@@ -141,6 +142,12 @@ class WalkForwardReport(BaseModel):
     window_count: int
     per_window_results: tuple[dict, ...]
     oos_aggregate: dict
+
+    @field_validator("oos_aggregate")
+    @classmethod
+    def _freeze_aggregate(cls, v: dict) -> dict:
+        # BUG-008: deep-immutable record containers.
+        return freeze(v) if v is not None else v
 
     @property
     def report_hash(self) -> str:

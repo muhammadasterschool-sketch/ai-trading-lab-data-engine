@@ -76,7 +76,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install uv
-          uv sync --frozen
+          uv sync --frozen --extra dev
       - name: Full test suite (must be 100% green)
         run: uv run pytest -q -p no:cacheprovider
       - name: Determinism (three consecutive runs)

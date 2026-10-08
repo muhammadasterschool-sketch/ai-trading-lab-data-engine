@@ -18,6 +18,7 @@ from typing import Any, Callable, Mapping, Optional, Sequence
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from data_engine.pit.immutable import freeze
 from data_engine.pit.hashing import deterministic_hash
 
 #: Phase 10 contract version.
@@ -212,6 +213,12 @@ class LogEntry(BaseModel):
             raise ValueError("log fields must be non-empty strings")
         return v
 
+    @field_validator("fields")
+    @classmethod
+    def _freeze_fields(cls, v: dict) -> dict:
+        # BUG-008: deep-immutable record containers.
+        return freeze(v) if v is not None else v
+
 
 class StructuredLog:
     """Append-only, hash-chained, immutable log."""
@@ -393,6 +400,12 @@ class Checkpoint(BaseModel):
         if not isinstance(v, str) or not v:
             raise ValueError("checkpoint fields must be non-empty")
         return v
+
+    @field_validator("state")
+    @classmethod
+    def _freeze_state(cls, v: dict) -> dict:
+        # BUG-008: deep-immutable record containers.
+        return freeze(v) if v is not None else v
 
 
 class CheckpointManager:

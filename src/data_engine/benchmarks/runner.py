@@ -11,9 +11,10 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Callable, Mapping, Optional, Sequence
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from data_engine.pit.hashing import deterministic_hash
+from data_engine.pit.immutable import freeze
 
 #: Benchmark-layer contract version.
 BENCHMARK_CONTRACT_VERSION = "1.0.0"
@@ -50,6 +51,12 @@ class BenchmarkCase(BaseModel):
     workload: dict[str, int]
     operations: int = Field(ge=1)
 
+    @field_validator("workload")
+    @classmethod
+    def _freeze_workload(cls, v: dict) -> dict:
+        # BUG-008: deep-immutable record containers.
+        return freeze(v) if v is not None else v
+
 
 class BenchmarkResult(BaseModel):
     """One measured case result (timings informational)."""
@@ -74,8 +81,16 @@ class BenchmarkReport(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     results: tuple[BenchmarkResult, ...] = ()
-    environment: dict[str, str] = Field(default_factory=dict)
+    environment: dict[str, str] = Field(
+        default_factory=dict, validate_default=True
+    )
     no_trade_capable: bool = False
+
+    @field_validator("environment")
+    @classmethod
+    def _freeze_environment(cls, v: dict) -> dict:
+        # BUG-008: deep-immutable record containers.
+        return freeze(v) if v is not None else v
 
     @property
     def report_hash(self) -> str:

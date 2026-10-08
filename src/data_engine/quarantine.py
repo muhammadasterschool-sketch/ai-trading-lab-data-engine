@@ -6,8 +6,9 @@ downstream until reviewed or reprocessed.
 
 from datetime import datetime, UTC
 from typing import Optional, List, Dict
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 from data_engine.schemas import ValidationResult, ValidationStatus, Candle
+from data_engine.pit.immutable import freeze
 import hashlib
 import json
 
@@ -22,6 +23,12 @@ class QuarantinedRecord(BaseModel):
     quarantined_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     reason: str
     status: str = "QUARANTINED"
+
+    @field_validator("validation_results")
+    @classmethod
+    def _freeze_results(cls, v: List) -> List:
+        # BUG-008: deep-immutable record containers.
+        return freeze(v) if v is not None else v
 
     @property
     def is_critical(self) -> bool:

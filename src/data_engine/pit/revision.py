@@ -29,6 +29,7 @@ from datetime import datetime, UTC
 from typing import Any, Optional, Sequence
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from data_engine.pit.immutable import freeze
 from data_engine.pit.hashing import identity_hash, PHASE4_IDENTITY_CONTRACT_VERSION
 
 
@@ -44,7 +45,9 @@ class RevisionEntry(BaseModel):
 
     revision_time: datetime
     publication_time: datetime
-    payload: dict[str, Any] = Field(default_factory=dict)
+    payload: dict[str, Any] = Field(
+        default_factory=dict, validate_default=True
+    )
     supersedes: Optional[str] = None
     schema_version: str = Field(default="1.0.0")
 
@@ -64,6 +67,17 @@ class RevisionEntry(BaseModel):
                 "timezone-aware and UTC-normalized."
             )
         return v.astimezone(UTC)
+
+    @field_validator("payload")
+    @classmethod
+    def _freeze_payload(cls, v: dict[str, Any]) -> dict[str, Any]:
+        # BUG-008: deep-immutable record containers — revision
+        # payloads participate in PIT identity; mutation must fail.
+        if v is None:
+            return v
+        if not isinstance(v, dict):
+            raise ValueError("payload must be a structured mapping")
+        return freeze(v)
 
     @model_validator(mode="after")
     def _validate_entry(self) -> "RevisionEntry":

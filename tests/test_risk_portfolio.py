@@ -77,7 +77,7 @@ class TestRiskEngine:
     def test_rk_01_position_breach_raises_and_records(self):
         engine = RiskEngine(LIMITS, trip_on_breach=False)
         engine.check_order("EURUSD", D("60"))  # ok
-        engine.check_order("EURUSD", D("40"), current_units=D("60"))  # ok: 100
+        engine.check_order("EURUSD", D("40"), current_units=D("60"))  # ok: projected 100 (signed netting, BUG-003)
         with pytest.raises(RiskViolationError, match="exceeds max"):
             engine.check_order("EURUSD", D("50"), current_units=D("60"))
         assert len(engine.violation_log) == 1
@@ -109,8 +109,8 @@ class TestRiskEngine:
         # ...and everything afterwards refuses
         with pytest.raises(KillSwitchActiveError):
             engine.check_order("X", D("1"))
-        # Only an external controller may reset
-        engine.reset_kill_switch()
+        # Only an external HUMAN controller may reset (ARCH-F1)
+        engine.reset_kill_switch(principal="risk-operator", principal_kind="human")
         engine.check_order("X", D("1"))
         assert not engine.kill_switch_active
 

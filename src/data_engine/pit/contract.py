@@ -17,6 +17,7 @@ from data_engine.pit.temporal import TemporalDataType
 from data_engine.pit.serialization import canonical_serialize
 from data_engine.pit.hashing import deterministic_hash
 from data_engine.pit.availability import AvailabilityPolicy
+from data_engine.pit.immutable import freeze
 
 
 class MissingFieldPolicy(str, Enum):
@@ -48,15 +49,15 @@ class TemporalContract(BaseModel):
 
     data_type: TemporalDataType = Field(..., description="Canonical data type category")
     required_fields: list[str] = Field(
-        default_factory=list,
+        default_factory=list, validate_default=True,
         description="Fields that MUST be present and non-null",
     )
     eligible_fields: list[str] = Field(
-        default_factory=list,
+        default_factory=list, validate_default=True,
         description="Fields that MAY participate in PIT eligibility",
     )
     non_eligible_fields: list[str] = Field(
-        default_factory=list,
+        default_factory=list, validate_default=True,
         description="Fields that MUST NOT participate in PIT eligibility or hashes",
     )
     availability_control: Optional[AvailabilityPolicy] = Field(
@@ -85,7 +86,8 @@ class TemporalContract(BaseModel):
                     f"Unknown temporal field: {field}. "
                     f"Valid names: {valid_names}"
                 )
-        return v
+        # BUG-008: deep-immutable record containers.
+        return freeze(v) if v is not None else v
 
     @field_validator("timezone_requirement", mode="after")
     @classmethod

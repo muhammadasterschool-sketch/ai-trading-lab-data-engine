@@ -239,10 +239,24 @@ class PaperPosition(BaseModel):
         )
         realized = self.realized_pnl + pnl_per_unit * closing
         new_qty = self.quantity + signed
+        if new_qty == 0:
+            # Full close: no basis, no residual position.
+            new_average_cost = Decimal("0")
+        elif (new_qty > 0) != (self.quantity > 0):
+            # BUG-002 correction: position FLIP — the residual opposite
+            # side OPENS at the flip fill's all-in price. The closed
+            # side's average cost must never carry into the new side
+            # (it would double-count the basis and corrupt every later
+            # realized-P&L computation on the flipped position).
+            new_average_cost = price_incl
+        else:
+            # Same-sign partial reduction: the remaining basis is the
+            # original average cost (unchanged).
+            new_average_cost = self.average_cost
         return PaperPosition(
             symbol=self.symbol,
             quantity=new_qty,
-            average_cost=self.average_cost if new_qty != 0 else Decimal("0"),
+            average_cost=new_average_cost,
             realized_pnl=realized,
         )
 

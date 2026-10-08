@@ -28,7 +28,9 @@ Edge cases handled:
 from typing import List, Optional, Tuple, Dict, Any
 from datetime import datetime
 import math
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
+
+from data_engine.pit.immutable import freeze
 
 
 class DrawdownResult(BaseModel):
@@ -42,6 +44,12 @@ class DrawdownResult(BaseModel):
     max_drawdown_duration: int  # Number of periods at max drawdown
     recovery_duration: Optional[int]  # Periods to recover from max DD
     total_periods: int
+
+    @field_validator("drawdowns", "running_peaks")
+    @classmethod
+    def _freeze_series(cls, v: List) -> List:
+        # BUG-008: deep-immutable record containers.
+        return freeze(v) if v is not None else v
 
     def __len__(self) -> int:
         return self.total_periods
