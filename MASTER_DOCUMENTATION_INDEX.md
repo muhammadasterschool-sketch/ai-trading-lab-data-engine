@@ -140,6 +140,13 @@ within a single cycle whose provenance is recorded cycle-wide, not per-phase.
 Any future phase-owned document SHALL follow the naming standard
 (`PHASE_04A2_<SUBJECT>.md`, …, `PHASE_12_<SUBJECT>.md`).
 
+## Phase PRED — Prediction & Crash Intelligence
+
+| Path | Auth | Status | Purpose | Supersession |
+|---|---|---|---|---|
+| `AI_TRADING_LAB_PREDICTION_CRASH_INTELLIGENCE_SPEC.md` | A | Current — authoritative architecture spec for the prediction layer | Prediction & crash intelligence contracts, invariants, data policy, governance | — |
+| `PREDICTION_INTELLIGENCE_IMPLEMENTATION_REPORT.md` | B | Current supporting — construction-cycle record + §58 final status block | Implementation record (24 modules, 126 tests, honest coverage assessment) | — |
+
 ## Cross-Phase Implementation Records
 
 | Path | Auth | Status | Purpose | Supersession |
