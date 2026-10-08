@@ -213,13 +213,17 @@ class FileDataProvider(MarketDataProvider):
             registry_count=registry_count,
         )
 
-    def fetch_candles(self, instrument: str, timeframe: Timeframe, start: datetime, end: datetime) -> list:
+    def fetch_candles(self, instrument: str, timeframe: Timeframe, start: datetime, end: datetime, strict: bool = False) -> list:
         """Read candles from a contained, validated file path.
 
         Returns empty list if the (validated) file does not exist.
         Raises FilesystemSecurityError on any containment, traversal,
         or allowlist violation (FS-20) — BEFORE any existence check or
         read (FS-09/10).
+
+        ARCH-F10: malformed CSV rows are never silently skipped —
+        rejections are recorded on ``self.last_rejected_rows`` (with
+        row index + explainable reason) and ``strict=True`` raises.
         """
         from pathlib import Path
         from data_engine.security import FilesystemSecurityError, ensure_containment
@@ -265,7 +269,17 @@ class FileDataProvider(MarketDataProvider):
                 return ts.replace(tzinfo=UTC)
             return ts
         start_cmp, end_cmp = _aware(start), _aware(end)
-        for _, row in df.iterrows():
+        # ARCH-F10 correction: malformed rows are no longer SILENTLY
+        # skipped. Every rejected row is recorded with its reason and
+        # row number; the caller decides fail-closed (strict=True →
+        # raise) or collects the evidence (strict=False → returns the
+        # rejection list alongside the candles). Silent data loss in
+        # an ingestion path is exactly the failure mode the pre-paper
+        # forensic forbids (mandate §10: every rejected record must
+        # have an explainable reason).
+        rejected_rows: list = []
+        candles = []
+        for row_index, (_, row) in enumerate(df.iterrows()):
             try:
                 candle = Candle(
                     timestamp=pd.to_datetime(row["timestamp"]),
@@ -281,8 +295,22 @@ class FileDataProvider(MarketDataProvider):
                 )
                 if start_cmp <= _aware(candle.timestamp) <= end_cmp:
                     candles.append(candle)
-            except (ValueError, KeyError):
+            except (ValueError, KeyError, TypeError) as exc:
+                rejected_rows.append(
+                    {
+                        "row_index": row_index,
+                        "reason": f"{type(exc).__name__}: {exc}",
+                        "raw": str(row.get("timestamp", ""))[:64],
+                    }
+                )
                 continue
+        if strict and rejected_rows:
+            raise ValueError(
+                f"malformed CSV rows REJECTED (ARCH-F10, strict mode): "
+                f"{rejected_rows[:5]} — ingestion refuses to silently "
+                "drop data"
+            )
+        self.last_rejected_rows = rejected_rows
         return candles
 
     def fetch_instrument_info(self, symbol: str) -> Optional[Instrument]:

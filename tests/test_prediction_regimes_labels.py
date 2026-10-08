@@ -52,7 +52,9 @@ def test_t_pred_014_transitions_are_recorded_as_events():
     ]
     for event in events:
         assert event.engine_version == RegimeEngine.engine_version
-        assert event.event_id.startswith("predv.")
+        # ARCH-F7 correction: regime transition events carry their own
+        # ``predn.`` identity namespace (previously reused ``predv.``).
+        assert event.event_id.startswith("predn.")
 
 
 def test_t_pred_014_classify_series_matches_pointwise():

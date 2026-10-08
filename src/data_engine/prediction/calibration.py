@@ -6,7 +6,7 @@ prediction; the calibration method/version/dataset are recorded.
 """
 
 import math
-from typing import Sequence, Tuple
+from typing import Optional, Sequence, Tuple  # ARCH-F5: Optional was used but unimported (latent NameError in annotation scope)
 
 from pydantic import BaseModel, ConfigDict
 

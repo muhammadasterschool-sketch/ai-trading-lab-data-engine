@@ -34,6 +34,7 @@ Prefix map (prediction identity family):
 - ``predb.``  benchmark artifact identity
 - ``preda.``  red-team attack record identity
 - ``predc.``  data-source catalog record identity
+- ``predn.``  regime transition event identity (ARCH-F7)
 """
 
 import platform
@@ -66,6 +67,10 @@ EVENT_PREFIX = "predw."
 BENCHMARK_PREFIX = "predb."
 ATTACK_PREFIX = "preda."
 SOURCE_CATALOG_PREFIX = "predc."
+#: ARCH-F7: dedicated prefix for regime transition events
+#: (previously reused the provenance ``predv.`` prefix — identity
+#: namespaces must not be shared across record kinds).
+REGIME_EVENT_PREFIX = "predn."
 
 
 def freeze_number(value: Optional[float]) -> Optional[float]:
@@ -240,6 +245,7 @@ __all__ = [
     "BENCHMARK_PREFIX",
     "ATTACK_PREFIX",
     "SOURCE_CATALOG_PREFIX",
+    "REGIME_EVENT_PREFIX",
     "freeze_number",
     "prefixed_hash",
     "prediction_identity",

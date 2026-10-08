@@ -83,6 +83,7 @@ def build_walk_forward_plan(
     test_size: int,
     step: Optional[int] = None,
     embargo: int = 0,
+    label_horizon: Optional[int] = None,
 ) -> tuple[WalkForwardWindow, ...]:
     """Deterministic rolling-window plan.
 
@@ -91,6 +92,15 @@ def build_walk_forward_plan(
     The plan is built greedily while a FULL window fits; the final
     partial window is DISCARDED (no short test windows — every OOS
     measurement uses the full test_size).
+
+    ARCH-F8/F12 correction — sequence-scaled purge: when the caller
+    declares ``label_horizon`` (the forward-looking span the labels
+    were computed over), an ``embargo < label_horizon`` RAISES: train
+    labels look ``label_horizon`` bars ahead, so a shorter embargo
+    would leak train label windows into test feature windows. The
+    check is opt-in only because this legacy planner serves both
+    label-free and label-bearing callers; the runtime sequence
+    engine enforces the horizon-scaled purge BY CONSTRUCTION.
     """
     if data_length < 1:
         raise WalkForwardPlanError("data_length must be >= 1")
@@ -104,6 +114,16 @@ def build_walk_forward_plan(
         raise WalkForwardPlanError("step must be >= 1")
     if embargo < 0:
         raise WalkForwardPlanError("embargo must be >= 0")
+    if label_horizon is not None:
+        if label_horizon < 1:
+            raise WalkForwardPlanError("label_horizon must be >= 1")
+        if embargo < label_horizon:
+            raise WalkForwardPlanError(
+                f"embargo {embargo} < label_horizon {label_horizon} "
+                "(ARCH-F8/F12: train labels look label_horizon bars "
+                "ahead — a shorter embargo leaks train label windows "
+                "into test features)"
+            )
 
     windows: list[WalkForwardWindow] = []
     offset = 0

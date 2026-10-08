@@ -3,12 +3,17 @@
 - ``PaperOrderGateway`` (blueprint 5.51): order lifecycle management
   with duplicate client-order-id protection. No broker credentials
   exist anywhere in the gateway — there is nothing to leak.
-- ``PnLCalculator`` / ``ReconciliationEngine`` (blueprint 5.55):
-  realized/unrealized P&L; order->fill->position reconciliation with
-  discrepancy failures (fail closed, never papered over). Since the
-  BUG-004 correction, ``reconcile`` additionally accepts gateway
-  records (status-aware input) and enforces the fills-if-and-only-if-
-  FILLED invariant.
+- ``ReconciliationEngine`` (blueprint 5.55): order->fill->position
+  reconciliation with discrepancy failures (fail closed, never
+  papered over). Since the BUG-004 correction, ``reconcile``
+  additionally accepts gateway records (status-aware input) and
+  enforces the fills-if-and-only-if-FILLED invariant.
+  [RT-F11 correction: this docstring previously advertised a
+  ``PnLCalculator`` that does not exist. Position/P&L accounting
+  lives in ``paper/models.py`` ``PaperPosition.apply_fill`` (the
+  BUG-002-corrected average-cost engine, reused by the runtime's
+  ``PositionState``) and curve-level analytics in
+  ``AnalyticsEngine`` below. The drift is removed.]
 - ``AuditLogger`` (blueprint 5.51): hash-chained immutable execution
   audit trail. Since the BUG-005 correction, payloads are deep-copied
   on write and on read, and entries carry ``timestamp`` /

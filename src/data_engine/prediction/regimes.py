@@ -21,7 +21,10 @@ from typing import Optional, Sequence, Tuple
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from data_engine.prediction.contracts import PredictionContractError
-from data_engine.prediction.identity import prefixed_hash, PROVENANCE_PREFIX
+from data_engine.prediction.identity import (  # ARCH-F7: dedicated prefix
+    prefixed_hash,
+    REGIME_EVENT_PREFIX,
+)
 
 REGIME_ENGINE_VERSION = "1.0.0"
 
@@ -63,7 +66,7 @@ class RegimeTransitionEvent(BaseModel):
     @property
     def event_id(self) -> str:
         return prefixed_hash(
-            PROVENANCE_PREFIX,
+            REGIME_EVENT_PREFIX,
             {
                 "kind": "regime_transition_event",
                 "index": self.index,

@@ -470,7 +470,16 @@ class BenchmarkSuite:
             ExecutionRealism,
             ExecutionSimulator,
         )
+        from data_engine.paper.gateway import PaperOrderGateway
 
+        # RT-F12 correction: the benchmark paper-orders workload now
+        # routes through the AUTHORITATIVE PaperOrderGateway (duplicate
+        # protection + lifecycle records) instead of calling the
+        # simulator directly. This workload is RESEARCH-ONLY
+        # performance measurement — it is NOT a trading path and must
+        # never be confused with the authoritative runtime chain
+        # (data_engine.runtime.TradingRuntime), which is the only
+        # path with order authority.
         m = self._workloads["paper_orders"]
         candles = _make_candles(30)
         bars = [
@@ -492,6 +501,7 @@ class BenchmarkSuite:
             fill_lag_bars=1,
         )
         simulator = ExecutionSimulator(realism)
+        gateway = PaperOrderGateway(simulator)
         orders = [
             PaperOrder(
                 client_order_id=f"bench-{i}",
@@ -507,9 +517,16 @@ class BenchmarkSuite:
         def work() -> int:
             fills = 0
             for order in orders:
-                fill = simulator.simulate(order, bars)
-                if fill is not None:
-                    fills += 1
+                # RT-F12: through the authoritative gateway (not the
+                # simulator directly). A GatewayError from duplicate
+                # ids or realism rejection is counted as a non-fill —
+                # benchmark semantics, honestly reported.
+                try:
+                    record = gateway.submit(order, bars)
+                    if record.fill is not None:
+                        fills += 1
+                except Exception:
+                    continue
             return len(orders)
 
         elapsed, ops = self._time(work)
@@ -518,7 +535,7 @@ class BenchmarkSuite:
             operations=ops,
             elapsed_seconds=elapsed,
             ops_per_second=ops / elapsed if elapsed > 0 else float(ops),
-            detail=f"realism simulator ({ops} orders)",
+            detail=f"paper gateway submit path ({ops} orders, RT-F12 contained)",
         )
 
     def run_orchestration(self) -> BenchmarkResult:

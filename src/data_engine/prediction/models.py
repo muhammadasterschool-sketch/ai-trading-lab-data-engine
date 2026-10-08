@@ -113,6 +113,22 @@ class BaseRateBaseline:
             parameters=(("rate", float(self._rate or 0.0)),),
         )
 
+    @classmethod
+    def from_artifact(cls, artifact: ModelArtifact) -> "BaseRateBaseline":
+        """RT-F14: reconstruct a fitted model from its artifact."""
+        if artifact.model_family != cls.model_family:
+            raise PredictionModelError(
+                f"artifact family {artifact.model_family!r} != {cls.model_family!r}"
+            )
+        params = dict(artifact.parameters)
+        model = cls(
+            model_id=artifact.model_id,
+            model_version=artifact.model_version,
+        )
+        model._n = 0
+        model._rate = float(params["rate"])
+        return model
+
     @property
     def model_hash(self) -> str:
         return self.artifact().model_hash
@@ -158,6 +174,29 @@ class RollingBaseRateBaseline:
             ),
         )
 
+    @classmethod
+    def from_artifact(cls, artifact: ModelArtifact) -> "RollingBaseRateBaseline":
+        """RT-F14: reconstruct from the artifact (rates rebuilt exactly)."""
+        if artifact.model_family != cls.model_family:
+            raise PredictionModelError(
+                f"artifact family {artifact.model_family!r} != {cls.model_family!r}"
+            )
+        params = dict(artifact.parameters)
+        window = int(params["window"])
+        n = int(params["recent_n"])
+        pos = int(params["recent_positives"])
+        if not 0 <= pos <= n:
+            raise PredictionModelError(
+                "inconsistent artifact: recent_positives > recent_n"
+            )
+        model = cls(
+            window=window,
+            model_id=artifact.model_id,
+            model_version=artifact.model_version,
+        )
+        model._recent = tuple([1] * pos + [0] * (n - pos))
+        return model
+
     @property
     def model_hash(self) -> str:
         return self.artifact().model_hash
@@ -194,6 +233,21 @@ class NaivePersistenceBaseline:
             parameters=(("last_outcome", float(self._last or 0)),),
         )
 
+    @classmethod
+    def from_artifact(cls, artifact: ModelArtifact) -> "NaivePersistenceBaseline":
+        """RT-F14: reconstruct from the artifact."""
+        if artifact.model_family != cls.model_family:
+            raise PredictionModelError(
+                f"artifact family {artifact.model_family!r} != {cls.model_family!r}"
+            )
+        params = dict(artifact.parameters)
+        model = cls(
+            model_id=artifact.model_id,
+            model_version=artifact.model_version,
+        )
+        model._last = 1 if params["last_outcome"] >= 0.5 else 0
+        return model
+
     @property
     def model_hash(self) -> str:
         return self.artifact().model_hash
@@ -222,6 +276,15 @@ class RandomClassifierBaseline:
             feature_names=(),
             parameters=(("probability", 0.5),),
         )
+
+    @classmethod
+    def from_artifact(cls, artifact: ModelArtifact) -> "RandomClassifierBaseline":
+        """RT-F14: reconstruct (stateless floor model)."""
+        if artifact.model_family != cls.model_family:
+            raise PredictionModelError(
+                f"artifact family {artifact.model_family!r} != {cls.model_family!r}"
+            )
+        return cls()
 
     @property
     def model_hash(self) -> str:
@@ -283,6 +346,26 @@ class RegimeConditionalBaseline:
                 for regime, rate in sorted(self._rates.items())
             ) + (("global_rate", float(self._global_rate or 0.0)),),
         )
+
+    @classmethod
+    def from_artifact(cls, artifact: ModelArtifact) -> "RegimeConditionalBaseline":
+        """RT-F14: reconstruct per-regime rates from the artifact."""
+        if artifact.model_family != cls.model_family:
+            raise PredictionModelError(
+                f"artifact family {artifact.model_family!r} != {cls.model_family!r}"
+            )
+        params = dict(artifact.parameters)
+        model = cls(
+            model_id=artifact.model_id,
+            model_version=artifact.model_version,
+        )
+        model._global_rate = float(params.get("global_rate", 0.5))
+        model._rates = {
+            key[len("rate["):-1]: float(value)
+            for key, value in params.items()
+            if key.startswith("rate[") and key.endswith("]")
+        }
+        return model
 
     @property
     def model_hash(self) -> str:
@@ -422,6 +505,65 @@ class LogisticCrashModel:
     @property
     def model_hash(self) -> str:
         return self.artifact().model_hash
+
+    @classmethod
+    def from_artifact(cls, artifact: ModelArtifact) -> "LogisticCrashModel":
+        """RT-F14: reconstruct the fitted model from its artifact.
+
+        Weights, intercept, and the TRAINING-fitted standardization
+        statistics (means/stds) all round-trip through the artifact
+        parameters — a restart can never leave the runtime unable to
+        reconstruct its approved model.
+        """
+        if artifact.model_family != cls.model_family:
+            raise PredictionModelError(
+                f"artifact family {artifact.model_family!r} != {cls.model_family!r}"
+            )
+        if not artifact.feature_names:
+            raise PredictionModelError(
+                "logistic artifact requires feature_names"
+            )
+        params = dict(artifact.parameters)
+        names = list(artifact.feature_names)
+        model = cls(
+            feature_names=names,
+            model_id=artifact.model_id,
+            model_version=artifact.model_version,
+            learning_rate=params.get("learning_rate", 0.5),
+            iterations=int(params.get("iterations", 300)),
+            l2=params.get("l2", 0.0),
+        )
+        weights = [params.get("w[intercept]", 0.0)] + [
+            params.get(f"w[{name}]", 0.0) for name in names
+        ]
+        model._weights = weights
+        model._means = tuple(
+            params.get(f"mean[{name}]", 0.0) for name in names
+        )
+        model._stds = tuple(
+            params.get(f"std[{name}]", 1.0) for name in names
+        )
+        return model
+
+
+def reconstruct_model(artifact: ModelArtifact):
+    """RT-F14 dispatcher: rebuild ANY known prediction model family
+    from its artifact. Raises for unknown families — never guesses."""
+    family = artifact.model_family
+    dispatch = {
+        "baseline-base-rate": BaseRateBaseline,
+        "baseline-rolling-base-rate": RollingBaseRateBaseline,
+        "baseline-naive-persistence": NaivePersistenceBaseline,
+        "baseline-random": RandomClassifierBaseline,
+        "baseline-regime-conditional": RegimeConditionalBaseline,
+        "logistic-gd": LogisticCrashModel,
+    }
+    if family not in dispatch:
+        raise PredictionModelError(
+            f"no reconstruction path registered for model family "
+            f"{family!r} (RT-F14: unknown families fail explicitly)"
+        )
+    return dispatch[family].from_artifact(artifact)
 
 
 class ModelJustification(BaseModel):

@@ -169,6 +169,18 @@ class RiskEngine:
     ``reset_kill_switch`` refuses every non-human principal. Tripping
     remains open to any caller (the fail-safe direction); only
     clearing a tripped switch is privileged.
+
+    RT-F5 correction: kill-switch TRIP and RESET now emit violation-
+    chain audit records (``kill_switch_trip`` / ``kill_switch_reset``)
+    — the switch lifecycle is observable, not just its state.
+
+    ARCH-F2 correction: ``verify_violation_log()`` recomputes the
+    whole violation chain — corruption is detectable, not silent.
+
+    RT-F9 correction: ``ExposureManager.build_report`` accepts
+    ``enforce=True`` to guard via a RiskEngine's kill switch and
+    RAISE on any breach (the reporting-only default is preserved
+    for research callers; the runtime uses the enforcing path).
     """
 
     def __init__(
@@ -208,9 +220,15 @@ class RiskEngine:
         """Trip the kill switch (external controller action).
 
         Tripping is deliberately unprivileged: the fail-safe direction
-        must always be reachable.
+        must always be reachable. RT-F5: the trip is AUDITED as a
+        violation-chain record.
         """
         self._kill_switch = True
+        self._record(
+            "kill_switch_trip",
+            "kill switch TRIPPED (fail-safe direction; unprivileged by "
+            "design, blueprint 5.54/RT-F5)",
+        )
 
     def reset_kill_switch(
         self,
@@ -225,14 +243,27 @@ class RiskEngine:
         prediction-registry approver_kind). Machine principals,
         unidentified callers, and unknown kinds are structurally
         refused — the AI can never clear its own kill switch.
+
+        RT-F5: the reset (and every refused attempt) is AUDITED as a
+        violation-chain record.
         """
         if not isinstance(principal, str) or not principal.strip():
+            self._record(
+                "kill_switch_reset_refused",
+                "reset REFUSED: unidentified principal (ARCH-F1/RT-F5)",
+            )
             raise RiskViolationError(
                 "kill-switch reset requires an identified principal "
                 "(ARCH-F1): provide principal=<id>, "
                 "principal_kind='human'"
             )
         if principal_kind != "human":
+            self._record(
+                "kill_switch_reset_refused",
+                f"reset REFUSED: principal_kind={principal_kind!r} "
+                f"(principal={principal!r}) — machine principals are "
+                "structurally rejected (ARCH-F1/RT-F5)",
+            )
             raise RiskViolationError(
                 f"kill-switch reset refused for principal_kind="
                 f"{principal_kind!r} (ARCH-F1): only a HUMAN principal "
@@ -240,10 +271,39 @@ class RiskEngine:
                 "structurally rejected"
             )
         self._kill_switch = False
+        self._record(
+            "kill_switch_reset",
+            f"kill switch RESET by human principal {principal!r} "
+            "(ARCH-F1/RT-F5 audited)",
+        )
 
     @property
     def violation_log(self) -> tuple[ViolationRecord, ...]:
         return tuple(self._records)
+
+    def verify_violation_log(self) -> bool:
+        """ARCH-F2: recompute the ENTIRE violation chain.
+
+        True iff every record's hash re-derives from its content and
+        the previous link — tampering/corruption is DETECTABLE.
+        """
+        prev = "0" * 64
+        for record in self._records:
+            expected = deterministic_hash(
+                {
+                    "contract_version": PHASE_8_CONTRACT_VERSION,
+                    "rule": record.rule,
+                    "detail": record.detail,
+                    "record_index": record.record_index,
+                    "prev_record_hash": prev,
+                }
+            )
+            if expected != record.record_hash:
+                return False
+            if record.prev_record_hash != prev:
+                return False
+            prev = record.record_hash
+        return True
 
     def _record(self, rule: str, detail: str) -> None:
         prev = (
@@ -390,7 +450,15 @@ class RiskEngine:
 
 
 class ExposureManager:
-    """Aggregate exposures by asset/sector and evaluate limits."""
+    """Aggregate exposures by asset/sector and evaluate limits.
+
+    RT-F9 correction: ``build_report`` gains ``enforce`` — when True,
+    the report is guarded by a RiskEngine's kill switch (refuses
+    while tripped) and any exposure BREACH raises instead of merely
+    being listed. The default (``enforce=False``) preserves the
+    research/reporting behavior; the runtime integration uses the
+    enforcing path.
+    """
 
     def __init__(self, limits: RiskLimits) -> None:
         self._limits = limits
@@ -401,8 +469,23 @@ class ExposureManager:
         prices: Mapping[str, Decimal],  # symbol -> unit price
         equity: Decimal,
         sectors: Optional[Mapping[str, str]] = None,
+        enforce: bool = False,
+        guard: Optional[RiskEngine] = None,
     ) -> ExposureReport:
-        """Build the exposure report (fractions of equity)."""
+        """Build the exposure report (fractions of equity).
+
+        With ``enforce=True`` (RT-F9): the kill switch is consulted
+        first (via ``guard`` or any provided engine) and any breach
+        raises :class:`RiskViolationError` — an exposure report that
+        lists violations without consequence is a research artifact,
+        not a runtime control.
+        """
+        if enforce:
+            if guard is not None and guard.kill_switch_active:
+                raise KillSwitchActiveError(
+                    "kill switch active: exposure evaluation refuses "
+                    "(RT-F9 guard)"
+                )
         if equity is None or equity <= 0:
             raise ValueError("equity must be a positive Decimal")
         by_asset: dict[str, str] = {}
@@ -431,6 +514,14 @@ class ExposureManager:
                 if Decimal(f) > self._limits.max_sector_weight
             )
         )
+        if enforce and (asset_breaches or sector_breaches):
+            detail = (
+                f"exposure breaches (RT-F9 enforce): assets="
+                f"{list(asset_breaches)}, sectors={list(sector_breaches)}"
+            )
+            if guard is not None:
+                guard._record("exposure_breach", detail)
+            raise RiskViolationError(detail)
         return ExposureReport(
             by_asset=by_asset,
             by_sector=by_sector,

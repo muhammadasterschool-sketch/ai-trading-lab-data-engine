@@ -21,6 +21,15 @@ from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 
+class QuantBoundaryError(ValueError):
+    """Raised when the boundary cannot serve a request EXPLICITLY.
+
+    RT-F15: unsupported operations fail loudly instead of returning
+    fabricated placeholder results (mandate §44 — no fake success
+    implementations).
+    """
+
+
 class CalculationType(str, Enum):
     """Types of calculations that MUST be done deterministically."""
     EMA = "ema"
@@ -145,21 +154,27 @@ class QuantBoundary:
         """Request a deterministic calculation.
 
         This delegates to deterministic code, NOT LLM reasoning.
+
+        RT-F15 correction: this method is NO LONGER a functional stub
+        returning ``result=None`` with a fabricated success shape.
+        There is no wired deterministic execution engine behind this
+        boundary yet, so the request is RECORDED (audit trail) and
+        the call FAILS EXPLICITLY with :class:`QuantBoundaryError` —
+        an unsupported operation must never masquerade as a
+        completed calculation (mandate §44: no fake success
+        implementations). Callers that need the actual computation
+        use the ``data_engine.quant`` modules directly.
         """
         self._pending_calculations.append({
             "type": calculation_type.value,
             "parameters": parameters,
             "dataset_id": input_dataset_id,
         })
-        # In a full implementation, this would call the actual
-        # deterministic calculation module.
-        # For Phase 1, we validate the boundary is respected.
-        return DeterministicResult(
-            calculation_type=calculation_type.value,
-            result=None,  # Will be populated by deterministic code
-            parameters=parameters,
-            input_dataset_id=input_dataset_id,
-            source_code_reference=f"data_engine/quant/{calculation_type.value}.py",
+        raise QuantBoundaryError(
+            f"deterministic calculation {calculation_type.value!r} is not "
+            "wired to an execution engine behind this boundary — refusing "
+            "to return a fabricated result (RT-F15/§44); use the "
+            "data_engine.quant modules directly for this computation"
         )
 
     def get_pending(self) -> list:
