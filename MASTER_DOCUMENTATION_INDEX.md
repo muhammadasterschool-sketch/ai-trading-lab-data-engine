@@ -9,8 +9,8 @@ Document Type:  Master documentation index (SSOT)
 Phase:          Cross-phase (all phases)
 Authority:      A — AUTHORITATIVE (this index is the documentation map of record)
 Status:         CURRENT
-Version:        1.0.0
-Last Updated:   2026-10-08 (documentation normalization mandate cycle)
+Version:        1.1.0
+Last Updated:   2026-10-08 (expansion-era registration: ZAI_AUTONOMOUS_TRADING_SYSTEM_STATUS.md)
 Supersedes:     none (first canonical index)
 Superseded By:  —
 Source Evidence: doc_discovery.py inventory (80 pre-existing docs), reference
@@ -215,6 +215,7 @@ behavior / determinism). Future dedicated documents SHALL use
 | `MASTER_DOCUMENTATION_INDEX.md` | A | Current — **THIS DOCUMENT** | Documentation SSOT index | — |
 | `README.md` | B | Current supporting | Package orientation, module map, phase map | — |
 | `ZAI_REPOSITORY_PROGRESS_BRIEF.md` | B | Current supporting — the repository progress brief ("what has been done so far") | One-page orientation: timeline, current state, open items | — |
+| `ZAI_AUTONOMOUS_TRADING_SYSTEM_STATUS.md` | B | Current — §76-required living status document for the Autonomous Intelligence + Full System Expansion mandate (v1.0.0 baseline: §78 audit) | Autonomy levels L0–L8, capability matrix, duplicate-system audit, dependency graph, blocker table BLK-1..15, test/data/model inventories, authorization state | — |
 
 ---
 
