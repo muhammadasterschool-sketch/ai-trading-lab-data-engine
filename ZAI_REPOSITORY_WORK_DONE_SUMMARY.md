@@ -6,15 +6,15 @@ Document Type:  Work-done summary (operator-requested brief)
 Phase:          Cross-phase
 Authority:      B — CURRENT SUPPORTING
 Status:         CURRENT
-Version:        2.0.0
-Last Updated:   2026-10-09 (RL-governance cycle: the last genuinely-missing
-                 blocker — RL runtime — closed as a governed advisor + runtime
-                 observability metrics + readiness gate 30→31; mandate's
-                 blocker table re-verified first-hand: 12/14 rows were already
-                 closed by the v2.0.0 re-audit cycle)
-Supersedes:     v1.0.0 (initial work-done brief)
+Version:        2.1.0
+Last Updated:   2026-10-09 (platform-expansion master mandate registered:
+                 strategy lab, instrument registry workbook, MT5/TradingView,
+                 dashboard, news intelligence §11 A–M — Phase 1/2 forensic
+                 gap matrix published as ZAI_PLATFORM_MANDATE_GAP_MATRIX.md
+                 v1.0.0; no new platform feature implemented this cycle)
+Supersedes:     v2.0.0 (RL-governance cycle update)
 Superseded By:  —
-Source Evidence: git log (61+ commits), session worklog, cycle reports cited below
+Source Evidence: git log (63 commits), session worklog, cycle reports cited below
 ```
 
 > **The short story of everything done in this repository so far.**
@@ -55,7 +55,7 @@ authorized.
 | Live verdict | **LIVE TRADING — NOT AUTHORIZED** (no live/broker surface exists at all) |
 | Real data | **VERIFIED_YEARS = 0** (nine-stage REAL_VERIFIED chain built; no real dataset supplied yet) |
 | RL runtime | **Governed advisor BUILT** (advisor-only, bounded, versioned, DISABLED by default; NOT a trained policy — honestly labeled) |
-| Scale | ~315 tracked files · 46 test files · 61+ commits on the working branch |
+| Scale | ~318 tracked files · 46 test files · 63 commits on the working branch |
 
 ---
 
@@ -188,7 +188,8 @@ BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY.
 ## 5. How everything was verified
 
 - **Tests**: full suite re-run deterministically (×2 or ×3 per cycle) at every
-  milestone; 1,378 + 1 skipped at HEAD.
+  milestone; 1,447 + 1 skipped at HEAD (re-verified again on 2026-10-09
+  during the platform-mandate registration: 37.07 s, `uv --frozen`).
 - **Frozen contracts**: 11/11 strategy blobs + 13/13 manifest verified
   blob-level BEFORE and AFTER every implementation cycle — never broken.
 - **Mutation gates**: reintroduced-defect detection (15/15 in Era 1; 31/31
@@ -210,7 +211,7 @@ verdict.
 
 ## 7. What remains — the operator decision list
 
-1. **Rotate the exposed PAT** (pasted in chat 9 times; verified still active;
+1. **Rotate the exposed PAT** (pasted in chat 11 times; verified still active;
    never reproduced in any repo artifact — but rotation is now overdue).
 2. **Supply + verify real market data** through the nine-stage REAL_VERIFIED
    chain (today VERIFIED_YEARS = 0 — the single biggest blocker to an honest
@@ -222,11 +223,19 @@ verdict.
 6. *(Optional, later)* Register a TRAINED RL policy through the model registry
    with out-of-sample evidence — the current advisor is an honestly-labeled
    deterministic baseline, and swapping it requires a new policy version/hash.
+7. **Decide the platform-expansion mandate scope** (registered 2026-10-09 in
+   `ZAI_PLATFORM_MANDATE_GAP_MATRIX.md`): news intelligence, instrument
+   registry workbook, MT5/TradingView adapters, strategy management lab and
+   dashboard are all MISSING/PARTIAL with a W1–W8 plan; several workstreams
+   are blocked on environment, credentials or architecture approvals
+   (openpyxl, web stack, DB, LLM integration, 30-day floor question).
 
-## 8. Five documents to read first
+## 8. Six documents to read first
 
 1. `ZAI_REPOSITORY_PROGRESS_BRIEF.md` — the detailed living brief (v1.13.0)
 2. `PAPER_TRADING_READINESS_FINAL_REPORT.md` — final verdict + blocker dispositions (v2.1.0)
 3. `MASTER_DOCUMENTATION_INDEX.md` — authority map of ~85 documents
 4. `docs/RL_RUNTIME_GOVERNANCE_SPEC.md` — the governed RL advisor contract (v1.0.0)
-5. `PHASE_4A1_IMPLEMENTATION_RECORD.md` — frozen Phase 3 manifest of record
+5. `ZAI_PLATFORM_MANDATE_GAP_MATRIX.md` — what the platform-expansion mandate
+   maps to in this repo: implemented / partial / missing / blocked (v1.0.0)
+6. `PHASE_4A1_IMPLEMENTATION_RECORD.md` — frozen Phase 3 manifest of record

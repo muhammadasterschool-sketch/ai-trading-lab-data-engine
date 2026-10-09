@@ -9,8 +9,12 @@ Document Type:  Master documentation index (SSOT)
 Phase:          Cross-phase (all phases)
 Authority:      A — AUTHORITATIVE (this index is the documentation map of record)
 Status:         CURRENT
-Version:        2.0.0
-Last Updated:   2026-10-09 (RL-governance cycle: RL_RUNTIME_GOVERNANCE_SPEC.md v1.0.0 registered; PAPER_TRADING_READINESS_FINAL_REPORT.md v2.1.0; PAPER_READINESS_GATE.md v2.1.0 — 31 gates; ZAI_REPOSITORY_WORK_DONE_SUMMARY.md v2.0.0)
+Version:        2.1.0
+Last Updated:   2026-10-09 (platform-expansion master mandate registered:
+                 ZAI_PLATFORM_MANDATE_GAP_MATRIX.md v1.0.0 — Phase 1/2 forensic
+                 gap matrix for strategy lab / instrument registry workbook /
+                 MT5 / TradingView / dashboard / news intelligence §11 A–M;
+                 ZAI_REPOSITORY_WORK_DONE_SUMMARY.md v2.1.0)
 Supersedes:     none (first canonical index)
 Superseded By:  —
 Source Evidence: doc_discovery.py inventory (80 pre-existing docs), reference
@@ -243,7 +247,8 @@ behavior / determinism). Future dedicated documents SHALL use
 | `MASTER_DOCUMENTATION_INDEX.md` | A | Current — **THIS DOCUMENT** | Documentation SSOT index | — |
 | `README.md` | B | Current supporting | Package orientation, module map, phase map | — |
 | `ZAI_REPOSITORY_PROGRESS_BRIEF.md` | B | Current supporting — the repository progress brief ("what has been done so far") | One-page orientation: timeline, current state, open items | — |
-| `ZAI_REPOSITORY_WORK_DONE_SUMMARY.md` | B | Current supporting — the operator-requested condensed work-done summary ("repo me abhi tak kiya kiya hai"; v2.0.0 — includes the RL-governance cycle) | 5-minute read: TL;DR, hard verified state, era-by-era history, module inventory, verification record, operator decision list | — |
+| `ZAI_REPOSITORY_WORK_DONE_SUMMARY.md` | B | Current supporting — the operator-requested condensed work-done summary ("repo me abhi tak kiya kiya hai"; v2.1.0 — includes the RL-governance cycle + platform-mandate registration) | 5-minute read: TL;DR, hard verified state, era-by-era history, module inventory, verification record, operator decision list | — |
+| `ZAI_PLATFORM_MANDATE_GAP_MATRIX.md` | B | Current supporting — Phase 1/2 forensic registration + gap matrix for the platform-expansion Master Prompt (strategy management lab, instrument registry workbook Sheets A–F, MT5, TradingView, dashboard, news intelligence §11 A–M; v1.0.0) | Section-by-section IMPLEMENTED/PARTIAL/MISSING/BLOCKED mapping with first-hand evidence, dependency/risk table, W1–W8 phased plan, operator decision list; no new feature claimed | — |
 | `docs/RL_RUNTIME_GOVERNANCE_SPEC.md` | A | Current — AUTHORITATIVE spec for the governed RL advisor runtime + runtime metrics (TRA-RLG-001 v1.0.0) | Advisor-only RL contract: observation/action schemas, hard bounds, OOD fences, deterministic identity, non-authority guarantees, metrics INV-01 boundary, test evidence, honest limitations | — |
 | `ZAI_AUTONOMOUS_TRADING_SYSTEM_STATUS.md` | B | Current — §76-required living status document for the Autonomous Intelligence + Full System Expansion mandate (v1.0.0 baseline: §78 audit) | Autonomy levels L0–L8, capability matrix, duplicate-system audit, dependency graph, blocker table BLK-1..15, test/data/model inventories, authorization state | — |
 | `TRADING_RUNTIME_ARCHITECTURE_AUDIT.md` | B | Current — runtime-integration audit authority for the FINAL INTEGRATED RUNTIME mandate (see Phase RT section above) | §2 repository audit: the map from component library to governed trading runtime | — |
