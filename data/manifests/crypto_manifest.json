@@ -1,0 +1,273 @@
+{
+  "audit": {
+    "anchor_results": [],
+    "anchors_checked": 0,
+    "anchors_within_tolerance": 0,
+    "columns": [
+      "Date",
+      "Symbol",
+      "Exchange",
+      "Open",
+      "High",
+      "Low",
+      "Close",
+      "Volume_Base",
+      "Volume_Quote_USD",
+      "Trading_Session",
+      "Funding_Rate_8h_%",
+      "Status",
+      "_date",
+      "_sym",
+      "_Open",
+      "_High",
+      "_Low",
+      "_Close"
+    ],
+    "coverage_end": "2026-10-01",
+    "coverage_start": "2006-01-01",
+    "duplicate_symbol_date_rows": 0,
+    "endpoint_anomalies": [],
+    "expected_columns_match": true,
+    "file_name": "crypto_daily_2006_2026.csv",
+    "holiday_rows_with_ohlc": 0,
+    "instruments": [
+      {
+        "duplicate_rows": 0,
+        "explicit_pre_launch_rows": 1659,
+        "first_open": 0.0801,
+        "first_row_date": "2006-01-01",
+        "first_valid_ohlc_date": "2010-07-18",
+        "last_close": 0.1898,
+        "last_row_date": "2026-10-01",
+        "max_high": 2.559,
+        "min_low": 0.0371,
+        "missing_ohlc_on_active_rows": 0,
+        "non_chronological_rows": 0,
+        "non_positive_price_rows": 0,
+        "ohlc_violation_rows": 0,
+        "original_identifier": "BTC/USDT",
+        "pre_listing_ohlc_rows": 0,
+        "rows": 7579,
+        "symbol": "BTC/USDT",
+        "unique_row_counts_note": "",
+        "valid_ohlc_rows": 5920,
+        "weekday_histogram": [
+          [
+            0,
+            1083
+          ],
+          [
+            1,
+            1083
+          ],
+          [
+            2,
+            1083
+          ],
+          [
+            3,
+            1083
+          ],
+          [
+            4,
+            1082
+          ],
+          [
+            5,
+            1082
+          ],
+          [
+            6,
+            1083
+          ]
+        ]
+      },
+      {
+        "duplicate_rows": 0,
+        "explicit_pre_launch_rows": 3505,
+        "first_open": 2.839,
+        "first_row_date": "2006-01-01",
+        "first_valid_ohlc_date": "2015-08-07",
+        "last_close": 2.6643,
+        "last_row_date": "2026-10-01",
+        "max_high": 16.81,
+        "min_low": 0.2805,
+        "missing_ohlc_on_active_rows": 0,
+        "non_chronological_rows": 0,
+        "non_positive_price_rows": 0,
+        "ohlc_violation_rows": 0,
+        "original_identifier": "ETH/USDT",
+        "pre_listing_ohlc_rows": 0,
+        "rows": 7579,
+        "symbol": "ETH/USDT",
+        "unique_row_counts_note": "",
+        "valid_ohlc_rows": 4074,
+        "weekday_histogram": [
+          [
+            0,
+            1083
+          ],
+          [
+            1,
+            1083
+          ],
+          [
+            2,
+            1083
+          ],
+          [
+            3,
+            1083
+          ],
+          [
+            4,
+            1082
+          ],
+          [
+            5,
+            1082
+          ],
+          [
+            6,
+            1083
+          ]
+        ]
+      },
+      {
+        "duplicate_rows": 0,
+        "explicit_pre_launch_rows": 2674,
+        "first_open": 4.4092,
+        "first_row_date": "2006-01-01",
+        "first_valid_ohlc_date": "2013-04-28",
+        "last_close": 247.62,
+        "last_row_date": "2026-10-01",
+        "max_high": 884.66,
+        "min_low": 3.5902,
+        "missing_ohlc_on_active_rows": 0,
+        "non_chronological_rows": 0,
+        "non_positive_price_rows": 0,
+        "ohlc_violation_rows": 0,
+        "original_identifier": "LTC/USDT",
+        "pre_listing_ohlc_rows": 0,
+        "rows": 7579,
+        "symbol": "LTC/USDT",
+        "unique_row_counts_note": "",
+        "valid_ohlc_rows": 4905,
+        "weekday_histogram": [
+          [
+            0,
+            1083
+          ],
+          [
+            1,
+            1083
+          ],
+          [
+            2,
+            1083
+          ],
+          [
+            3,
+            1083
+          ],
+          [
+            4,
+            1082
+          ],
+          [
+            5,
+            1082
+          ],
+          [
+            6,
+            1083
+          ]
+        ]
+      },
+      {
+        "duplicate_rows": 0,
+        "explicit_pre_launch_rows": 5213,
+        "first_open": 0.8903,
+        "first_row_date": "2006-01-01",
+        "first_valid_ohlc_date": "2020-04-10",
+        "last_close": 0.6317,
+        "last_row_date": "2026-10-01",
+        "max_high": 3.8496,
+        "min_low": 0.3834,
+        "missing_ohlc_on_active_rows": 0,
+        "non_chronological_rows": 0,
+        "non_positive_price_rows": 0,
+        "ohlc_violation_rows": 0,
+        "original_identifier": "SOL/USDT",
+        "pre_listing_ohlc_rows": 0,
+        "rows": 7579,
+        "symbol": "SOL/USDT",
+        "unique_row_counts_note": "",
+        "valid_ohlc_rows": 2366,
+        "weekday_histogram": [
+          [
+            0,
+            1083
+          ],
+          [
+            1,
+            1083
+          ],
+          [
+            2,
+            1083
+          ],
+          [
+            3,
+            1083
+          ],
+          [
+            4,
+            1082
+          ],
+          [
+            5,
+            1082
+          ],
+          [
+            6,
+            1083
+          ]
+        ]
+      }
+    ],
+    "kind": "crypto",
+    "non_chronological_rows": 0,
+    "non_positive_price_rows": 0,
+    "ohlc_violation_rows": 0,
+    "row_count": 30316,
+    "sha256": "7976772a600df6a503e33d30b1a59f44819506dfe59e52e6fb15d40c08af1f52",
+    "uniform_generation_grid": false,
+    "venue_anachronism_rows": 27449
+  },
+  "content_sha256": "7976772a600df6a503e33d30b1a59f44819506dfe59e52e6fb15d40c08af1f52",
+  "coverage_end": "2026-10-01",
+  "coverage_start": "2006-01-01",
+  "data_state": "SYNTHETIC",
+  "dataset_id": "DSV-9c0e5c83eeea9db4",
+  "file_name": "crypto_daily_2006_2026.csv",
+  "instrument_count": 4,
+  "kind": "crypto",
+  "manifest_hash": "ee73f2bac01b28d7b3a95d68212c8f8cd5c0a73a4f07c68e4450cedb9f8582b6",
+  "registered_instrument_ids": [
+    "5752d3fa18523e19",
+    "50a38c9d267cb350",
+    "abc0bdcb93c7226a",
+    "0922472004b1daf1"
+  ],
+  "row_count": 30316,
+  "verification_notes": [
+    "file=crypto_daily_2006_2026.csv sha256=7976772a600df6a5\u2026 rows=30316 instruments=4 coverage=2006-01-01..2026-10-01",
+    "epistemic classification: SYNTHETIC (REAL_VERIFIED is unreachable from CSV ingestion by construction \u2014 requires the nine-stage verification chain plus human approval)",
+    "HARD: 27449 rows attribute trading to a venue/quote-asset that did not exist on the row date (earliest venue existence 2011-07-01)",
+    "integrity: duplicates=0, chronology OK, OHLC relations OK, prices positive",
+    "coverage: ETH/USDT active series starts 2015-08-07 (later than established listing 2015-07-30 \u2014 early history missing, never fabricated by this engine)",
+    "coverage: LTC/USDT active series starts 2013-04-28 (later than established listing 2011-10-13 \u2014 early history missing, never fabricated by this engine)",
+    "coverage: SOL/USDT active series starts 2020-04-10 (later than established listing 2020-03-16 \u2014 early history missing, never fabricated by this engine)"
+  ]
+}

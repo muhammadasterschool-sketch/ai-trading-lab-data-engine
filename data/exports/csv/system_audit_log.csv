@@ -1,0 +1,11 @@
+Timestamp,Component,Event,Detail,Reference ID
+2026-10-01T00:00:00+00:00,registry,dataset_ingested,crypto_daily_2006_2026.csv: state=SYNTHETIC rows=30316 instruments=4,crypto_daily_2006_2026.csv
+2026-10-01T00:00:00+00:00,registry,dataset_evidence,HARD: 27449 rows attribute trading to a venue/quote-asset that did not exist on the row date (earliest venue existence 2011-07-01),crypto_daily_2006_2026.csv
+2026-10-01T00:00:00+00:00,registry,dataset_ingested,forex_daily_2006_2026.csv: state=SYNTHETIC rows=32484 instruments=6,forex_daily_2006_2026.csv
+2026-10-01T00:00:00+00:00,registry,dataset_evidence,"HARD: every instrument spans the identical weekday grid with identical row counts — including instruments that provably began trading mid-range — a construction signature, not a real multi-instrument history",forex_daily_2006_2026.csv
+2026-10-01T00:00:00+00:00,registry,dataset_ingested,metals_daily_2006_2026.csv: state=SYNTHETIC rows=21656 instruments=4,metals_daily_2006_2026.csv
+2026-10-01T00:00:00+00:00,registry,dataset_evidence,"HARD: every instrument spans the identical weekday grid with identical row counts — including instruments that provably began trading mid-range — a construction signature, not a real multi-instrument history",metals_daily_2006_2026.csv
+2026-10-01T00:00:00+00:00,registry,dataset_ingested,stocks_indices_daily_2006_2026.csv: state=SYNTHETIC rows=32484 instruments=6,stocks_indices_daily_2006_2026.csv
+2026-10-01T00:00:00+00:00,registry,dataset_evidence,HARD: TSLA prints OHLC on 1171 rows before its established listing date 2010-06-29 (first OHLC 2006-01-02),stocks_indices_daily_2006_2026.csv
+2026-10-01T00:00:00+00:00,registry,dataset_evidence,HARD: 270 rows carry OHLC on dates the file itself marks Closed_Holiday — real closed markets print no candle,stocks_indices_daily_2006_2026.csv
+2026-10-01T00:00:00+00:00,registry,dataset_evidence,"HARD: every instrument spans the identical weekday grid with identical row counts — including instruments that provably began trading mid-range — a construction signature, not a real multi-instrument history",stocks_indices_daily_2006_2026.csv

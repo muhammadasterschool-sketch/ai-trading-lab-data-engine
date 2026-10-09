@@ -1,0 +1,91 @@
+{
+  "files": [
+    {
+      "coverage": [
+        "2006-01-01",
+        "2026-10-01"
+      ],
+      "data_state": "SYNTHETIC",
+      "dataset_id": "DSV-9c0e5c83eeea9db4",
+      "file_name": "crypto_daily_2006_2026.csv",
+      "instrument_count": 4,
+      "kind": "crypto",
+      "manifest_hash": "ee73f2bac01b28d7b3a95d68212c8f8cd5c0a73a4f07c68e4450cedb9f8582b6",
+      "registered_instrument_ids": [
+        "5752d3fa18523e19",
+        "50a38c9d267cb350",
+        "abc0bdcb93c7226a",
+        "0922472004b1daf1"
+      ],
+      "row_count": 30316,
+      "sha256": "7976772a600df6a503e33d30b1a59f44819506dfe59e52e6fb15d40c08af1f52"
+    },
+    {
+      "coverage": [
+        "2006-01-02",
+        "2026-10-01"
+      ],
+      "data_state": "SYNTHETIC",
+      "dataset_id": "DSV-8e00cb3d8949c82e",
+      "file_name": "forex_daily_2006_2026.csv",
+      "instrument_count": 6,
+      "kind": "forex",
+      "manifest_hash": "1c01c21361b77336fa05e7a15e9dae96ac1d68304a98347be13bd4cda7c861ad",
+      "registered_instrument_ids": [
+        "015b9b9ae2e65c85",
+        "ce14f1ff6059c32f",
+        "7065f8b74f0f2e0f",
+        "435cb2e6eea7f505",
+        "987b10380a6274d3",
+        "2783aedf8250a24f"
+      ],
+      "row_count": 32484,
+      "sha256": "4f472e6c8d122e120a4de74b860b79067c58ed41bda893b0f7c36d0301dc384f"
+    },
+    {
+      "coverage": [
+        "2006-01-02",
+        "2026-10-01"
+      ],
+      "data_state": "SYNTHETIC",
+      "dataset_id": "DSV-db23648767f8956e",
+      "file_name": "metals_daily_2006_2026.csv",
+      "instrument_count": 4,
+      "kind": "metals",
+      "manifest_hash": "9e37504e7825e4ed5e3892255ca594c65ff423bc4732e2023571b4cbf09284f6",
+      "registered_instrument_ids": [
+        "8e4bce4b8a37287a",
+        "077840c333e81128",
+        "d0cfaf20ee7eea99",
+        "9a9d4fb4deaad834"
+      ],
+      "row_count": 21656,
+      "sha256": "e61b6f67c2ebcc28ecb00d435d4bdbeb23f9bad597400edd4f226dcfa988d03a"
+    },
+    {
+      "coverage": [
+        "2006-01-02",
+        "2026-10-01"
+      ],
+      "data_state": "SYNTHETIC",
+      "dataset_id": "DSV-bf2c0da9d4be2c0e",
+      "file_name": "stocks_indices_daily_2006_2026.csv",
+      "instrument_count": 6,
+      "kind": "stocks_indices",
+      "manifest_hash": "a9fc3e2937ec52f190b5640ef395e8a4c7d99e63761a037e0ed614794a4d2de8",
+      "registered_instrument_ids": [
+        "75dc6e4cbcad854a",
+        "5a6edd2f82b1cfdd",
+        "00eab59775b9549f",
+        "0695f6d845c832cd",
+        "1f07d382d8e88061",
+        "098159d2c4221842"
+      ],
+      "row_count": 32484,
+      "sha256": "28056c809c62cacf87fbf25f3a5c0766f9e57a04f6a811268c63f49e9c01c19f"
+    }
+  ],
+  "registry_size": 20,
+  "total_instruments": 20,
+  "total_rows": 116940
+}

@@ -1,0 +1,381 @@
+{
+  "audit": {
+    "anchor_results": [
+      {
+        "actual": 1242.32,
+        "date": "2006-01-02",
+        "expected_approx": 1242.0,
+        "found": true,
+        "instrument": "US500",
+        "tolerance": 0.02,
+        "within_tolerance": true
+      },
+      {
+        "actual": 10592.27,
+        "date": "2006-01-02",
+        "expected_approx": 10847.0,
+        "found": true,
+        "instrument": "US30",
+        "tolerance": 0.04,
+        "within_tolerance": true
+      },
+      {
+        "actual": 1706.45,
+        "date": "2006-01-03",
+        "expected_approx": 1690.0,
+        "found": true,
+        "instrument": "US100",
+        "tolerance": 0.04,
+        "within_tolerance": true
+      },
+      {
+        "actual": 2.53,
+        "date": "2006-01-03",
+        "expected_approx": 2.6,
+        "found": true,
+        "instrument": "AAPL",
+        "tolerance": 0.06,
+        "within_tolerance": true
+      },
+      {
+        "actual": 26.61,
+        "date": "2006-01-03",
+        "expected_approx": 26.8,
+        "found": true,
+        "instrument": "MSFT",
+        "tolerance": 0.04,
+        "within_tolerance": true
+      }
+    ],
+    "anchors_checked": 5,
+    "anchors_within_tolerance": 5,
+    "columns": [
+      "Date",
+      "Symbol",
+      "Asset_Class",
+      "Open",
+      "High",
+      "Low",
+      "Close",
+      "Volume",
+      "Trading_Session",
+      "Market_Status",
+      "Corporate_Action",
+      "Contract_Size",
+      "Financing_Rate_Long_%",
+      "_date",
+      "_sym",
+      "_Open",
+      "_High",
+      "_Low",
+      "_Close"
+    ],
+    "coverage_end": "2026-10-01",
+    "coverage_start": "2006-01-02",
+    "duplicate_symbol_date_rows": 0,
+    "endpoint_anomalies": [
+      "ANOMALY: US30 final close 13347.35 outside any plausibility band [15000.0, 100000.0] derived from established historical levels \u2014 consistent with unbounded synthetic drift",
+      "ANOMALY: US500 final close 1393.73 outside any plausibility band [2000.0, 20000.0] derived from established historical levels \u2014 consistent with unbounded synthetic drift"
+    ],
+    "expected_columns_match": true,
+    "file_name": "stocks_indices_daily_2006_2026.csv",
+    "holiday_rows_with_ohlc": 270,
+    "instruments": [
+      {
+        "duplicate_rows": 0,
+        "explicit_pre_launch_rows": 0,
+        "first_open": 2.52,
+        "first_row_date": "2006-01-02",
+        "first_valid_ohlc_date": "2006-01-02",
+        "last_close": 20.03,
+        "last_row_date": "2026-10-01",
+        "max_high": 23.11,
+        "min_low": 2.35,
+        "missing_ohlc_on_active_rows": 0,
+        "non_chronological_rows": 0,
+        "non_positive_price_rows": 0,
+        "ohlc_violation_rows": 0,
+        "original_identifier": "AAPL",
+        "pre_listing_ohlc_rows": 0,
+        "rows": 5414,
+        "symbol": "AAPL",
+        "unique_row_counts_note": "",
+        "valid_ohlc_rows": 5414,
+        "weekday_histogram": [
+          [
+            0,
+            1083
+          ],
+          [
+            1,
+            1083
+          ],
+          [
+            2,
+            1083
+          ],
+          [
+            3,
+            1083
+          ],
+          [
+            4,
+            1082
+          ]
+        ]
+      },
+      {
+        "duplicate_rows": 0,
+        "explicit_pre_launch_rows": 0,
+        "first_open": 26.24,
+        "first_row_date": "2006-01-02",
+        "first_valid_ohlc_date": "2006-01-02",
+        "last_close": 42.69,
+        "last_row_date": "2026-10-01",
+        "max_high": 77.44,
+        "min_low": 13.38,
+        "missing_ohlc_on_active_rows": 0,
+        "non_chronological_rows": 0,
+        "non_positive_price_rows": 0,
+        "ohlc_violation_rows": 0,
+        "original_identifier": "MSFT",
+        "pre_listing_ohlc_rows": 0,
+        "rows": 5414,
+        "symbol": "MSFT",
+        "unique_row_counts_note": "",
+        "valid_ohlc_rows": 5414,
+        "weekday_histogram": [
+          [
+            0,
+            1083
+          ],
+          [
+            1,
+            1083
+          ],
+          [
+            2,
+            1083
+          ],
+          [
+            3,
+            1083
+          ],
+          [
+            4,
+            1082
+          ]
+        ]
+      },
+      {
+        "duplicate_rows": 0,
+        "explicit_pre_launch_rows": 0,
+        "first_open": 1.2,
+        "first_row_date": "2006-01-02",
+        "first_valid_ohlc_date": "2006-01-02",
+        "last_close": 5.85,
+        "last_row_date": "2026-10-01",
+        "max_high": 6.63,
+        "min_low": 0.97,
+        "missing_ohlc_on_active_rows": 0,
+        "non_chronological_rows": 0,
+        "non_positive_price_rows": 0,
+        "ohlc_violation_rows": 0,
+        "original_identifier": "TSLA",
+        "pre_listing_ohlc_rows": 1171,
+        "rows": 5414,
+        "symbol": "TSLA",
+        "unique_row_counts_note": "",
+        "valid_ohlc_rows": 5414,
+        "weekday_histogram": [
+          [
+            0,
+            1083
+          ],
+          [
+            1,
+            1083
+          ],
+          [
+            2,
+            1083
+          ],
+          [
+            3,
+            1083
+          ],
+          [
+            4,
+            1082
+          ]
+        ]
+      },
+      {
+        "duplicate_rows": 0,
+        "explicit_pre_launch_rows": 0,
+        "first_open": 1656.89,
+        "first_row_date": "2006-01-02",
+        "first_valid_ohlc_date": "2006-01-02",
+        "last_close": 8118.24,
+        "last_row_date": "2026-10-01",
+        "max_high": 8212.51,
+        "min_low": 1472.56,
+        "missing_ohlc_on_active_rows": 0,
+        "non_chronological_rows": 0,
+        "non_positive_price_rows": 0,
+        "ohlc_violation_rows": 0,
+        "original_identifier": "US100",
+        "pre_listing_ohlc_rows": 0,
+        "rows": 5414,
+        "symbol": "US100",
+        "unique_row_counts_note": "",
+        "valid_ohlc_rows": 5414,
+        "weekday_histogram": [
+          [
+            0,
+            1083
+          ],
+          [
+            1,
+            1083
+          ],
+          [
+            2,
+            1083
+          ],
+          [
+            3,
+            1083
+          ],
+          [
+            4,
+            1082
+          ]
+        ]
+      },
+      {
+        "duplicate_rows": 0,
+        "explicit_pre_launch_rows": 0,
+        "first_open": 10565.75,
+        "first_row_date": "2006-01-02",
+        "first_valid_ohlc_date": "2006-01-02",
+        "last_close": 13347.35,
+        "last_row_date": "2026-10-01",
+        "max_high": 17239.1,
+        "min_low": 5428.35,
+        "missing_ohlc_on_active_rows": 0,
+        "non_chronological_rows": 0,
+        "non_positive_price_rows": 0,
+        "ohlc_violation_rows": 0,
+        "original_identifier": "US30",
+        "pre_listing_ohlc_rows": 0,
+        "rows": 5414,
+        "symbol": "US30",
+        "unique_row_counts_note": "",
+        "valid_ohlc_rows": 5414,
+        "weekday_histogram": [
+          [
+            0,
+            1083
+          ],
+          [
+            1,
+            1083
+          ],
+          [
+            2,
+            1083
+          ],
+          [
+            3,
+            1083
+          ],
+          [
+            4,
+            1082
+          ]
+        ]
+      },
+      {
+        "duplicate_rows": 0,
+        "explicit_pre_launch_rows": 0,
+        "first_open": 1242.41,
+        "first_row_date": "2006-01-02",
+        "first_valid_ohlc_date": "2006-01-02",
+        "last_close": 1393.73,
+        "last_row_date": "2026-10-01",
+        "max_high": 2112.74,
+        "min_low": 600.51,
+        "missing_ohlc_on_active_rows": 0,
+        "non_chronological_rows": 0,
+        "non_positive_price_rows": 0,
+        "ohlc_violation_rows": 0,
+        "original_identifier": "US500",
+        "pre_listing_ohlc_rows": 0,
+        "rows": 5414,
+        "symbol": "US500",
+        "unique_row_counts_note": "",
+        "valid_ohlc_rows": 5414,
+        "weekday_histogram": [
+          [
+            0,
+            1083
+          ],
+          [
+            1,
+            1083
+          ],
+          [
+            2,
+            1083
+          ],
+          [
+            3,
+            1083
+          ],
+          [
+            4,
+            1082
+          ]
+        ]
+      }
+    ],
+    "kind": "stocks_indices",
+    "non_chronological_rows": 0,
+    "non_positive_price_rows": 0,
+    "ohlc_violation_rows": 0,
+    "row_count": 32484,
+    "sha256": "28056c809c62cacf87fbf25f3a5c0766f9e57a04f6a811268c63f49e9c01c19f",
+    "uniform_generation_grid": true,
+    "venue_anachronism_rows": 0
+  },
+  "content_sha256": "28056c809c62cacf87fbf25f3a5c0766f9e57a04f6a811268c63f49e9c01c19f",
+  "coverage_end": "2026-10-01",
+  "coverage_start": "2006-01-02",
+  "data_state": "SYNTHETIC",
+  "dataset_id": "DSV-bf2c0da9d4be2c0e",
+  "file_name": "stocks_indices_daily_2006_2026.csv",
+  "instrument_count": 6,
+  "kind": "stocks_indices",
+  "manifest_hash": "a9fc3e2937ec52f190b5640ef395e8a4c7d99e63761a037e0ed614794a4d2de8",
+  "registered_instrument_ids": [
+    "75dc6e4cbcad854a",
+    "5a6edd2f82b1cfdd",
+    "00eab59775b9549f",
+    "0695f6d845c832cd",
+    "1f07d382d8e88061",
+    "098159d2c4221842"
+  ],
+  "row_count": 32484,
+  "verification_notes": [
+    "file=stocks_indices_daily_2006_2026.csv sha256=28056c809c62cacf\u2026 rows=32484 instruments=6 coverage=2006-01-02..2026-10-01",
+    "epistemic classification: SYNTHETIC (REAL_VERIFIED is unreachable from CSV ingestion by construction \u2014 requires the nine-stage verification chain plus human approval)",
+    "HARD: TSLA prints OHLC on 1171 rows before its established listing date 2010-06-29 (first OHLC 2006-01-02)",
+    "HARD: 270 rows carry OHLC on dates the file itself marks Closed_Holiday \u2014 real closed markets print no candle",
+    "HARD: every instrument spans the identical weekday grid with identical row counts \u2014 including instruments that provably began trading mid-range \u2014 a construction signature, not a real multi-instrument history",
+    "ANOMALY: US30 final close 13347.35 outside any plausibility band [15000.0, 100000.0] derived from established historical levels \u2014 consistent with unbounded synthetic drift",
+    "ANOMALY: US500 final close 1393.73 outside any plausibility band [2000.0, 20000.0] derived from established historical levels \u2014 consistent with unbounded synthetic drift",
+    "integrity: duplicates=0, chronology OK, OHLC relations OK, prices positive",
+    "2006 calibration anchors: 5/5 within tolerance (calibration to real history, NOT proof of reality)"
+  ]
+}

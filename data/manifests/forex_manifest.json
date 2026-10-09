@@ -1,0 +1,388 @@
+{
+  "audit": {
+    "anchor_results": [
+      {
+        "actual": 1.18416,
+        "date": "2006-01-02",
+        "expected_approx": 1.1841,
+        "found": true,
+        "instrument": "EURUSD",
+        "tolerance": 0.02,
+        "within_tolerance": true
+      },
+      {
+        "actual": 1.75693,
+        "date": "2006-01-02",
+        "expected_approx": 1.74,
+        "found": true,
+        "instrument": "GBPUSD",
+        "tolerance": 0.02,
+        "within_tolerance": true
+      },
+      {
+        "actual": 118.741,
+        "date": "2006-01-02",
+        "expected_approx": 119.0,
+        "found": true,
+        "instrument": "USDJPY",
+        "tolerance": 0.02,
+        "within_tolerance": true
+      },
+      {
+        "actual": 1.26346,
+        "date": "2006-01-02",
+        "expected_approx": 1.31,
+        "found": true,
+        "instrument": "USDCHF",
+        "tolerance": 0.05,
+        "within_tolerance": true
+      },
+      {
+        "actual": 0.742,
+        "date": "2006-01-02",
+        "expected_approx": 0.752,
+        "found": true,
+        "instrument": "AUDUSD",
+        "tolerance": 0.02,
+        "within_tolerance": true
+      },
+      {
+        "actual": 1.16985,
+        "date": "2006-01-02",
+        "expected_approx": 1.164,
+        "found": true,
+        "instrument": "USDCAD",
+        "tolerance": 0.02,
+        "within_tolerance": true
+      }
+    ],
+    "anchors_checked": 6,
+    "anchors_within_tolerance": 6,
+    "columns": [
+      "Date",
+      "Symbol",
+      "Open",
+      "High",
+      "Low",
+      "Close",
+      "Volume_Ticks",
+      "Spread_Pips",
+      "Pip_Value_USD_StdLot",
+      "Max_Leverage",
+      "Swap_Long_Points",
+      "Swap_Short_Points",
+      "Session_Calendar",
+      "_date",
+      "_sym",
+      "_Open",
+      "_High",
+      "_Low",
+      "_Close"
+    ],
+    "coverage_end": "2026-10-01",
+    "coverage_start": "2006-01-02",
+    "duplicate_symbol_date_rows": 0,
+    "endpoint_anomalies": [
+      "ANOMALY: USDCHF final close 4.37463 outside any plausibility band [0.55, 2.0] derived from established historical levels \u2014 consistent with unbounded synthetic drift",
+      "ANOMALY: USDJPY final close 354.207 outside any plausibility band [60.0, 250.0] derived from established historical levels \u2014 consistent with unbounded synthetic drift"
+    ],
+    "expected_columns_match": true,
+    "file_name": "forex_daily_2006_2026.csv",
+    "holiday_rows_with_ohlc": 0,
+    "instruments": [
+      {
+        "duplicate_rows": 0,
+        "explicit_pre_launch_rows": 0,
+        "first_open": 0.74546,
+        "first_row_date": "2006-01-02",
+        "first_valid_ohlc_date": "2006-01-02",
+        "last_close": 1.14651,
+        "last_row_date": "2026-10-01",
+        "max_high": 1.27977,
+        "min_low": 0.58451,
+        "missing_ohlc_on_active_rows": 0,
+        "non_chronological_rows": 0,
+        "non_positive_price_rows": 0,
+        "ohlc_violation_rows": 0,
+        "original_identifier": "AUDUSD",
+        "pre_listing_ohlc_rows": 0,
+        "rows": 5414,
+        "symbol": "AUDUSD",
+        "unique_row_counts_note": "",
+        "valid_ohlc_rows": 5414,
+        "weekday_histogram": [
+          [
+            0,
+            1083
+          ],
+          [
+            1,
+            1083
+          ],
+          [
+            2,
+            1083
+          ],
+          [
+            3,
+            1083
+          ],
+          [
+            4,
+            1082
+          ]
+        ]
+      },
+      {
+        "duplicate_rows": 0,
+        "explicit_pre_launch_rows": 0,
+        "first_open": 1.18383,
+        "first_row_date": "2006-01-02",
+        "first_valid_ohlc_date": "2006-01-02",
+        "last_close": 1.52634,
+        "last_row_date": "2026-10-01",
+        "max_high": 2.84059,
+        "min_low": 1.06979,
+        "missing_ohlc_on_active_rows": 0,
+        "non_chronological_rows": 0,
+        "non_positive_price_rows": 0,
+        "ohlc_violation_rows": 0,
+        "original_identifier": "EURUSD",
+        "pre_listing_ohlc_rows": 0,
+        "rows": 5414,
+        "symbol": "EURUSD",
+        "unique_row_counts_note": "",
+        "valid_ohlc_rows": 5414,
+        "weekday_histogram": [
+          [
+            0,
+            1083
+          ],
+          [
+            1,
+            1083
+          ],
+          [
+            2,
+            1083
+          ],
+          [
+            3,
+            1083
+          ],
+          [
+            4,
+            1082
+          ]
+        ]
+      },
+      {
+        "duplicate_rows": 0,
+        "explicit_pre_launch_rows": 0,
+        "first_open": 1.7537,
+        "first_row_date": "2006-01-02",
+        "first_valid_ohlc_date": "2006-01-02",
+        "last_close": 1.33598,
+        "last_row_date": "2026-10-01",
+        "max_high": 2.23995,
+        "min_low": 1.16533,
+        "missing_ohlc_on_active_rows": 0,
+        "non_chronological_rows": 0,
+        "non_positive_price_rows": 0,
+        "ohlc_violation_rows": 0,
+        "original_identifier": "GBPUSD",
+        "pre_listing_ohlc_rows": 0,
+        "rows": 5414,
+        "symbol": "GBPUSD",
+        "unique_row_counts_note": "",
+        "valid_ohlc_rows": 5414,
+        "weekday_histogram": [
+          [
+            0,
+            1083
+          ],
+          [
+            1,
+            1083
+          ],
+          [
+            2,
+            1083
+          ],
+          [
+            3,
+            1083
+          ],
+          [
+            4,
+            1082
+          ]
+        ]
+      },
+      {
+        "duplicate_rows": 0,
+        "explicit_pre_launch_rows": 0,
+        "first_open": 1.16558,
+        "first_row_date": "2006-01-02",
+        "first_valid_ohlc_date": "2006-01-02",
+        "last_close": 1.76217,
+        "last_row_date": "2026-10-01",
+        "max_high": 1.81793,
+        "min_low": 0.69484,
+        "missing_ohlc_on_active_rows": 0,
+        "non_chronological_rows": 0,
+        "non_positive_price_rows": 0,
+        "ohlc_violation_rows": 0,
+        "original_identifier": "USDCAD",
+        "pre_listing_ohlc_rows": 0,
+        "rows": 5414,
+        "symbol": "USDCAD",
+        "unique_row_counts_note": "",
+        "valid_ohlc_rows": 5414,
+        "weekday_histogram": [
+          [
+            0,
+            1083
+          ],
+          [
+            1,
+            1083
+          ],
+          [
+            2,
+            1083
+          ],
+          [
+            3,
+            1083
+          ],
+          [
+            4,
+            1082
+          ]
+        ]
+      },
+      {
+        "duplicate_rows": 0,
+        "explicit_pre_launch_rows": 0,
+        "first_open": 1.26566,
+        "first_row_date": "2006-01-02",
+        "first_valid_ohlc_date": "2006-01-02",
+        "last_close": 4.37463,
+        "last_row_date": "2026-10-01",
+        "max_high": 5.23171,
+        "min_low": 1.23273,
+        "missing_ohlc_on_active_rows": 0,
+        "non_chronological_rows": 0,
+        "non_positive_price_rows": 0,
+        "ohlc_violation_rows": 0,
+        "original_identifier": "USDCHF",
+        "pre_listing_ohlc_rows": 0,
+        "rows": 5414,
+        "symbol": "USDCHF",
+        "unique_row_counts_note": "",
+        "valid_ohlc_rows": 5414,
+        "weekday_histogram": [
+          [
+            0,
+            1083
+          ],
+          [
+            1,
+            1083
+          ],
+          [
+            2,
+            1083
+          ],
+          [
+            3,
+            1083
+          ],
+          [
+            4,
+            1082
+          ]
+        ]
+      },
+      {
+        "duplicate_rows": 0,
+        "explicit_pre_launch_rows": 0,
+        "first_open": 118.391,
+        "first_row_date": "2006-01-02",
+        "first_valid_ohlc_date": "2006-01-02",
+        "last_close": 354.207,
+        "last_row_date": "2026-10-01",
+        "max_high": 364.144,
+        "min_low": 110.035,
+        "missing_ohlc_on_active_rows": 0,
+        "non_chronological_rows": 0,
+        "non_positive_price_rows": 0,
+        "ohlc_violation_rows": 0,
+        "original_identifier": "USDJPY",
+        "pre_listing_ohlc_rows": 0,
+        "rows": 5414,
+        "symbol": "USDJPY",
+        "unique_row_counts_note": "",
+        "valid_ohlc_rows": 5414,
+        "weekday_histogram": [
+          [
+            0,
+            1083
+          ],
+          [
+            1,
+            1083
+          ],
+          [
+            2,
+            1083
+          ],
+          [
+            3,
+            1083
+          ],
+          [
+            4,
+            1082
+          ]
+        ]
+      }
+    ],
+    "kind": "forex",
+    "non_chronological_rows": 0,
+    "non_positive_price_rows": 0,
+    "ohlc_violation_rows": 0,
+    "row_count": 32484,
+    "sha256": "4f472e6c8d122e120a4de74b860b79067c58ed41bda893b0f7c36d0301dc384f",
+    "uniform_generation_grid": true,
+    "venue_anachronism_rows": 0
+  },
+  "content_sha256": "4f472e6c8d122e120a4de74b860b79067c58ed41bda893b0f7c36d0301dc384f",
+  "coverage_end": "2026-10-01",
+  "coverage_start": "2006-01-02",
+  "data_state": "SYNTHETIC",
+  "dataset_id": "DSV-8e00cb3d8949c82e",
+  "file_name": "forex_daily_2006_2026.csv",
+  "instrument_count": 6,
+  "kind": "forex",
+  "manifest_hash": "1c01c21361b77336fa05e7a15e9dae96ac1d68304a98347be13bd4cda7c861ad",
+  "registered_instrument_ids": [
+    "015b9b9ae2e65c85",
+    "ce14f1ff6059c32f",
+    "7065f8b74f0f2e0f",
+    "435cb2e6eea7f505",
+    "987b10380a6274d3",
+    "2783aedf8250a24f"
+  ],
+  "row_count": 32484,
+  "verification_notes": [
+    "file=forex_daily_2006_2026.csv sha256=4f472e6c8d122e12\u2026 rows=32484 instruments=6 coverage=2006-01-02..2026-10-01",
+    "epistemic classification: SYNTHETIC (REAL_VERIFIED is unreachable from CSV ingestion by construction \u2014 requires the nine-stage verification chain plus human approval)",
+    "HARD: every instrument spans the identical weekday grid with identical row counts \u2014 including instruments that provably began trading mid-range \u2014 a construction signature, not a real multi-instrument history",
+    "ANOMALY: USDCHF final close 4.37463 outside any plausibility band [0.55, 2.0] derived from established historical levels \u2014 consistent with unbounded synthetic drift",
+    "ANOMALY: USDJPY final close 354.207 outside any plausibility band [60.0, 250.0] derived from established historical levels \u2014 consistent with unbounded synthetic drift",
+    "integrity: duplicates=0, chronology OK, OHLC relations OK, prices positive",
+    "2006 calibration anchors: 6/6 within tolerance (calibration to real history, NOT proof of reality)"
+  ]
+}

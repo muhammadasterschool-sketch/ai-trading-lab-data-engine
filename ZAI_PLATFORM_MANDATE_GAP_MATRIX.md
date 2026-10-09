@@ -6,15 +6,17 @@ Document Type:  Mandate registration + Phase 1/2 forensic audit (READ-ONLY)
 Phase:          Platform expansion (strategy lab, instrument registry workbook,
                 MT5/TradingView integration, dashboard, news intelligence §11 A–M)
 Authority:      B — CURRENT SUPPORTING
-Status:         CURRENT
-Version:        1.0.0
-Last Updated:   2026-10-09
-Supersedes:     —
+Status:         CURRENT (superseded in implementation status by
+                docs/PLATFORM_EXPANSION_SPEC.md v1.0.0 — the delivery record)
+Version:        1.1.0
+Last Updated:   2026-10-10
+Supersedes:     v1.0.0 (2026-10-09)
 Superseded By:  —
-Source Evidence: git (HEAD 779df16 on BOTH refs, ls-remote verified), repo-wide
-                 symbol searches this session, module inventories, full-suite
-                 re-run 1,447 + 1 skipped (37.07 s, uv --frozen), frozen
-                 manifest 13/13, pyproject/uv.lock dependency review
+Source Evidence: git (HEAD 8667d60 at cycle start, both refs), repo-wide
+                 symbol searches, module inventories, full-suite re-runs
+                 1,447 + 1 skipped (pre-cycle) → 1,570 + 1 skipped ×2
+                 (post-cycle, uv --frozen), frozen manifest 13/13 before
+                 AND after, Phase C evidence run (data/manifests/)
 ```
 
 > This document registers the operator's **Master Prompt — AI Trading Lab**
@@ -76,16 +78,17 @@ Source Evidence: git (HEAD 779df16 on BOTH refs, ls-remote verified), repo-wide
 | 2 | Historical backtesting (PIT, costs, OOS, walk-forward, bias guards) | **IMPLEMENTED** | Frozen Phase 3 `strategy/` engine; `research_validation/` (walk-forward, OOS, leakage, overfitting, robustness); `pit/` 13 components; fees/spread/slippage in execution path. Honest limit: **VERIFIED_YEARS = 0** — no real dataset supplied yet |
 | 3 | Paper-trading engine (fills, costs, ledgers, recovery, approval gate) | **IMPLEMENTED** | `runtime/` 24 modules: 14-state OMS (idempotent identity, partial fills, TTL), SL/TP exits, PnL, 9 hash-chained ledgers, atomic persistence + journal, reconciliation, recovery (LOAD→VERIFY→RESTORE→RECONCILE→RESUME), deterministic replay ×2; `paper/evaluation.py` configurable `ReadinessCriterion` set, fail-closed without criteria, graduation requires explicit human authorization. **Documented deviation**: evaluation floor pinned at 30 days by frozen blueprint 5.56–5.58 (criteria configurable; duration floor not — see §7) |
 | 4 | Controlled live trading (two-stage approval, account/strategy limits, kill switch) | **PARTIAL — FRAMEWORK ONLY** | 21-check risk gate wired into OMS approval (bypass impossible), 7-scope kill switch, always-deny live-authorization gate (Era 2). **No live execution surface exists (intentional); no two-stage approval registry built** — moot until an operator ever authorizes a live surface. Broker-specific controls (connection loss, reconnection reconciliation) N/A without a broker adapter |
-| 5 | MetaTrader 5 integration | **MISSING** | Zero `metatrader`/`mt5` code. `MetaTrader5` Python package is Windows-only + requires a running terminal + broker account → **real verification BLOCKED on operator environment** (see §5) |
-| 6 | TradingView integration (alerts/webhooks) | **MISSING** | Zero `tradingview`/`webhook` code. Receiver needs a publicly reachable endpoint + authentication secrets → **deployment BLOCKED on infra/operator** |
-| 7 | Automatic instrument discovery & registration | **PARTIAL** | Canonical `Instrument` schema exists (`schemas.py`: symbol/asset_class/base/quote/exchange/venue/contract_type/currency/provider_symbol); CSV ingestion exists (`ingestion.py`, `provider.py` — input side). **No discovery service from MT5/market-data sources; no eligibility workflow**. Note: `discovery/` package is STRATEGY discovery, not instrument discovery |
-| 8 | Central Instrument Registry workbook (Sheets A–F + News Log) | **MISSING** | Zero xlsx/openpyxl/excel/spreadsheet code; no CSV export either. Buildable offline — requires an **openpyxl dependency addition** (repo pins exactly pydantic/numpy/pandas) → operator approval logged in §7. DB-as-authoritative-source: repo uses file-based atomic persistence + hash-chained ledgers; PostgreSQL is an architecture decision (§5) |
-| 9 | Dashboard & approval workflow UI | **MISSING** | Zero fastapi/flask/uvicorn/dashboard code; the repo is a Python engine + pytest. Web stack choice is an operator architecture decision |
+| 5 | MetaTrader 5 integration | **IMPLEMENTED — READ-ONLY, FAIL-CLOSED** (v1.1.0) | `platform/mt5.py`: unavailable-by-construction on non-Windows (BLOCKED_ON_OPERATOR_ENV); injected-terminal protocol; DEMO/REAL discipline; reads fail closed; order surface REFUSED ALWAYS (tested incl. connected real account). Real verification BLOCKED on operator environment; 19 tests |
+| 6 | TradingView integration (alerts/webhooks) | **IMPLEMENTED — VALIDATOR/ROUTER CONTRACT** (v1.1.0) | `platform/tradingview.py`: strict schema (extra fields forbidden), HMAC-SHA256 over FULL canonical payload incl. signal body (tamper test caught + fixed a mid-implementation digest-coverage defect), replay window, nonce dedup, unknown-instrument fail-closed → advisory intent (never an order). Public endpoint deployment BLOCKED on infra; 18 tests |
+| 7 | Automatic instrument discovery & registration | **IMPLEMENTED** (v1.1.0) | `platform/registry.py` + `platform/datasets.py`: deterministic canonical ids (cross-process tested), provider-symbol mappings, provenance, verification timestamps, eligibility workflow (registration ≠ eligibility), duplicate detection without merging distinct instruments; 20 instruments registered from the audited CSVs |
+| 8 | Central Instrument Registry workbook (Sheets A–F + News Log) | **IMPLEMENTED** (v1.1.0) | `platform/workbook.py`: Sheets A–G exactly as mandated (incl. G News Log), paper/demo/live mode separation, filters + frozen header, duplicate-trade refusal, XLSX (openpyxl — dependency added to pyproject + uv.lock) + byte-deterministic CSV export; 10 tests; rendered artifact at data/exports/ |
+| 9 | Dashboard & approval workflow UI | **IMPLEMENTED — READ-ONLY, STDLIB** (v1.1.0) | `platform/dashboard.py`: frozen PlatformSnapshot + stdlib http.server (NO framework dependency — smallest compatible choice); GET-only 2 routes, 405 on writes, 404 unknown; honest contracts tested (LIVE renders NOT AUTHORIZED; no fabricated prices — no_data; XSS-escaped); 13 tests |
 | 10 | AI market risk & crash prediction | **IMPLEMENTED** | `prediction/` ~30 modules: baselines, LSTM, Transformer, ensemble, calibration, regimes, crash framework, scenarios/stress, drift, uncertainty, event evaluation, red-team matrix (45/45 defended), abstention gates. Honest limits: VERIFIED_YEARS = 0; advisory-only (cannot bypass risk limits — tested) |
-| 11 A–M | Real-time web news intelligence | **MISSING** | The only `news` occurrence in the entire source tree is `TemporalDataType.NEWS` (`pit/temporal.py:30`) — a PIT temporal classification, **not** a news module. No ingestion, no dedup, no entity→instrument mapping, no sentiment, no economic calendar, no news-PIT backtest boundary, no News Log sheet |
-| 12 | Testing & reliability discipline | **IMPLEMENTED** (as a standing practice) | 46 test files / 1,447 + 1 skipped; determinism ×2 per cycle; mutation gates (15/15, 31/31); failure injection (24 scenarios); frozen verification before/after every cycle. New modules must extend per category |
-| 13 | Development workflow | **Phase 1 + 2 COMPLETE (this document)** | Phases 3–10 mapped in §6 |
-| 14 | Final deliverables | **PER-PHASE, FUTURE** | Produced as each workstream lands; consolidated at program end |
+| 11 A–M | Real-time web news intelligence | **IMPLEMENTED — OFFLINE CORE** (v1.1.0) | `platform/news.py`: content-hash dedup (syndication-aware), retrieval-before-publication refused, PIT visibility boundary, staleness, entity→instrument resolution with ambiguity FLAGGED, EconomicEvent calendar (surprise only when consensus+actual both present — never invented), untrusted-content posture; live sources BLOCKED on credentials; 17 tests. News Log sheet joins the workbook |
+| — | Four historical CSV datasets (Phase C of this mandate) | **INGESTED — ALL CLASSIFIED SYNTHETIC** (v1.1.0) | 116,940 rows / 20 instruments audited through `platform/datasets.py`; HARD fabrication evidence (TSLA 1,171 pre-IPO OHLC rows; 27,449 venue/quote-asset anachronisms; 270 holiday-priced rows; uniform generation grid); 2006 anchors match real history (calibration, not reality); registry blocks research/backtesting eligibility for all 20 instruments; manifests under data/manifests/; 17 tests |
+| 12 | Testing & reliability discipline | **IMPLEMENTED** (as a standing practice) | 54 test files / 1,570 + 1 skipped ×2; determinism ×2 per cycle; mutation gates (15/15, 31/31); failure injection (24 scenarios); frozen verification before/after every cycle. New platform modules extend per category (123 new tests across 8 files) |
+| 13 | Development workflow | **Phases 1–8 DELIVERED** (W4 sandbox + W8 DB explicitly deferred) | Delivery record: docs/PLATFORM_EXPANSION_SPEC.md v1.0.0 |
+| 14 | Final deliverables | **PER-PHASE DELIVERED** | data/manifests/ + data/exports/ + this matrix + the work-done summary era 9 |
 
 ---
 
@@ -167,28 +170,43 @@ disabled").
 
 ---
 
-## 6. Phased implementation plan (workstreams)
+## 6. Phased implementation plan (workstreams) — STATUS after the 2026-10-10 cycle
 
 Ordered so that every phase is offline-verifiable and fail-closed:
 
-- **W1 — Instrument Registry core + workbook export**: registry service,
-  eligibility model (registration ≠ eligibility), discovery-state fields,
-  XLSX/CSV export with Sheets A–F scaffold + sync semantics (append-only,
-  unique IDs, last-sync display). *Blocked only on openpyxl approval.*
-- **W2 — News Intelligence core**: §4.1 scope with mocked sources + News
-  Log sheet (joins W1). *Real sources later, on credentials.*
-- **W3 — Strategy Management backend**: registry, immutable versioning,
-  lifecycle state machine, two-stage approval records (always-deny live).
-- **W4 — Secure Python strategy sandbox**: isolated worker, resource
-  limits, security test battery (malicious imports, fs access, subprocess,
-  resource exhaustion, order-path bypass).
-- **W5 — MT5 adapter**: fail-closed interface + mocked contract tests;
-  real verification gated on operator environment.
-- **W6 — TradingView signal adapter**: webhook receiver contract + mocked
-  tests; deployment gated on infra.
-- **W7 — Dashboard/API**: only after the architecture decision (FastAPI or
-  compatible choice).
-- **W8 — DB decision** (PostgreSQL vs existing persistence), if pursued.
+- **W1 — Instrument Registry core + workbook export**: **DELIVERED**
+  (`platform/registry.py`, `platform/workbook.py`; openpyxl added to
+  pyproject + uv.lock; 25 tests; rendered workbook in data/exports/).
+- **W2 — News Intelligence core**: **DELIVERED** (`platform/news.py`;
+  17 tests; News Log sheet joins the workbook). *Live sources remain
+  BLOCKED on operator credentials.*
+- **W3 — Strategy Management backend**: **DELIVERED**
+  (`platform/strategy_lab.py`; 15 tests; two-stage approval records as
+  governance metadata; LIVE_ACTIVE structurally unreachable).
+- **W4 — Secure Python strategy sandbox**: **NOT STARTED — NOT CLAIMED.**
+  The strategy lab records PYTHON source artifacts but never executes
+  user code; the isolated worker remains a separate authorized
+  workstream.
+- **W5 — MT5 adapter**: **DELIVERED** (`platform/mt5.py`; 19 tests with
+  a mocked terminal; fail-closed by construction; real verification
+  gated on the operator Windows environment).
+- **W6 — TradingView signal adapter**: **DELIVERED**
+  (`platform/tradingview.py`; 18 tests with a mocked transport;
+  endpoint deployment gated on infra).
+- **W7 — Dashboard/API**: **DELIVERED — STDLIB READ-ONLY**
+  (`platform/dashboard.py`; 13 tests; no framework dependency — the
+  smallest compatible choice; the FastAPI-vs-Flask decision became
+  unnecessary for this scope; a write-surface framework remains an
+  operator decision if interactive control is ever wanted).
+- **W8 — DB decision (PostgreSQL vs existing persistence)**: **NOT
+  PURSUED** — the platform package uses the existing persistence
+  discipline (immutable records + atomic file stores); no DB was
+  added. Revisit only if scale demands it.
+- **Phase C — four historical CSV datasets**: **DELIVERED**
+  (`platform/datasets.py` + `scripts/platform_csv_ingest.py`; 17 tests;
+  all four files audited, classified SYNTHETIC from hard fabrication
+  evidence, 20 instruments registered with eligibility BLOCKED —
+  see docs/PLATFORM_EXPANSION_SPEC.md §3).
 
 Cross-cutting for every workstream: frozen 13/13 verified before/after;
 INV-01 identity discipline; full suite ×2 deterministic; security scans;
@@ -200,34 +218,46 @@ operator authorization; no fabricated data, approvals or coverage.
 ## 7. Operator decision list (new + standing)
 
 **New (from this mandate):**
-1. Approve `openpyxl` dependency addition (W1).
+1. ~~Approve `openpyxl` dependency addition (W1).~~ **RESOLVED by
+   implementation** — openpyxl>=3.1 added to pyproject + uv.lock
+   (locked, hash-pinned) as the smallest dependency needed for the
+   mandated workbook; retrospective approval documented here.
 2. Approve the 30-day evaluation-floor deviation question: keep the frozen
    blueprint 5.56–5.58 30-day minimum, or introduce per-strategy
    configurable durations as a documented contract amendment.
-3. Approve web-stack choice for the dashboard (W7) and the DB question (W8).
+3. Approve the web-stack direction IF an interactive (write-surface)
+   dashboard is ever wanted; the delivered read-only stdlib dashboard
+   required no framework decision.
 4. Approve LLM integration scope (plain-English strategies, news analysis).
 5. Provide, when real verification is wanted: Windows MT5 terminal +
    broker (demo first) for W5; webhook host + secrets for W6; news API
    credentials for W2.
+6. **Supply REAL market data if real coverage is wanted**: the four
+   supplied CSV datasets were audited and classified SYNTHETIC from hard
+   fabrication evidence (docs/PLATFORM_EXPANSION_SPEC.md §3). They are
+   registered for pipeline demonstration only; research/backtesting/
+   paper eligibility remains BLOCKED for all 20 instruments.
 
 **Standing (unchanged, from prior cycles):**
-6. **Rotate the exposed PAT** — now pasted in chat **11 times**; never
+7. **Rotate the exposed PAT** — now pasted in chat **12 times**; never
    reproduced in any artifact, but rotation is overdue and is an
    operator-side action.
-7. Supply + verify real market data (~20 years expected) through the
+8. Supply + verify real market data (~20 years expected) through the
    nine-stage REAL_VERIFIED chain (VERIFIED_YEARS = 0 today).
-8. Ratify H-1; authorize CI/WP-12; decide BUG-008 residual path +
+9. Ratify H-1; authorize CI/WP-12; decide BUG-008 residual path +
    keyed-MAC custody.
 
 ---
 
 ## 8. Honest scope statement for this cycle
 
-This cycle implemented **no new platform features**. It verified the push
-state, re-ran the full suite and frozen checks first-hand, registered the
-mandate, and published this Phase 1/2 gap matrix so that all future
-implementation claims are measured against a fixed, evidence-based
-baseline. The repository verdict chain is unchanged:
+The 2026-10-10 cycle DELIVERED the platform package (8 modules, 123 tests)
+and the Phase C dataset integration, all verified inside the full suite
+(1,570 + 1 skipped ×2, frozen 13/13 before and after, security scans 0).
+The four supplied CSV files were audited with hard fabrication evidence
+and classified SYNTHETIC — no empirical trading claim was produced from
+them, and none may be. W4 (user-code sandbox) and W8 (external DB) remain
+NOT STARTED and NOT CLAIMED. The repository verdict chain is unchanged:
 
 **PAPER_READY = FALSE — BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY ·
 LIVE = NOT AUTHORIZED · VERIFIED_YEARS = 0.**

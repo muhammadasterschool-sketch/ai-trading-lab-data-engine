@@ -1,0 +1,460 @@
+{
+  "audit_events": [
+    [
+      "2026-10-01T00:00:00+00:00",
+      "registry",
+      "dataset_ingested",
+      "crypto_daily_2006_2026.csv: state=SYNTHETIC rows=30316 instruments=4"
+    ],
+    [
+      "2026-10-01T00:00:00+00:00",
+      "registry",
+      "dataset_evidence",
+      "HARD: 27449 rows attribute trading to a venue/quote-asset that did not exist on the row date (earliest venue existence 2011-07-01)"
+    ],
+    [
+      "2026-10-01T00:00:00+00:00",
+      "registry",
+      "dataset_ingested",
+      "forex_daily_2006_2026.csv: state=SYNTHETIC rows=32484 instruments=6"
+    ],
+    [
+      "2026-10-01T00:00:00+00:00",
+      "registry",
+      "dataset_evidence",
+      "HARD: every instrument spans the identical weekday grid with identical row counts \u2014 including instruments that provably began trading mid-range \u2014 a construction signature, not a real multi-instrument history"
+    ],
+    [
+      "2026-10-01T00:00:00+00:00",
+      "registry",
+      "dataset_ingested",
+      "metals_daily_2006_2026.csv: state=SYNTHETIC rows=21656 instruments=4"
+    ],
+    [
+      "2026-10-01T00:00:00+00:00",
+      "registry",
+      "dataset_evidence",
+      "HARD: every instrument spans the identical weekday grid with identical row counts \u2014 including instruments that provably began trading mid-range \u2014 a construction signature, not a real multi-instrument history"
+    ],
+    [
+      "2026-10-01T00:00:00+00:00",
+      "registry",
+      "dataset_ingested",
+      "stocks_indices_daily_2006_2026.csv: state=SYNTHETIC rows=32484 instruments=6"
+    ],
+    [
+      "2026-10-01T00:00:00+00:00",
+      "registry",
+      "dataset_evidence",
+      "HARD: TSLA prints OHLC on 1171 rows before its established listing date 2010-06-29 (first OHLC 2006-01-02)"
+    ],
+    [
+      "2026-10-01T00:00:00+00:00",
+      "registry",
+      "dataset_evidence",
+      "HARD: 270 rows carry OHLC on dates the file itself marks Closed_Holiday \u2014 real closed markets print no candle"
+    ],
+    [
+      "2026-10-01T00:00:00+00:00",
+      "registry",
+      "dataset_evidence",
+      "HARD: every instrument spans the identical weekday grid with identical row counts \u2014 including instruments that provably began trading mid-range \u2014 a construction signature, not a real multi-instrument history"
+    ]
+  ],
+  "contract_version": "1.0.0",
+  "datasets": [
+    {
+      "data_state": "SYNTHETIC",
+      "dataset_id": "DSV-9c0e5c83eeea9db4",
+      "file_name": "crypto_daily_2006_2026.csv",
+      "instrument_count": 4,
+      "kind": "crypto",
+      "row_count": 30316,
+      "verification_notes": [
+        "file=crypto_daily_2006_2026.csv sha256=7976772a600df6a5\u2026 rows=30316 instruments=4 coverage=2006-01-01..2026-10-01",
+        "epistemic classification: SYNTHETIC (REAL_VERIFIED is unreachable from CSV ingestion by construction \u2014 requires the nine-stage verification chain plus human approval)",
+        "HARD: 27449 rows attribute trading to a venue/quote-asset that did not exist on the row date (earliest venue existence 2011-07-01)",
+        "integrity: duplicates=0, chronology OK, OHLC relations OK, prices positive",
+        "coverage: ETH/USDT active series starts 2015-08-07 (later than established listing 2015-07-30 \u2014 early history missing, never fabricated by this engine)",
+        "coverage: LTC/USDT active series starts 2013-04-28 (later than established listing 2011-10-13 \u2014 early history missing, never fabricated by this engine)",
+        "coverage: SOL/USDT active series starts 2020-04-10 (later than established listing 2020-03-16 \u2014 early history missing, never fabricated by this engine)"
+      ]
+    },
+    {
+      "data_state": "SYNTHETIC",
+      "dataset_id": "DSV-8e00cb3d8949c82e",
+      "file_name": "forex_daily_2006_2026.csv",
+      "instrument_count": 6,
+      "kind": "forex",
+      "row_count": 32484,
+      "verification_notes": [
+        "file=forex_daily_2006_2026.csv sha256=4f472e6c8d122e12\u2026 rows=32484 instruments=6 coverage=2006-01-02..2026-10-01",
+        "epistemic classification: SYNTHETIC (REAL_VERIFIED is unreachable from CSV ingestion by construction \u2014 requires the nine-stage verification chain plus human approval)",
+        "HARD: every instrument spans the identical weekday grid with identical row counts \u2014 including instruments that provably began trading mid-range \u2014 a construction signature, not a real multi-instrument history",
+        "ANOMALY: USDCHF final close 4.37463 outside any plausibility band [0.55, 2.0] derived from established historical levels \u2014 consistent with unbounded synthetic drift",
+        "ANOMALY: USDJPY final close 354.207 outside any plausibility band [60.0, 250.0] derived from established historical levels \u2014 consistent with unbounded synthetic drift",
+        "integrity: duplicates=0, chronology OK, OHLC relations OK, prices positive",
+        "2006 calibration anchors: 6/6 within tolerance (calibration to real history, NOT proof of reality)"
+      ]
+    },
+    {
+      "data_state": "SYNTHETIC",
+      "dataset_id": "DSV-db23648767f8956e",
+      "file_name": "metals_daily_2006_2026.csv",
+      "instrument_count": 4,
+      "kind": "metals",
+      "row_count": 21656,
+      "verification_notes": [
+        "file=metals_daily_2006_2026.csv sha256=e61b6f67c2ebcc28\u2026 rows=21656 instruments=4 coverage=2006-01-02..2026-10-01",
+        "epistemic classification: SYNTHETIC (REAL_VERIFIED is unreachable from CSV ingestion by construction \u2014 requires the nine-stage verification chain plus human approval)",
+        "HARD: every instrument spans the identical weekday grid with identical row counts \u2014 including instruments that provably began trading mid-range \u2014 a construction signature, not a real multi-instrument history",
+        "ANOMALY: XAGUSD final close 3.697 outside any plausibility band [5.0, 200.0] derived from established historical levels \u2014 consistent with unbounded synthetic drift",
+        "integrity: duplicates=0, chronology OK, OHLC relations OK, prices positive",
+        "2006 calibration anchors: 4/4 within tolerance (calibration to real history, NOT proof of reality)"
+      ]
+    },
+    {
+      "data_state": "SYNTHETIC",
+      "dataset_id": "DSV-bf2c0da9d4be2c0e",
+      "file_name": "stocks_indices_daily_2006_2026.csv",
+      "instrument_count": 6,
+      "kind": "stocks_indices",
+      "row_count": 32484,
+      "verification_notes": [
+        "file=stocks_indices_daily_2006_2026.csv sha256=28056c809c62cacf\u2026 rows=32484 instruments=6 coverage=2006-01-02..2026-10-01",
+        "epistemic classification: SYNTHETIC (REAL_VERIFIED is unreachable from CSV ingestion by construction \u2014 requires the nine-stage verification chain plus human approval)",
+        "HARD: TSLA prints OHLC on 1171 rows before its established listing date 2010-06-29 (first OHLC 2006-01-02)",
+        "HARD: 270 rows carry OHLC on dates the file itself marks Closed_Holiday \u2014 real closed markets print no candle",
+        "HARD: every instrument spans the identical weekday grid with identical row counts \u2014 including instruments that provably began trading mid-range \u2014 a construction signature, not a real multi-instrument history",
+        "ANOMALY: US30 final close 13347.35 outside any plausibility band [15000.0, 100000.0] derived from established historical levels \u2014 consistent with unbounded synthetic drift",
+        "ANOMALY: US500 final close 1393.73 outside any plausibility band [2000.0, 20000.0] derived from established historical levels \u2014 consistent with unbounded synthetic drift",
+        "integrity: duplicates=0, chronology OK, OHLC relations OK, prices positive",
+        "2006 calibration anchors: 5/5 within tolerance (calibration to real history, NOT proof of reality)"
+      ]
+    }
+  ],
+  "instruments": [
+    {
+      "asset_class": "cryptocurrency",
+      "backtesting": "Blocked",
+      "data_state": "SYNTHETIC",
+      "discovery_source": "csv:crypto:crypto_daily_2006_2026.csv",
+      "internal_id": "5752d3fa18523e19",
+      "live_trading": "Not Authorized",
+      "monitoring": "Registered",
+      "paper_trading": "Blocked",
+      "provider_symbols": [
+        "csv:crypto=BTC/USDT"
+      ],
+      "research": "Blocked",
+      "symbol": "BTC/USDT"
+    },
+    {
+      "asset_class": "cryptocurrency",
+      "backtesting": "Blocked",
+      "data_state": "SYNTHETIC",
+      "discovery_source": "csv:crypto:crypto_daily_2006_2026.csv",
+      "internal_id": "50a38c9d267cb350",
+      "live_trading": "Not Authorized",
+      "monitoring": "Registered",
+      "paper_trading": "Blocked",
+      "provider_symbols": [
+        "csv:crypto=ETH/USDT"
+      ],
+      "research": "Blocked",
+      "symbol": "ETH/USDT"
+    },
+    {
+      "asset_class": "cryptocurrency",
+      "backtesting": "Blocked",
+      "data_state": "SYNTHETIC",
+      "discovery_source": "csv:crypto:crypto_daily_2006_2026.csv",
+      "internal_id": "abc0bdcb93c7226a",
+      "live_trading": "Not Authorized",
+      "monitoring": "Registered",
+      "paper_trading": "Blocked",
+      "provider_symbols": [
+        "csv:crypto=LTC/USDT"
+      ],
+      "research": "Blocked",
+      "symbol": "LTC/USDT"
+    },
+    {
+      "asset_class": "cryptocurrency",
+      "backtesting": "Blocked",
+      "data_state": "SYNTHETIC",
+      "discovery_source": "csv:crypto:crypto_daily_2006_2026.csv",
+      "internal_id": "0922472004b1daf1",
+      "live_trading": "Not Authorized",
+      "monitoring": "Registered",
+      "paper_trading": "Blocked",
+      "provider_symbols": [
+        "csv:crypto=SOL/USDT"
+      ],
+      "research": "Blocked",
+      "symbol": "SOL/USDT"
+    },
+    {
+      "asset_class": "forex",
+      "backtesting": "Blocked",
+      "data_state": "SYNTHETIC",
+      "discovery_source": "csv:forex:forex_daily_2006_2026.csv",
+      "internal_id": "015b9b9ae2e65c85",
+      "live_trading": "Not Authorized",
+      "monitoring": "Registered",
+      "paper_trading": "Blocked",
+      "provider_symbols": [
+        "csv:forex=AUDUSD"
+      ],
+      "research": "Blocked",
+      "symbol": "AUDUSD"
+    },
+    {
+      "asset_class": "forex",
+      "backtesting": "Blocked",
+      "data_state": "SYNTHETIC",
+      "discovery_source": "csv:forex:forex_daily_2006_2026.csv",
+      "internal_id": "ce14f1ff6059c32f",
+      "live_trading": "Not Authorized",
+      "monitoring": "Registered",
+      "paper_trading": "Blocked",
+      "provider_symbols": [
+        "csv:forex=EURUSD"
+      ],
+      "research": "Blocked",
+      "symbol": "EURUSD"
+    },
+    {
+      "asset_class": "forex",
+      "backtesting": "Blocked",
+      "data_state": "SYNTHETIC",
+      "discovery_source": "csv:forex:forex_daily_2006_2026.csv",
+      "internal_id": "7065f8b74f0f2e0f",
+      "live_trading": "Not Authorized",
+      "monitoring": "Registered",
+      "paper_trading": "Blocked",
+      "provider_symbols": [
+        "csv:forex=GBPUSD"
+      ],
+      "research": "Blocked",
+      "symbol": "GBPUSD"
+    },
+    {
+      "asset_class": "forex",
+      "backtesting": "Blocked",
+      "data_state": "SYNTHETIC",
+      "discovery_source": "csv:forex:forex_daily_2006_2026.csv",
+      "internal_id": "435cb2e6eea7f505",
+      "live_trading": "Not Authorized",
+      "monitoring": "Registered",
+      "paper_trading": "Blocked",
+      "provider_symbols": [
+        "csv:forex=USDCAD"
+      ],
+      "research": "Blocked",
+      "symbol": "USDCAD"
+    },
+    {
+      "asset_class": "forex",
+      "backtesting": "Blocked",
+      "data_state": "SYNTHETIC",
+      "discovery_source": "csv:forex:forex_daily_2006_2026.csv",
+      "internal_id": "987b10380a6274d3",
+      "live_trading": "Not Authorized",
+      "monitoring": "Registered",
+      "paper_trading": "Blocked",
+      "provider_symbols": [
+        "csv:forex=USDCHF"
+      ],
+      "research": "Blocked",
+      "symbol": "USDCHF"
+    },
+    {
+      "asset_class": "forex",
+      "backtesting": "Blocked",
+      "data_state": "SYNTHETIC",
+      "discovery_source": "csv:forex:forex_daily_2006_2026.csv",
+      "internal_id": "2783aedf8250a24f",
+      "live_trading": "Not Authorized",
+      "monitoring": "Registered",
+      "paper_trading": "Blocked",
+      "provider_symbols": [
+        "csv:forex=USDJPY"
+      ],
+      "research": "Blocked",
+      "symbol": "USDJPY"
+    },
+    {
+      "asset_class": "metal",
+      "backtesting": "Blocked",
+      "data_state": "SYNTHETIC",
+      "discovery_source": "csv:metals:metals_daily_2006_2026.csv",
+      "internal_id": "8e4bce4b8a37287a",
+      "live_trading": "Not Authorized",
+      "monitoring": "Registered",
+      "paper_trading": "Blocked",
+      "provider_symbols": [
+        "csv:metals=XAGUSD"
+      ],
+      "research": "Blocked",
+      "symbol": "XAGUSD"
+    },
+    {
+      "asset_class": "metal",
+      "backtesting": "Blocked",
+      "data_state": "SYNTHETIC",
+      "discovery_source": "csv:metals:metals_daily_2006_2026.csv",
+      "internal_id": "077840c333e81128",
+      "live_trading": "Not Authorized",
+      "monitoring": "Registered",
+      "paper_trading": "Blocked",
+      "provider_symbols": [
+        "csv:metals=XAUUSD"
+      ],
+      "research": "Blocked",
+      "symbol": "XAUUSD"
+    },
+    {
+      "asset_class": "metal",
+      "backtesting": "Blocked",
+      "data_state": "SYNTHETIC",
+      "discovery_source": "csv:metals:metals_daily_2006_2026.csv",
+      "internal_id": "d0cfaf20ee7eea99",
+      "live_trading": "Not Authorized",
+      "monitoring": "Registered",
+      "paper_trading": "Blocked",
+      "provider_symbols": [
+        "csv:metals=XPDUSD"
+      ],
+      "research": "Blocked",
+      "symbol": "XPDUSD"
+    },
+    {
+      "asset_class": "metal",
+      "backtesting": "Blocked",
+      "data_state": "SYNTHETIC",
+      "discovery_source": "csv:metals:metals_daily_2006_2026.csv",
+      "internal_id": "9a9d4fb4deaad834",
+      "live_trading": "Not Authorized",
+      "monitoring": "Registered",
+      "paper_trading": "Blocked",
+      "provider_symbols": [
+        "csv:metals=XPTUSD"
+      ],
+      "research": "Blocked",
+      "symbol": "XPTUSD"
+    },
+    {
+      "asset_class": "equity",
+      "backtesting": "Blocked",
+      "data_state": "SYNTHETIC",
+      "discovery_source": "csv:stocks_indices:stocks_indices_daily_2006_2026.csv",
+      "internal_id": "75dc6e4cbcad854a",
+      "live_trading": "Not Authorized",
+      "monitoring": "Registered",
+      "paper_trading": "Blocked",
+      "provider_symbols": [
+        "csv:stocks_indices=AAPL"
+      ],
+      "research": "Blocked",
+      "symbol": "AAPL"
+    },
+    {
+      "asset_class": "equity",
+      "backtesting": "Blocked",
+      "data_state": "SYNTHETIC",
+      "discovery_source": "csv:stocks_indices:stocks_indices_daily_2006_2026.csv",
+      "internal_id": "5a6edd2f82b1cfdd",
+      "live_trading": "Not Authorized",
+      "monitoring": "Registered",
+      "paper_trading": "Blocked",
+      "provider_symbols": [
+        "csv:stocks_indices=MSFT"
+      ],
+      "research": "Blocked",
+      "symbol": "MSFT"
+    },
+    {
+      "asset_class": "equity",
+      "backtesting": "Blocked",
+      "data_state": "SYNTHETIC",
+      "discovery_source": "csv:stocks_indices:stocks_indices_daily_2006_2026.csv",
+      "internal_id": "00eab59775b9549f",
+      "live_trading": "Not Authorized",
+      "monitoring": "Registered",
+      "paper_trading": "Blocked",
+      "provider_symbols": [
+        "csv:stocks_indices=TSLA"
+      ],
+      "research": "Blocked",
+      "symbol": "TSLA"
+    },
+    {
+      "asset_class": "index",
+      "backtesting": "Blocked",
+      "data_state": "SYNTHETIC",
+      "discovery_source": "csv:stocks_indices:stocks_indices_daily_2006_2026.csv",
+      "internal_id": "0695f6d845c832cd",
+      "live_trading": "Not Authorized",
+      "monitoring": "Registered",
+      "paper_trading": "Blocked",
+      "provider_symbols": [
+        "csv:stocks_indices=US100"
+      ],
+      "research": "Blocked",
+      "symbol": "US100"
+    },
+    {
+      "asset_class": "index",
+      "backtesting": "Blocked",
+      "data_state": "SYNTHETIC",
+      "discovery_source": "csv:stocks_indices:stocks_indices_daily_2006_2026.csv",
+      "internal_id": "1f07d382d8e88061",
+      "live_trading": "Not Authorized",
+      "monitoring": "Registered",
+      "paper_trading": "Blocked",
+      "provider_symbols": [
+        "csv:stocks_indices=US30"
+      ],
+      "research": "Blocked",
+      "symbol": "US30"
+    },
+    {
+      "asset_class": "index",
+      "backtesting": "Blocked",
+      "data_state": "SYNTHETIC",
+      "discovery_source": "csv:stocks_indices:stocks_indices_daily_2006_2026.csv",
+      "internal_id": "098159d2c4221842",
+      "live_trading": "Not Authorized",
+      "monitoring": "Registered",
+      "paper_trading": "Blocked",
+      "provider_symbols": [
+        "csv:stocks_indices=US500"
+      ],
+      "research": "Blocked",
+      "symbol": "US500"
+    }
+  ],
+  "market_watch": [],
+  "news": [],
+  "open_positions": [],
+  "risk_alerts": [],
+  "strategies": [],
+  "strategy_performance": [],
+  "synchronized_at": "2026-10-01",
+  "system_health": {
+    "blocked_gates": [
+      "REAL_DATA_READY (VERIFIED_YEARS=0 \u2014 supplied CSVs classified SYNTHETIC from fabrication evidence, not real market data)",
+      "GOVERNANCE_READY (H-1 ratification, CI/WP-12 authorization, PAT rotation)"
+    ],
+    "live_authorized": false,
+    "notes": [
+      "20 instruments registered from 4 audited CSV datasets; all classified SYNTHETIC from fabrication evidence \u2014 research/backtesting eligibility BLOCKED per registry policy"
+    ],
+    "paper_ready": false,
+    "passing_gates": [
+      "PLATFORM_REGISTRY_POPULATED"
+    ]
+  },
+  "trade_history": []
+}

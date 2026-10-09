@@ -1,0 +1,21 @@
+Internal Instrument ID,Canonical Name,Instrument Type,Exchange/Market,Original MT5 Symbol,TradingView Symbol,Broker,Currency,Contract Specs,Supported Timeframes,Market Data Status,Historical Data Status,Strategy Eligibility,Paper Trading Enabled,Live Trading Enabled,Discovery Source,First Discovered,Last Verified,Current Monitoring Status,Notes and Limitations
+5752d3fa18523e19,BTC/USDT,cryptocurrency,Binance / Kraken,—,—,—,USD,contract_type=spot,—,Registered,SYNTHETIC,no,no,Not Authorized,csv:crypto:crypto_daily_2006_2026.csv,2026-10-01T00:00:00+00:00,—,Registered,—
+50a38c9d267cb350,ETH/USDT,cryptocurrency,Binance / Kraken,—,—,—,USD,contract_type=spot,—,Registered,SYNTHETIC,no,no,Not Authorized,csv:crypto:crypto_daily_2006_2026.csv,2026-10-01T00:00:00+00:00,—,Registered,—
+abc0bdcb93c7226a,LTC/USDT,cryptocurrency,Binance / Bitstamp,—,—,—,USD,contract_type=spot,—,Registered,SYNTHETIC,no,no,Not Authorized,csv:crypto:crypto_daily_2006_2026.csv,2026-10-01T00:00:00+00:00,—,Registered,—
+0922472004b1daf1,SOL/USDT,cryptocurrency,Binance / Coinbase,—,—,—,USD,contract_type=spot,—,Registered,SYNTHETIC,no,no,Not Authorized,csv:crypto:crypto_daily_2006_2026.csv,2026-10-01T00:00:00+00:00,—,Registered,—
+015b9b9ae2e65c85,AUDUSD,forex,—,—,—,—,USD,contract_type=spot,—,Registered,SYNTHETIC,no,no,Not Authorized,csv:forex:forex_daily_2006_2026.csv,2026-10-01T00:00:00+00:00,—,Registered,—
+ce14f1ff6059c32f,EURUSD,forex,—,—,—,—,USD,contract_type=spot,—,Registered,SYNTHETIC,no,no,Not Authorized,csv:forex:forex_daily_2006_2026.csv,2026-10-01T00:00:00+00:00,—,Registered,—
+7065f8b74f0f2e0f,GBPUSD,forex,—,—,—,—,USD,contract_type=spot,—,Registered,SYNTHETIC,no,no,Not Authorized,csv:forex:forex_daily_2006_2026.csv,2026-10-01T00:00:00+00:00,—,Registered,—
+435cb2e6eea7f505,USDCAD,forex,—,—,—,—,USD,contract_type=spot,—,Registered,SYNTHETIC,no,no,Not Authorized,csv:forex:forex_daily_2006_2026.csv,2026-10-01T00:00:00+00:00,—,Registered,—
+987b10380a6274d3,USDCHF,forex,—,—,—,—,USD,contract_type=spot,—,Registered,SYNTHETIC,no,no,Not Authorized,csv:forex:forex_daily_2006_2026.csv,2026-10-01T00:00:00+00:00,—,Registered,—
+2783aedf8250a24f,USDJPY,forex,—,—,—,—,USD,contract_type=spot,—,Registered,SYNTHETIC,no,no,Not Authorized,csv:forex:forex_daily_2006_2026.csv,2026-10-01T00:00:00+00:00,—,Registered,—
+8e4bce4b8a37287a,XAGUSD,metal,—,—,—,—,USD,contract_type=spot,—,Registered,SYNTHETIC,no,no,Not Authorized,csv:metals:metals_daily_2006_2026.csv,2026-10-01T00:00:00+00:00,—,Registered,—
+077840c333e81128,XAUUSD,metal,—,—,—,—,USD,contract_type=spot,—,Registered,SYNTHETIC,no,no,Not Authorized,csv:metals:metals_daily_2006_2026.csv,2026-10-01T00:00:00+00:00,—,Registered,—
+d0cfaf20ee7eea99,XPDUSD,metal,—,—,—,—,USD,contract_type=spot,—,Registered,SYNTHETIC,no,no,Not Authorized,csv:metals:metals_daily_2006_2026.csv,2026-10-01T00:00:00+00:00,—,Registered,—
+9a9d4fb4deaad834,XPTUSD,metal,—,—,—,—,USD,contract_type=spot,—,Registered,SYNTHETIC,no,no,Not Authorized,csv:metals:metals_daily_2006_2026.csv,2026-10-01T00:00:00+00:00,—,Registered,—
+75dc6e4cbcad854a,AAPL,equity,—,—,—,—,USD,contract_type=cfd,—,Registered,SYNTHETIC,no,no,Not Authorized,csv:stocks_indices:stocks_indices_daily_2006_2026.csv,2026-10-01T00:00:00+00:00,—,Registered,—
+5a6edd2f82b1cfdd,MSFT,equity,—,—,—,—,USD,contract_type=cfd,—,Registered,SYNTHETIC,no,no,Not Authorized,csv:stocks_indices:stocks_indices_daily_2006_2026.csv,2026-10-01T00:00:00+00:00,—,Registered,—
+00eab59775b9549f,TSLA,equity,—,—,—,—,USD,contract_type=cfd,—,Registered,SYNTHETIC,no,no,Not Authorized,csv:stocks_indices:stocks_indices_daily_2006_2026.csv,2026-10-01T00:00:00+00:00,—,Registered,—
+0695f6d845c832cd,US100,index,—,—,—,—,USD,contract_type=cfd,—,Registered,SYNTHETIC,no,no,Not Authorized,csv:stocks_indices:stocks_indices_daily_2006_2026.csv,2026-10-01T00:00:00+00:00,—,Registered,—
+1f07d382d8e88061,US30,index,—,—,—,—,USD,contract_type=cfd,—,Registered,SYNTHETIC,no,no,Not Authorized,csv:stocks_indices:stocks_indices_daily_2006_2026.csv,2026-10-01T00:00:00+00:00,—,Registered,—
+098159d2c4221842,US500,index,—,—,—,—,USD,contract_type=cfd,—,Registered,SYNTHETIC,no,no,Not Authorized,csv:stocks_indices:stocks_indices_daily_2006_2026.csv,2026-10-01T00:00:00+00:00,—,Registered,—

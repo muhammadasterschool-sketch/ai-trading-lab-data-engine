@@ -6,15 +6,18 @@ Document Type:  Work-done summary (operator-requested brief)
 Phase:          Cross-phase
 Authority:      B — CURRENT SUPPORTING
 Status:         CURRENT
-Version:        2.1.0
-Last Updated:   2026-10-09 (platform-expansion master mandate registered:
-                 strategy lab, instrument registry workbook, MT5/TradingView,
-                 dashboard, news intelligence §11 A–M — Phase 1/2 forensic
-                 gap matrix published as ZAI_PLATFORM_MANDATE_GAP_MATRIX.md
-                 v1.0.0; no new platform feature implemented this cycle)
-Supersedes:     v2.0.0 (RL-governance cycle update)
+Version:        3.0.0
+Last Updated:   2026-10-10 (platform-expansion DELIVERY cycle: the
+                 `data_engine.platform` package implemented + tested —
+                 strategy lab, instrument registry, workbook Sheets A–G,
+                 news intelligence core, MT5 + TradingView adapters,
+                 read-only dashboard/API; the four supplied CSV datasets
+                 audited (116,940 rows / 20 instruments) and classified
+                 SYNTHETIC from hard fabrication evidence)
+Supersedes:     v2.1.0 (platform-mandate registration)
 Superseded By:  —
-Source Evidence: git log (63 commits), session worklog, cycle reports cited below
+Source Evidence: git log (64+ commits), session worklog, cycle reports
+                 cited below, data/manifests/ + data/exports/ artifacts
 ```
 
 > **The short story of everything done in this repository so far.**
@@ -33,13 +36,17 @@ fail-closed paper-trading system**: point-in-time data engine, frozen Phase 3
 contracts (never touched), a full prediction intelligence layer (baseline +
 LSTM + Transformer + ensemble + calibration + crash/regime), an authoritative
 22-module trading runtime (OMS, risk gate, kill switch, ledgers, persistence,
-recovery, deterministic replay), and a 30-gate paper-readiness authority.
+recovery, deterministic replay), a 31-gate paper-readiness authority, and —
+as of the 2026-10-10 cycle — a **platform package** (strategy management
+lab, central instrument registry + Excel/CSV workbook, news-intelligence
+core, MT5 and TradingView adapters, read-only dashboard/API) plus the four
+supplied historical CSV datasets fully audited and registered.
 
 **Everything is built, tested and pushed.** The honest verdict is:
 **PAPER_READY = FALSE — BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY.** No engineering
 blocker remains open by this agent's authority; what remains are deliberate
-human decisions and real data (see §7). Live trading was never built and never
-authorized.
+human decisions and REAL data (see §7 — the supplied CSVs turned out to be
+synthetic). Live trading was never built and never authorized.
 
 ---
 
@@ -48,18 +55,19 @@ authorized.
 | Item | State |
 |---|---|
 | HEAD | pushed to BOTH `main` and `phase-4a/4a1-architecture-correction` (`git ls-remote` verified each cycle) |
-| Test suite | **1,447 passed + 1 skipped** (×2 deterministic + cross-process replay bit-identical; was 1,378 before the RL-governance cycle) |
+| Test suite | **1,570 passed + 1 skipped** (×2 deterministic; was 1,447 before the platform cycle) |
 | Frozen Phase 3 | **13/13** manifest entries intact (blob-level sha256; verified before AND after every implementation cycle) |
-| Security | 0 secrets in tree / history / config; 0 dangerous ops in runtime package; **1 exposed PAT — rotation STILL owed by operator (exposure #9)** |
+| Security | 0 secrets in tree / history / config; 0 dangerous ops in runtime + platform packages; **1 exposed PAT — rotation STILL owed by operator (exposure #12)** |
 | Paper verdict | **PAPER_READY = FALSE** — STATUS = BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY (31-gate readiness, fail-closed startup) |
-| Live verdict | **LIVE TRADING — NOT AUTHORIZED** (no live/broker surface exists at all) |
-| Real data | **VERIFIED_YEARS = 0** (nine-stage REAL_VERIFIED chain built; no real dataset supplied yet) |
+| Live verdict | **LIVE TRADING — NOT AUTHORIZED** (no live/broker surface exists at all; MT5 order path refused by design) |
+| Real data | **VERIFIED_YEARS = 0** — the four supplied CSVs (116,940 rows / 20 instruments) audited and classified **SYNTHETIC** from hard fabrication evidence; registry blocks their research/backtesting/paper eligibility |
+| Platform package | **8 modules / 123 tests** — strategy lab, registry, workbook (Sheets A–G), news core, MT5 + TradingView adapters, CSV dataset audit, read-only dashboard |
 | RL runtime | **Governed advisor BUILT** (advisor-only, bounded, versioned, DISABLED by default; NOT a trained policy — honestly labeled) |
-| Scale | ~318 tracked files · 46 test files · 63 commits on the working branch |
+| Scale | ~350 tracked files · 54 test files · 64 commits on the working branch |
 
 ---
 
-## 3. What was done, era by era (61+ commits)
+## 3. What was done, era by era (64+ commits)
 
 ### Era 0 — Phase 3 strategy foundation (FROZEN, before this work)
 The repo's starting point: a strategy backtest engine (`src/data_engine/strategy/`).
@@ -145,7 +153,7 @@ gaps); +43 integration tests incl. 10 mandated restart points; cross-process
 deterministic replay ×2. All 28 blockers dispositioned in
 `PAPER_TRADING_READINESS_FINAL_REPORT.md` v2.0.0.
 
-### Era 8 — RL-governance cycle (current, → 1,447)
+### Era 8 — RL-governance cycle (→ 1,447)
 The re-issued master mandate's blocker table was verified FIRST-HAND:
 12 of 14 rows were already closed (stale table); the two genuine gaps
 closed now: **(1) RL runtime** — `runtime/rl.py` governed advisor (frozen
@@ -165,6 +173,49 @@ Specs: `docs/RL_RUNTIME_GOVERNANCE_SPEC.md` v1.0.0, gate spec v2.1.0,
 final report v2.1.0. VERDICT UNCHANGED: PAPER_READY = FALSE —
 BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY.
 
+### Era 9 — Platform-expansion delivery cycle (current, → 1,570)
+The W1–W8 plan from the registered gap matrix was executed. NEW package
+`src/data_engine/platform/` (8 modules, 123 tests, contract v1.0.0):
+**(a) Instrument Registry** — deterministic cross-process canonical ids,
+provider-symbol mappings, provenance, evidence-gated data states
+(REAL_VERIFIED unreachable from CSV ingestion by construction),
+`authorize_live` records refusals; **(b) Workbook Exporter** — mandated
+Sheets A–G (incl. G News Log) with paper/demo/live separation, XLSX via
+openpyxl (new locked dependency) + byte-deterministic CSVs;
+**(c) Strategy Management Lab** — immutable versioning (hash-identified,
+no-op refused, evidence reset per version), server-controlled lifecycle,
+evidence gates checked before legality, LIVE_APPROVED needs scoped
+OperatorApproval, LIVE_ACTIVE structurally unreachable, archived never
+re-enabled, NO user-code execution; **(d) News Intelligence core** —
+content-hash dedup, publication/retrieval discipline, PIT visibility,
+staleness, ambiguity-flagging entity resolution, economic calendar that
+never invents missing values; **(e) MT5 adapter** — fail-closed
+(BLOCKED_ON_OPERATOR_ENV off Windows), DEMO/REAL discipline, order surface
+REFUSED always (tested on a connected mock real account);
+**(f) TradingView validator** — strict schema, HMAC-SHA256 over the FULL
+payload (a digest-coverage defect was caught by the tamper test and fixed
+pre-commit), replay window, nonce dedup, unknown-instrument fail-closed;
+**(g) CSV dataset audit + ingestion** — the four supplied files (116,940
+rows / 20 instruments) audited with **hard fabrication evidence** (TSLA
+1,171 pre-IPO OHLC rows; 27,449 venue/quote-asset anachronisms —
+"Binance / Kraken" in 2006; 270 holiday-priced rows; uniform generation
+grids) → all classified **SYNTHETIC**; 2006 anchors match real history
+(calibration, not reality); all 20 instruments registered with
+research/backtesting/paper eligibility BLOCKED; immutable inputs under
+`data/raw/`, deterministic manifests under `data/manifests/`, workbook +
+snapshot under `data/exports/`; **(h) read-only dashboard/API** — stdlib
+http.server (no framework), GET-only, 405 on writes, honest contracts
+(LIVE renders NOT AUTHORIZED, no fabricated prices, XSS-escaped).
+Real defects found + fixed this cycle: TradingView digest did not cover
+the signal body; strategy-lab evidence refusal masked by legality
+refusal; registry `eval(`-substring false positive resolved by renaming
+(never by weakening the scanner). Suite 1,447 → **1,570 + 1 skipped ×2
+deterministic**; frozen 13/13 before AND after; security scans 0.
+Docs: `docs/PLATFORM_EXPANSION_SPEC.md` v1.0.0 (A-class authority for
+the package), gap matrix v1.1.0, this summary v3.0.0. VERDICT UNCHANGED:
+PAPER_READY = FALSE — BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY (the CSVs being
+synthetic means REAL_DATA_READY remains red — honestly).
+
 ---
 
 ## 4. What exists in the repo today
@@ -176,20 +227,22 @@ BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY.
 | `src/data_engine/actions/`, `derivatives/` | Corporate actions, PIT universe, calendar; futures, rollover, continuous series |
 | `src/data_engine/prediction/` | ~30-module governed prediction & crash intelligence layer |
 | `src/data_engine/runtime/` | The authoritative 24-module paper-trading runtime — incl. the governed RL advisor + metrics (Era 6–8) |
+| `src/data_engine/platform/` | **NEW (Era 9)** — 8-module platform package: instrument registry, workbook Sheets A–G, strategy lab, news intelligence core, MT5 + TradingView adapters, CSV dataset audit/ingestion, read-only dashboard/API |
 | `src/data_engine/strategy/` | **FROZEN Phase 3** backtest engine (13/13 manifest-pinned) |
 | `src/data_engine/risk/`, `paper/` | Risk engine/portfolio; paper simulator/gateway/evaluation |
 | `src/data_engine/research/`, `research_validation/`, `experiment_registry/` | Governance, validation suite, registry |
 | `src/data_engine/hermes/`, `knowledge/`, `discovery/`, `benchmarks/`, `infra/` | Orchestration, memory, strategy discovery, benchmarks, observability |
-| `tests/` (46 files) | 1,447 tests: PIT, identity, red-team, risk, paper, runtime E2E, failure-injection (24 scenarios), restart/recovery, determinism, RL governance, metrics |
-| root + `docs/` | ~85 governance/audit/spec documents, indexed by authority class |
+| `tests/` (54 files) | 1,570 tests: PIT, identity, red-team, risk, paper, runtime E2E, failure-injection (24 scenarios), restart/recovery, determinism, RL governance, metrics, platform (registry/workbook/strategy-lab/news/MT5/TradingView/datasets/dashboard) |
+| `data/` | **NEW (Era 9)** — immutable raw CSV inputs, deterministic dataset manifests, rendered workbook + dashboard snapshot |
+| root + `docs/` | ~90 governance/audit/spec documents, indexed by authority class |
 
 ---
 
 ## 5. How everything was verified
 
 - **Tests**: full suite re-run deterministically (×2 or ×3 per cycle) at every
-  milestone; 1,447 + 1 skipped at HEAD (re-verified again on 2026-10-09
-  during the platform-mandate registration: 37.07 s, `uv --frozen`).
+  milestone; **1,570 + 1 skipped** at HEAD (×2 on 2026-10-10: 45.64 s / 44.65 s,
+  `uv --frozen`, cache disabled).
 - **Frozen contracts**: 11/11 strategy blobs + 13/13 manifest verified
   blob-level BEFORE and AFTER every implementation cycle — never broken.
 - **Mutation gates**: reintroduced-defect detection (15/15 in Era 1; 31/31
@@ -211,11 +264,12 @@ verdict.
 
 ## 7. What remains — the operator decision list
 
-1. **Rotate the exposed PAT** (pasted in chat 11 times; verified still active;
+1. **Rotate the exposed PAT** (pasted in chat 12 times; verified still active;
    never reproduced in any repo artifact — but rotation is now overdue).
-2. **Supply + verify real market data** through the nine-stage REAL_VERIFIED
-   chain (today VERIFIED_YEARS = 0 — the single biggest blocker to an honest
-   PAPER_READY = TRUE).
+2. **Supply + verify REAL market data** through the nine-stage REAL_VERIFIED
+   chain (today VERIFIED_YEARS = 0 — the four supplied CSV datasets were
+   audited and classified SYNTHETIC from hard fabrication evidence; they
+   cannot unlock any eligibility).
 3. **Ratify H-1** (`H1_RATIFICATION_DECISION_RECORD.md` awaits a signature).
 4. **Authorize CI/WP-12** (`CI_WP12_GATE_DECISION_RECORD.md`).
 5. **Decide the BUG-008 residual path** (13 frozen-pinned fields: manifest
@@ -223,19 +277,20 @@ verdict.
 6. *(Optional, later)* Register a TRAINED RL policy through the model registry
    with out-of-sample evidence — the current advisor is an honestly-labeled
    deterministic baseline, and swapping it requires a new policy version/hash.
-7. **Decide the platform-expansion mandate scope** (registered 2026-10-09 in
-   `ZAI_PLATFORM_MANDATE_GAP_MATRIX.md`): news intelligence, instrument
-   registry workbook, MT5/TradingView adapters, strategy management lab and
-   dashboard are all MISSING/PARTIAL with a W1–W8 plan; several workstreams
-   are blocked on environment, credentials or architecture approvals
-   (openpyxl, web stack, DB, LLM integration, 30-day floor question).
+7. **Platform environment/credentials, when wanted**: Windows MT5 terminal +
+   broker (demo first) to verify the MT5 adapter for real; webhook host +
+   shared secret to deploy the TradingView endpoint; news API/RSS credentials
+   for live news ingestion; approval for the W4 user-code sandbox and any
+   write-surface web framework (the delivered dashboard is read-only stdlib).
 
-## 8. Six documents to read first
+## 8. Eight documents to read first
 
 1. `ZAI_REPOSITORY_PROGRESS_BRIEF.md` — the detailed living brief (v1.13.0)
 2. `PAPER_TRADING_READINESS_FINAL_REPORT.md` — final verdict + blocker dispositions (v2.1.0)
-3. `MASTER_DOCUMENTATION_INDEX.md` — authority map of ~85 documents
-4. `docs/RL_RUNTIME_GOVERNANCE_SPEC.md` — the governed RL advisor contract (v1.0.0)
-5. `ZAI_PLATFORM_MANDATE_GAP_MATRIX.md` — what the platform-expansion mandate
-   maps to in this repo: implemented / partial / missing / blocked (v1.0.0)
-6. `PHASE_4A1_IMPLEMENTATION_RECORD.md` — frozen Phase 3 manifest of record
+3. `MASTER_DOCUMENTATION_INDEX.md` — authority map of ~90 documents
+4. `docs/PLATFORM_EXPANSION_SPEC.md` — the platform package authority: modules,
+   dataset audit evidence, security posture, limitations (v1.0.0)
+5. `docs/RL_RUNTIME_GOVERNANCE_SPEC.md` — the governed RL advisor contract (v1.0.0)
+6. `ZAI_PLATFORM_MANDATE_GAP_MATRIX.md` — mandate-to-repo status matrix, W1–W8 disposition (v1.1.0)
+7. `data/manifests/import_summary.json` — machine-readable Phase C dataset record
+8. `PHASE_4A1_IMPLEMENTATION_RECORD.md` — frozen Phase 3 manifest of record

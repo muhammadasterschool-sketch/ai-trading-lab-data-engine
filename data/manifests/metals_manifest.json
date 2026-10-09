@@ -1,0 +1,281 @@
+{
+  "audit": {
+    "anchor_results": [
+      {
+        "actual": 524.48,
+        "date": "2006-01-02",
+        "expected_approx": 525.0,
+        "found": true,
+        "instrument": "XAUUSD",
+        "tolerance": 0.02,
+        "within_tolerance": true
+      },
+      {
+        "actual": 8.979,
+        "date": "2006-01-02",
+        "expected_approx": 9.0,
+        "found": true,
+        "instrument": "XAGUSD",
+        "tolerance": 0.03,
+        "within_tolerance": true
+      },
+      {
+        "actual": 965.55,
+        "date": "2006-01-02",
+        "expected_approx": 1000.0,
+        "found": true,
+        "instrument": "XPTUSD",
+        "tolerance": 0.05,
+        "within_tolerance": true
+      },
+      {
+        "actual": 249.69,
+        "date": "2006-01-02",
+        "expected_approx": 260.0,
+        "found": true,
+        "instrument": "XPDUSD",
+        "tolerance": 0.05,
+        "within_tolerance": true
+      }
+    ],
+    "anchors_checked": 4,
+    "anchors_within_tolerance": 4,
+    "columns": [
+      "Date",
+      "Symbol_Standard",
+      "Broker_Symbol_Name",
+      "Open",
+      "High",
+      "Low",
+      "Close",
+      "Volume",
+      "Contract_Size",
+      "Tick_Size",
+      "Tick_Value_USD",
+      "Price_Precision",
+      "Initial_Margin_USD",
+      "Maintenance_Margin_USD",
+      "_date",
+      "_sym",
+      "_Open",
+      "_High",
+      "_Low",
+      "_Close"
+    ],
+    "coverage_end": "2026-10-01",
+    "coverage_start": "2006-01-02",
+    "duplicate_symbol_date_rows": 0,
+    "endpoint_anomalies": [
+      "ANOMALY: XAGUSD final close 3.697 outside any plausibility band [5.0, 200.0] derived from established historical levels \u2014 consistent with unbounded synthetic drift"
+    ],
+    "expected_columns_match": true,
+    "file_name": "metals_daily_2006_2026.csv",
+    "holiday_rows_with_ohlc": 0,
+    "instruments": [
+      {
+        "duplicate_rows": 0,
+        "explicit_pre_launch_rows": 0,
+        "first_open": 8.97,
+        "first_row_date": "2006-01-02",
+        "first_valid_ohlc_date": "2006-01-02",
+        "last_close": 3.697,
+        "last_row_date": "2026-10-01",
+        "max_high": 14.795,
+        "min_low": 3.612,
+        "missing_ohlc_on_active_rows": 0,
+        "non_chronological_rows": 0,
+        "non_positive_price_rows": 0,
+        "ohlc_violation_rows": 0,
+        "original_identifier": "XAGUSD",
+        "pre_listing_ohlc_rows": 0,
+        "rows": 5414,
+        "symbol": "XAGUSD",
+        "unique_row_counts_note": "",
+        "valid_ohlc_rows": 5414,
+        "weekday_histogram": [
+          [
+            0,
+            1083
+          ],
+          [
+            1,
+            1083
+          ],
+          [
+            2,
+            1083
+          ],
+          [
+            3,
+            1083
+          ],
+          [
+            4,
+            1082
+          ]
+        ]
+      },
+      {
+        "duplicate_rows": 0,
+        "explicit_pre_launch_rows": 0,
+        "first_open": 524.71,
+        "first_row_date": "2006-01-02",
+        "first_valid_ohlc_date": "2006-01-02",
+        "last_close": 2378.02,
+        "last_row_date": "2026-10-01",
+        "max_high": 3430.45,
+        "min_low": 398.59,
+        "missing_ohlc_on_active_rows": 0,
+        "non_chronological_rows": 0,
+        "non_positive_price_rows": 0,
+        "ohlc_violation_rows": 0,
+        "original_identifier": "XAUUSD",
+        "pre_listing_ohlc_rows": 0,
+        "rows": 5414,
+        "symbol": "XAUUSD",
+        "unique_row_counts_note": "",
+        "valid_ohlc_rows": 5414,
+        "weekday_histogram": [
+          [
+            0,
+            1083
+          ],
+          [
+            1,
+            1083
+          ],
+          [
+            2,
+            1083
+          ],
+          [
+            3,
+            1083
+          ],
+          [
+            4,
+            1082
+          ]
+        ]
+      },
+      {
+        "duplicate_rows": 0,
+        "explicit_pre_launch_rows": 0,
+        "first_open": 249.55,
+        "first_row_date": "2006-01-02",
+        "first_valid_ohlc_date": "2006-01-02",
+        "last_close": 326.04,
+        "last_row_date": "2026-10-01",
+        "max_high": 468.92,
+        "min_low": 161.04,
+        "missing_ohlc_on_active_rows": 0,
+        "non_chronological_rows": 0,
+        "non_positive_price_rows": 0,
+        "ohlc_violation_rows": 0,
+        "original_identifier": "XPDUSD",
+        "pre_listing_ohlc_rows": 0,
+        "rows": 5414,
+        "symbol": "XPDUSD",
+        "unique_row_counts_note": "",
+        "valid_ohlc_rows": 5414,
+        "weekday_histogram": [
+          [
+            0,
+            1083
+          ],
+          [
+            1,
+            1083
+          ],
+          [
+            2,
+            1083
+          ],
+          [
+            3,
+            1083
+          ],
+          [
+            4,
+            1082
+          ]
+        ]
+      },
+      {
+        "duplicate_rows": 0,
+        "explicit_pre_launch_rows": 0,
+        "first_open": 973.41,
+        "first_row_date": "2006-01-02",
+        "first_valid_ohlc_date": "2006-01-02",
+        "last_close": 2722.94,
+        "last_row_date": "2026-10-01",
+        "max_high": 3307.62,
+        "min_low": 833.2,
+        "missing_ohlc_on_active_rows": 0,
+        "non_chronological_rows": 0,
+        "non_positive_price_rows": 0,
+        "ohlc_violation_rows": 0,
+        "original_identifier": "XPTUSD",
+        "pre_listing_ohlc_rows": 0,
+        "rows": 5414,
+        "symbol": "XPTUSD",
+        "unique_row_counts_note": "",
+        "valid_ohlc_rows": 5414,
+        "weekday_histogram": [
+          [
+            0,
+            1083
+          ],
+          [
+            1,
+            1083
+          ],
+          [
+            2,
+            1083
+          ],
+          [
+            3,
+            1083
+          ],
+          [
+            4,
+            1082
+          ]
+        ]
+      }
+    ],
+    "kind": "metals",
+    "non_chronological_rows": 0,
+    "non_positive_price_rows": 0,
+    "ohlc_violation_rows": 0,
+    "row_count": 21656,
+    "sha256": "e61b6f67c2ebcc28ecb00d435d4bdbeb23f9bad597400edd4f226dcfa988d03a",
+    "uniform_generation_grid": true,
+    "venue_anachronism_rows": 0
+  },
+  "content_sha256": "e61b6f67c2ebcc28ecb00d435d4bdbeb23f9bad597400edd4f226dcfa988d03a",
+  "coverage_end": "2026-10-01",
+  "coverage_start": "2006-01-02",
+  "data_state": "SYNTHETIC",
+  "dataset_id": "DSV-db23648767f8956e",
+  "file_name": "metals_daily_2006_2026.csv",
+  "instrument_count": 4,
+  "kind": "metals",
+  "manifest_hash": "9e37504e7825e4ed5e3892255ca594c65ff423bc4732e2023571b4cbf09284f6",
+  "registered_instrument_ids": [
+    "8e4bce4b8a37287a",
+    "077840c333e81128",
+    "d0cfaf20ee7eea99",
+    "9a9d4fb4deaad834"
+  ],
+  "row_count": 21656,
+  "verification_notes": [
+    "file=metals_daily_2006_2026.csv sha256=e61b6f67c2ebcc28\u2026 rows=21656 instruments=4 coverage=2006-01-02..2026-10-01",
+    "epistemic classification: SYNTHETIC (REAL_VERIFIED is unreachable from CSV ingestion by construction \u2014 requires the nine-stage verification chain plus human approval)",
+    "HARD: every instrument spans the identical weekday grid with identical row counts \u2014 including instruments that provably began trading mid-range \u2014 a construction signature, not a real multi-instrument history",
+    "ANOMALY: XAGUSD final close 3.697 outside any plausibility band [5.0, 200.0] derived from established historical levels \u2014 consistent with unbounded synthetic drift",
+    "integrity: duplicates=0, chronology OK, OHLC relations OK, prices positive",
+    "2006 calibration anchors: 4/4 within tolerance (calibration to real history, NOT proof of reality)"
+  ]
+}
