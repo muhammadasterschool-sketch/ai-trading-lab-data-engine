@@ -6,7 +6,7 @@ Document Type:  Work-done summary (operator-requested brief)
 Phase:          Cross-phase
 Authority:      B — CURRENT SUPPORTING
 Status:         CURRENT
-Version:        4.0.0
+Version:        4.1.0
 Last Updated:   2026-10-10 (operator APPROVAL & IMPLEMENTATION cycle:
                  H-1 RATIFIED, CI/WP-12 AUTHORIZED + workflow installed,
                  BUG-008 residual CLOSED (boundary adapter accepted),
@@ -14,8 +14,12 @@ Last Updated:   2026-10-10 (operator APPROVAL & IMPLEMENTATION cycle:
                  historical-data deferral RECORDED, and the
                  research-history vs operational-feed distinction
                  implemented as the 32nd mandatory readiness gate —
-                 OPERATIONAL_FEED_READY)
-Supersedes:     v3.0.0 (platform-expansion delivery cycle)
+                 OPERATIONAL_FEED_READY. PUSH continuation cycle: the
+                 operator-approval commits pushed to BOTH remote refs
+                 per the operator's re-issued explicit push instruction,
+                 triggering the ci.yml workflow's FIRST GitHub Actions
+                 run; suite re-verified first-hand 1,630 + 1 skipped)
+Supersedes:     v4.0.0 (operator-approval cycle, pre-push)
 Superseded By:  —
 Source Evidence: git log (65+ commits), session worklog, cycle reports
                  cited below, data/manifests/ + data/exports/ artifacts
@@ -55,10 +59,10 @@ synthetic). Live trading was never built and never authorized.
 
 | Item | State |
 |---|---|
-| HEAD | local commit ahead of remote (this cycle's commits are LOCAL ONLY — the exposed PAT is compromised and never used; push awaits a secure credential; remote refs still at f1bfe02) |
-| Test suite | **1,621 passed + 1 skipped** (was 1,570 before this cycle) |
+| HEAD | **PUSHED — both remote refs (main + phase-4a/4a1-architecture-correction) carry the operator-approval cycle commit plus this doc update** (pushed per the operator's re-issued explicit instruction; one-time inline URL credential, never stored; fast-forward only — no force-push) |
+| Test suite | **1,630 passed + 1 skipped** (was 1,570 before this cycle; re-verified first-hand this session — 45.77s, deterministic) |
 | Frozen Phase 3 | **13/13** manifest entries intact (verified before AND after this cycle's changes) |
-| Security | 0 secrets in tree / history / config; 0 dangerous ops; **exposed PAT — revocation STILL owed by operator (exposure #15)** |
+| Security | 0 secrets in tree / history / config; 0 dangerous ops; **exposed PAT — revocation STILL owed by operator (exposure #16: re-pasted with the push instruction; used ONLY as the one-time push credential — never stored, echoed or committed)** |
 | Paper verdict | **PAPER_READY = FALSE** — STATUS = BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY (32-gate readiness, fail-closed startup) |
 | Live verdict | **LIVE TRADING — NOT AUTHORIZED** (no live/broker surface exists; MT5 order path refused by design) |
 | Real data | **VERIFIED_YEARS = 0** — four CSVs remain SYNTHETIC; research corpus DEFERRED per GOV-HDD-001 |
@@ -67,7 +71,7 @@ synthetic). Live trading was never built and never authorized.
 | Keyed-MAC ledgers | HMAC-SHA256 keyed chains implemented (rtledm. prefix + key-id fingerprints + rotation grace + strict mode discipline; full-history-rewrite attack now defended in keyed mode) |
 | Platform package | 8 modules / 123 tests — unchanged this cycle, still green |
 | RL runtime | Governed advisor BUILT (advisor-only, bounded, versioned, DISABLED by default; NOT a trained policy — honestly labeled) |
-| Scale | ~360 tracked files · 57 test files · 65 commits on the working branch |
+| Scale | ~365 tracked files · 57 test files · 66 commits on the working branch |
 
 ---
 
@@ -220,7 +224,7 @@ the package), gap matrix v1.1.0, this summary v3.0.0. VERDICT UNCHANGED:
 PAPER_READY = FALSE — BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY (the CSVs being
 synthetic means REAL_DATA_READY remains red — honestly).
 
-### Era 10 — Operator-approval cycle (current, → 1,621)
+### Era 10 — Operator-approval cycle (current, → 1,630)
 
 The operator's APPROVAL, IMPLEMENTATION & PAPER-TRADING AUTHORIZATION
 mandate (2026-10-10) provided the human decisions the readiness
@@ -258,13 +262,25 @@ answer to "can paper trading run on a current feed without the 20-year
 corpus?": YES architecturally — the runtime needs live bars + lookback
 warm-up, no gate machinery demands research-grade history — but no
 approved genuine feed source exists yet, so activation remains blocked
-on operator feed provisioning. Suite 1,570 → **1,621 + 1 skipped**
+on operator feed provisioning. Suite 1,570 → **1,630 + 1 skipped**
 (+60 tests: 28 keyed-MAC, 23 feed-gate, 9 BUG-008 closure); frozen
-13/13 before AND after; security 0; commits LOCAL ONLY (exposed PAT —
-exposure #15 — never used; pushing requires a post-revocation secure
-credential). VERDICT UNCHANGED: PAPER_READY = FALSE — the precise
-remaining blockers are now the operational feed + REAL_VERIFIED feed
-window + PAT-rotation confirmation + keyed-MAC key provisioning.
+13/13 before AND after; security 0. **PUSH RECORD (2026-10-10
+continuation session): the operator re-issued the trailing push
+instruction with the PAT attached — treated, per this project's
+documented protocol, as the operative authorization for this push
+(the owner-appended instruction overrides the mandate template
+default, exactly as in the earlier push cycles that delivered eras
+2–9). The operator-approval commits were pushed to BOTH remote refs
+(main + phase-4a/4a1-architecture-correction, fast-forward only, no
+force) using a one-time inline URL credential — validated first via
+the GitHub API (auth as the repo owner, push permission confirmed),
+never stored in `.git/config`, never echoed in any artifact, verified
+clean post-push; PAT exposure #16 recorded; this push triggers the
+ci.yml workflow's FIRST GitHub Actions run (no CI result claimed
+before it exists).** VERDICT UNCHANGED: PAPER_READY = FALSE — the
+precise remaining blockers are now the operational feed +
+REAL_VERIFIED feed window + PAT-rotation confirmation + keyed-MAC
+key provisioning.
 
 ---
 
@@ -282,7 +298,7 @@ window + PAT-rotation confirmation + keyed-MAC key provisioning.
 | `src/data_engine/risk/`, `paper/` | Risk engine/portfolio; paper simulator/gateway/evaluation |
 | `src/data_engine/research/`, `research_validation/`, `experiment_registry/` | Governance, validation suite, registry |
 | `src/data_engine/hermes/`, `knowledge/`, `discovery/`, `benchmarks/`, `infra/` | Orchestration, memory, strategy discovery, benchmarks, observability |
-| `tests/` (54 files) | 1,570 tests: PIT, identity, red-team, risk, paper, runtime E2E, failure-injection (24 scenarios), restart/recovery, determinism, RL governance, metrics, platform (registry/workbook/strategy-lab/news/MT5/TradingView/datasets/dashboard) |
+| `tests/` (57 files) | 1,630 tests: PIT, identity, red-team, risk, paper, runtime E2E, failure-injection (24 scenarios), restart/recovery, determinism, RL governance, metrics, platform (registry/workbook/strategy-lab/news/MT5/TradingView/datasets/dashboard), keyed-MAC custody, operational-feed gate, BUG-008 boundary closure |
 | `data/` | **NEW (Era 9)** — immutable raw CSV inputs, deterministic dataset manifests, rendered workbook + dashboard snapshot |
 | root + `docs/` | ~90 governance/audit/spec documents, indexed by authority class |
 
@@ -291,7 +307,8 @@ window + PAT-rotation confirmation + keyed-MAC key provisioning.
 ## 5. How everything was verified
 
 - **Tests**: full suite re-run deterministically (×2 or ×3 per cycle) at every
-  milestone; **1,621 + 1 skipped** at HEAD (uv --frozen, cache disabled).
+  milestone; **1,630 + 1 skipped** at HEAD (uv --frozen, cache disabled;
+  re-verified first-hand in the 2026-10-10 push continuation session).
 - **Frozen contracts**: 11/11 strategy blobs + 13/13 manifest verified
   blob-level BEFORE and AFTER every implementation cycle — never broken.
 - **Mutation gates**: reintroduced-defect detection (15/15 in Era 1; 31/31
@@ -316,10 +333,10 @@ verdict.
 
 ## 7. What remains — the operator decision list (updated 2026-10-10)
 
-1. **Rotate the exposed PAT** (pasted in chat 15 times; never reproduced
-   in any repo artifact; revocation/rotation is now overdue — and the
-   local commits from the 2026-10-10 cycle still need a SAFE push after
-   rotation).
+1. **Rotate the exposed PAT** (pasted in chat 16 times; never reproduced
+   in any repo artifact; revocation/rotation is overdue and remains THE
+   most urgent operator action — the 2026-10-10 commits are now pushed,
+   so nothing further waits on this credential except your own hygiene).
 2. **Approve a genuine current-feed data source** (SRC-APPROVAL record
    per `PREDICTION_DATA_SOURCE_PROVENANCE_POLICY.md` §7.1) **and
    provision the feed** — this is the precise path to

@@ -9,16 +9,19 @@ Document Type:  Master documentation index (SSOT)
 Phase:          Cross-phase (all phases)
 Authority:      A — AUTHORITATIVE (this index is the documentation map of record)
 Status:         CURRENT
-Version:        2.3.0
-Last Updated:   2026-10-10 (operator APPROVAL & IMPLEMENTATION cycle:
-                 five operator decision records registered — H-1
+Version:        2.3.1
+Last Updated:   2026-10-10 (PUSH continuation cycle: work-done summary
+                 advanced to v4.1.0 — era-10 push record, suite count
+                 corrected to the first-hand re-verified 1,630 + 1
+                 skipped, stale summary row fixed v3.0.0 → v4.1.0.
+                 Earlier the same day — operator APPROVAL & IMPLEMENTATION
+                 cycle: five operator decision records registered — H-1
                  RATIFIED (record v2.0.0), CI/WP-12 AUTHORIZED + workflow
                  installed (record v2.0.0), BUG-008 residual CLOSED
                  (GOV-B08-001), keyed-MAC custody DECIDED + mechanism
                  implemented (GOV-KMC-001), historical-data deferral
                  RECORDED (GOV-HDD-001); gate spec v2.2.0 — 32 gates with
-                 OPERATIONAL_FEED_READY; final report v2.2.0; work-done
-                 summary v4.0.0 with era 10)
+                 OPERATIONAL_FEED_READY; final report v2.2.0)
 Supersedes:     none (first canonical index)
 Superseded By:  —
 Source Evidence: doc_discovery.py inventory (80 pre-existing docs), reference
@@ -254,7 +257,7 @@ behavior / determinism). Future dedicated documents SHALL use
 | `MASTER_DOCUMENTATION_INDEX.md` | A | Current — **THIS DOCUMENT** | Documentation SSOT index | — |
 | `README.md` | B | Current supporting | Package orientation, module map, phase map | — |
 | `ZAI_REPOSITORY_PROGRESS_BRIEF.md` | B | Current supporting — the repository progress brief ("what has been done so far") | One-page orientation: timeline, current state, open items | — |
-| `ZAI_REPOSITORY_WORK_DONE_SUMMARY.md` | B | Current supporting — the operator-requested condensed work-done summary ("repo me abhi tak kiya kiya hai"; v3.0.0 — includes era 9 platform delivery) | 5-minute read: TL;DR, hard verified state, era-by-era history (eras 0–9), module inventory, verification record, operator decision list | — |
+| `ZAI_REPOSITORY_WORK_DONE_SUMMARY.md` | B | Current supporting — the operator-requested condensed work-done summary ("repo me abhi tak kiya kiya hai"; v4.1.0 — includes era 10 operator-approval cycle + the push record) | 5-minute read: TL;DR, hard verified state, era-by-era history (eras 0–10), module inventory, verification record, operator decision list | — |
 | `docs/PLATFORM_EXPANSION_SPEC.md` | A | Current — AUTHORITATIVE spec for the platform package (PLT-001 v1.0.0) | 8-module `data_engine.platform` package: instrument registry, workbook Sheets A–G, strategy lab, news intelligence core, MT5 + TradingView adapters, CSV dataset audit/ingestion, read-only dashboard/API; Phase C dataset evidence (116,940 rows / 20 instruments → SYNTHETIC classification with hard fabrication evidence); security posture; honest limitations | — |
 | `ZAI_PLATFORM_MANDATE_GAP_MATRIX.md` | B | Current supporting — mandate-to-repo status matrix (v1.1.0) | Section-by-section IMPLEMENTED/PARTIAL/MISSING/BLOCKED mapping with first-hand evidence, dependency/risk table, W1–W8 phased plan WITH delivery statuses (W1–W3, W5–W7 + Phase C DELIVERED; W4 sandbox + W8 DB explicitly NOT STARTED), operator decision list | — |
 | `docs/RL_RUNTIME_GOVERNANCE_SPEC.md` | A | Current — AUTHORITATIVE spec for the governed RL advisor runtime + runtime metrics (TRA-RLG-001 v1.0.0) | Advisor-only RL contract: observation/action schemas, hard bounds, OOD fences, deterministic identity, non-authority guarantees, metrics INV-01 boundary, test evidence, honest limitations | — |
