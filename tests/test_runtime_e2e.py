@@ -718,11 +718,12 @@ class TestReadinessGate:
         gate = PaperReadinessGate()
         report = gate.evaluate()
         assert not report.paper_ready
-        # 31 mandatory gates after the re-audit extension (23 +
-        # REAL_DATA/TRADE_PLAN/PARTIAL_FILL/SLTP/AUDIT/REPLAY/BASELINE)
-        # and the RL-governance cycle (RL_GOV_READY — the mandate's
-        # "RL safety/integration" mandatory gate).
-        assert len(report.failed_gates) == len(GATE_NAMES) == 31
+        # 32 mandatory gates after the re-audit extension (23 +
+        # REAL_DATA/TRADE_PLAN/PARTIAL_FILL/SLTP/AUDIT/REPLAY/BASELINE),
+        # the RL-governance cycle (RL_GOV_READY), and the 2026-10-10
+        # operator approval mandate (OPERATIONAL_FEED_READY — the
+        # research-history vs operational-feed distinction, §2).
+        assert len(report.failed_gates) == len(GATE_NAMES) == 32
 
     def test_all_passing_evidence_yields_ready(self):
         from data_engine.runtime import GATE_NAMES

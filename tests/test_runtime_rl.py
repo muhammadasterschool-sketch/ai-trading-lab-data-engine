@@ -333,13 +333,14 @@ class TestAdvisoryOnlyStructure:
 
 
 # ════════════════════════════════════════════════════════════════════
-# 5. Readiness gate: RL_GOV_READY (31 mandatory gates)
+# 5. Readiness gate: RL_GOV_READY (32 mandatory gates — extended by
+#    OPERATIONAL_FEED_READY in the 2026-10-10 operator approval cycle)
 # ════════════════════════════════════════════════════════════════════
 
 class TestRLReadinessGate:
     def test_gate_names_carry_rl_gov(self):
         assert "RL_GOV_READY" in GATE_NAMES
-        assert len(GATE_NAMES) == 31
+        assert len(GATE_NAMES) == 32
 
     def test_missing_rl_evidence_fails_closed(self):
         gate = PaperReadinessGate()

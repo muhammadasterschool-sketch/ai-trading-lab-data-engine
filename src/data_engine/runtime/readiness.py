@@ -40,9 +40,22 @@ from data_engine.runtime.contracts import RuntimeContractError
 #: structurally incapable of bypassing Risk/KillSwitch/OMS. Every
 #: gate requires an explicit evidence object — absent evidence
 #: defaults to FALSE (fail closed, §53).
+#:
+#: The 2026-10-10 operator approval mandate added the thirty-second
+#: gate, OPERATIONAL_FEED_READY — the narrowly-scoped research-history
+#: vs operational-feed distinction (operator mandate §2): the MINIMUM
+#: current genuine market-feed requirement for a paper session
+#: (human-approved source with production-ingestion scope, validated
+#: bars, freshness, correct instrument mapping, indicator warm-up
+#: sufficiency — see runtime/feed_gate.py). The DEFERRED long-term
+#: research-history corpus (operator decision GOV-HDD-001) is tracked
+#: separately by the feed-gate report and is NOT this gate's concern:
+#: research history and the operational feed are never conflated,
+#: and neither is ever claimed satisfied without evidence.
 GATE_NAMES = (
     "DATA_READY",
     "REAL_DATA_READY",
+    "OPERATIONAL_FEED_READY",
     "PIT_READY",
     "SEQUENCE_READY",
     "BASELINE_READY",
@@ -80,6 +93,9 @@ GATE_NAMES = (
 #: REAL_DATA_READY can only be TRUE from a REAL_VERIFIED dataset that
 #: passed the full acquisition→validation→quality→PIT→provenance→
 #: coverage→replay chain (BLOCKER 3) — never from synthetic fixtures.
+#: OPERATIONAL_FEED_READY is TRUE only from a genuine, validated,
+#: fresh, correctly-mapped current feed from a HUMAN-APPROVED source
+#: with sufficient warm-up bars (runtime/feed_gate.py — fail closed).
 #: GOVERNANCE_READY requires recorded human decisions (H-1, CI/WP-12)
 #: — no code path can fabricate them.
 

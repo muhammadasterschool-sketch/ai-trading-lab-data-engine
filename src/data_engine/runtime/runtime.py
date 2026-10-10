@@ -221,6 +221,7 @@ class TradingRuntime:
         realism: Optional[ExecutionRealism] = None,
         readiness_gate: Optional[PaperReadinessGate] = None,
         rl_policy: Optional[GovernedRLPolicy] = None,
+        mac_custody=None,
     ) -> None:
         if config is None or ensemble is None:
             raise RuntimeContractError(
@@ -255,7 +256,20 @@ class TradingRuntime:
         )
 
         # --- authoritative component wiring (§24) -----------------------
-        self._ledgers = LedgerFamily()
+        # Keyed-MAC ledger custody (operator mandate 2026-10-10 §1.5):
+        # None = legacy unkeyed chains (backward compatible); a wired
+        # MacCustody signs every ledger event HMAC-SHA256 and STRICT
+        # verification then refuses any unkeyed/downgraded event. The
+        # custody reads the environment ONLY via its explicit
+        # from_environment() provisioning channel — never implicitly.
+        from data_engine.runtime.mac_custody import MacCustody
+        if mac_custody is not None and not isinstance(mac_custody, MacCustody):
+            raise RuntimeContractError(
+                "mac_custody must be a MacCustody instance (keyed-MAC "
+                "custody contract — operator mandate 2026-10-10 §1.5)"
+            )
+        self._mac_custody = mac_custody
+        self._ledgers = LedgerFamily(mac_custody=mac_custody)
         self._oms = OMS(self._ledgers)
         self._kill_switch = KillSwitchManager(self._ledgers)
         limits = RiskLimits(

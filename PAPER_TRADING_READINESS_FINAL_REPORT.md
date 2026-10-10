@@ -1,16 +1,110 @@
 # PAPER TRADING READINESS FINAL REPORT
 
-**Document ID:** PPR-FR-002 · **Version:** 2.1.0 · **Date:** 2026-10-09
+**Document ID:** PPR-FR-002 · **Version:** 2.2.0 · **Date:** 2026-10-10
 **Prepared by:** ZAI implementation + verification agent (paper-readiness
 re-audit mandate: blocker closure + runtime-integration forensic re-audit;
-RL-governance cycle: RL runtime + observability metrics + 31st gate)
+RL-governance cycle: RL runtime + observability metrics + 31st gate;
+operator approval mandate 2026-10-10: governance decisions recorded,
+keyed-MAC custody implemented, BUG-008 residual closed, research-history
+vs operational-feed distinction + 32nd gate)
 **Repository:** muhammadasterschool-sketch/ai-trading-lab-data-engine
 **Branch:** phase-4a/4a1-architecture-correction
-**Baseline at start:** 9ddadde (v2.0.0 report + work-done summary pushed;
-remote main = phase branch = 9ddadde; tree clean)
-**Supersedes:** v2.0.0 (whose content remains authoritative below —
-this amendment appends the RL-governance cycle; v1.0.0 archived at
+**Baseline at start:** f1bfe02 (remote main = phase branch = f1bfe02;
+tree clean; suite 1,570 + 1 skipped ×2 re-verified first-hand)
+**Supersedes:** v2.1.0 (whose content remains authoritative below —
+this amendment appends the operator-approval cycle; v1.0.0 archived at
 `docs/PAPER_TRADING_READINESS_FINAL_REPORT_v1.md`)
+
+---
+
+## 0A. OPERATOR-APPROVAL CYCLE AMENDMENT (v2.2.0, 2026-10-10)
+
+The operator's APPROVAL, IMPLEMENTATION & PAPER-TRADING
+AUTHORIZATION mandate provided the four human decisions this
+report's v2.1.0 §13 listed as HUMAN_DECISION_REQUIRED, plus a paper-
+trading activation authorization contingent on all mandatory gates
+genuinely passing. Executed this cycle:
+
+### 0A.1 Governance decisions RECORDED (no signature fabricated — the
+evidence is the operator's in-session authorization text, quoted
+verbatim in each record)
+
+| Decision | Record | Disposition |
+|---|---|---|
+| H-1 ratification (Option A — containment) | `H1_RATIFICATION_DECISION_RECORD.md` v2.0.0 (GOV-H1-002-RATIFY; ratified text + v1.0.0 sha256 pinned) | **RATIFIED / CLOSED** |
+| CI/WP-12 authorization | `CI_WP12_GATE_DECISION_RECORD.md` v2.0.0 (WP-12-CI-ENABLE) + `.github/workflows/ci.yml` installed VERBATIM + `WP_12_CI_IMPLEMENTATION_SPEC.md` v1.1.0 | **AUTHORIZED + IMPLEMENTED** (platform execution pending first push — nothing claims a CI run) |
+| BUG-008 residual path (permanent acceptance of the runtime-boundary adapter; frozen artifacts untouched) | `BUG008_RESIDUAL_RESOLUTION_RECORD.md` v1.0.0 (GOV-B08-001) + `tests/test_bug008_boundary_closure.py` (13-field dynamic enumeration pin, boundary isolation, structural decoupling scan, frozen byte-identity) | **CLOSED (residual accepted)** |
+| Keyed-MAC custody | `KEYED_MAC_CUSTODY_DECISION_RECORD.md` v1.0.0 (GOV-KMC-001) + `src/data_engine/runtime/mac_custody.py` + ledger integration + 28 tests | **DECIDED + MECHANISM IMPLEMENTED / NOT OPERATIONAL** (no key provisioned — none invented) |
+| Historical-data deferral (research-history vs operational-feed separation) | `HISTORICAL_DATA_DEFERRAL_RECORD.md` v1.0.0 (GOV-HDD-001) | **DEFERRED (recorded, honest)** |
+
+### 0A.2 The research-history vs operational-feed distinction (§2)
+
+Spec inspection confirmed the conflation the operator directed be
+removed: REAL_DATA_READY's documented satisfaction path (contract §5 +
+policy §7.2, "Coverage >= 5.0 minimum") de facto gated paper activation
+on the long-term research corpus, while the paper runtime actually
+needs only a genuine CURRENT feed + indicator warm-up. Implemented the
+narrow, specification-compliant distinction: **readiness gate extended
+31 → 32 mandatory gates with `OPERATIONAL_FEED_READY`** — fail-closed,
+requiring a HUMAN-APPROVED source (APPROVED_FOR_PRODUCTION +
+production-ingestion scope through the prediction source registry's
+human-only approval mechanism), validated bars (validate_bars),
+freshness (caller-supplied logical reference time — no ambient clock),
+correct instrument mapping, and warm-up sufficiency
+(`src/data_engine/runtime/feed_gate.py`; 23 tests incl. runtime
+start-refusal and env-freedom source scans). The DEFERRED research
+corpus is tracked separately (GOV-HDD-001 + RealDataReadiness /
+VERIFIED_YEARS) — never an activation requirement, never claimed
+satisfied. **The strategy does NOT structurally require the 20-year
+corpus to run a paper session** (it consumes live bars + lookback
+warm-up); what real data blocks is research-grade empirical claims —
+honestly unchanged by the deferral.
+
+### 0A.3 Keyed-MAC ledger custody (P2 KEYED-MAC row closed)
+
+`MacCustody` (env-var / external-key-file provisioning channels — the
+ONLY environment-reading site in the runtime, fail-closed on absence;
+32-byte entropy floor; fingerprint key ids; rotation with retired-key
+grace; masked reprs) + `LedgerFamily(mac_custody=...)` integration:
+keyed events carry `rtledm.`-prefixed HMAC-SHA256 hashes + the signing
+key fingerprint; STRICT two-way mode discipline (keyed session +
+unkeyed event ⇒ verify FAILS; no custody + keyed event ⇒ verify
+FAILS); legacy unkeyed behavior byte-identical (backward compatible).
+**The P2-demonstrated full-history-rewrite attack is now DEFENDED in
+keyed mode** (regression test replays the attack: rewrite every link
+without the key ⇒ verification fails). Restart under a DIFFERENT
+custody fails closed (RECOVERY_REQUIRED). 28 tests.
+
+### 0A.4 Evidence this cycle
+
+Suite 1,570 → **1,621 passed + 1 skipped** (+51 tests: 28 keyed-MAC,
+23 feed-gate, +9 BUG-008 boundary-closure then re-counted within the
+60-file suite additions); frozen 13/13 + SUB-18 pin verified before
+AND after; security rescan 0 secrets / 0 dangerous ops; the WP-12
+workflow's own history-wide secret-scan regex verified 0-match LOCALLY
+before committing the workflow; cross-process replay DETERMINISTIC ×2
+(orders=8 fills=24 bar_index=69); commits LOCAL ONLY (exposed PAT —
+now exposure #15 — never used; push requires a post-revocation secure
+credential).
+
+### 0A.5 Verdict after this cycle
+
+**PAPER_READY = FALSE — STATUS = BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY.**
+The operator's activation authorization is recorded but could NOT be
+exercised: **OPERATIONAL_FEED_READY = FALSE** — no human-approved
+genuine market-feed source exists and no feed is provisioned (the
+operator must record an SRC-APPROVAL for a real current-feed source
+per `PREDICTION_DATA_SOURCE_PROVENANCE_POLICY.md` §7.1 and provision
+the feed; the four supplied CSVs are SYNTHETIC and blocked from all
+eligibility). **REAL_DATA_READY = FALSE** (0 REAL_VERIFIED datasets;
+VERIFIED_YEARS = 0; research corpus DEFERRED per GOV-HDD-001 — never
+falsely reported). **GOVERNANCE_READY = FALSE** — H-1 ✓ and CI/WP-12 ✓
+now recorded, but the exposed PAT's revocation/rotation remains
+UNCONFIRMED and keyed-MAC custody is NOT OPERATIONAL until genuine key
+provisioning. LIVE TRADING remains NOT AUTHORIZED; no live surface
+exists (MT5 order path refused by design — re-verified this cycle).
+Paper trading was NOT activated; the exact remaining blockers are
+listed in §15 (updated below by reference to this §0A).
 
 ---
 
@@ -362,19 +456,41 @@ frozen-contract change was committed.
 
 ## 15. Remaining Blockers (exact evidence required to close)
 
-1. **BLOCKED_ON_REAL_DATA** — operator-approved real dataset passing
-   the full nine-stage chain + `REAL_DATA_READINESS_CONTRACT.md`;
-   then re-run the gate.
-2. **H-1 ratification** — human signature in
-   `H1_RATIFICATION_DECISION_RECORD.md`.
-3. **CI/WP-12 authorization** — human signature in
-   `CI_WP12_GATE_DECISION_RECORD.md`; then implement the specified
-   workflow gates.
-4. **PAT rotation** — operator revokes/rotates the exposed token
-   (evidence: old token fails auth).
-5. **BUG-008 residual** — manifest-refresh authorization or
-   permanent acceptance of the runtime-boundary adapter.
-6. **KEYED-MAC ledger custody** — custody decision.
+> **v2.2.0 update:** items 2, 3, 5 and 6 are CLOSED by the 2026-10-10
+> operator decisions (see §0A.1). The list below is the CURRENT
+> authoritative blocker set.
+
+1. **OPERATIONAL_FEED_READY = FALSE** — no human-approved genuine
+   market-feed source exists and no feed is provisioned. Closing
+   requires: an SRC-APPROVAL record for a real current-feed source
+   (per `PREDICTION_DATA_SOURCE_PROVENANCE_POLICY.md` §7.1 — human
+   decision, AI approval structurally rejected), the provisioned
+   feed, and an `evaluate_operational_feed` PASS (approved source +
+   validated + fresh + mapped + warm-up sufficient).
+2. **REAL_DATA_READY = FALSE (BLOCKED_ON_REAL_DATA)** — 0 REAL_VERIFIED
+   datasets, VERIFIED_YEARS = 0. Closing requires a dataset passing the
+   full nine-stage chain + `REAL_DATA_READINESS_CONTRACT.md` (a
+   verified feed-window dataset satisfies the runtime gate; the
+   long-term research corpus remains DEFERRED per GOV-HDD-001 and is
+   never falsely reported).
+3. **GOVERNANCE_READY = FALSE — remaining components:**
+   a. **PAT rotation confirmation** — the exposed token (now exposure
+      #15) must be revoked/rotated by the operator through a secure
+      channel; confirmation through an authorized secure process.
+   b. **Keyed-MAC custody operationalization** — mechanism implemented
+      (GOV-KMC-001); provision a genuine ≥ 32-byte key through
+      `RUNTIME_LEDGER_MAC_KEY` / `RUNTIME_LEDGER_MAC_KEY_FILE` on the
+      paper-session host (never chat, never committed) and record the
+      key fingerprint in the custody decision record's §6 log.
+   c. **Data-source approval** (shared with blocker 1) — recorded via
+      the source registry's human-only approval mechanism.
+
+CLOSED this cycle (kept for the record): H-1 ratification
+(GOV-H1-002-RATIFY), CI/WP-12 authorization (WP-12-CI-ENABLE + verbatim
+workflow install), BUG-008 residual (GOV-B08-001 — permanent
+acceptance of the runtime-boundary adapter with regression force),
+keyed-MAC custody DECISION (mechanism + tests delivered; only key
+provisioning remains open).
 
 ## 16. PAPER READY Verdict
 
@@ -382,6 +498,9 @@ frozen-contract change was committed.
 PAPER_READY =
     DATA_READY            (PASS — machinery + tests)
 AND REAL_DATA_READY       (FALSE — 0 REAL_VERIFIED datasets)
+AND OPERATIONAL_FEED_READY (FALSE — no approved genuine feed source;
+                            v2.2.0 — research history is DEFERRED per
+                            GOV-HDD-001 and is NOT this gate's concern)
 AND PIT_READY             (PASS)
 AND SEQUENCE_READY        (PASS)
 AND BASELINE_READY        (PASS)
@@ -409,8 +528,11 @@ AND AUDIT_READY           (PASS — continuous chains)
 AND REPLAY_READY          (PASS — cross-process ×2)
 AND OBSERVABILITY_READY   (PASS — RuntimeMetrics wired, v2.1.0)
 AND SECURITY_READY        (PASS — scans; PAT rotation OPEN)
-AND TESTS_READY           (PASS — 1447 ×2 deterministic, v2.1.0)
-AND GOVERNANCE_READY      (FALSE — H-1/CI/human decisions open)
+AND TESTS_READY           (PASS — 1621 ×2 deterministic, v2.2.0)
+AND GOVERNANCE_READY      (FALSE — H-1 ✓ and CI/WP-12 ✓ recorded
+                            2026-10-10; open components: PAT rotation
+                            confirmation, keyed-MAC custody
+                            operationalization, source approval)
 ```
 
 **PAPER_READY = FALSE.**

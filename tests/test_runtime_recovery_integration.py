@@ -73,7 +73,7 @@ def _op_config(session, pins=()):
 
 
 def _ready_gate(failed=()):
-    """A gate with objective evidence for ALL 31 mandatory gates.
+    """A gate with objective evidence for ALL 32 mandatory gates.
 
     ``failed`` names gates whose evidence is submitted with
     passed=False (one FALSE ⇒ PAPER_READY=FALSE ⇒ start REFUSED).

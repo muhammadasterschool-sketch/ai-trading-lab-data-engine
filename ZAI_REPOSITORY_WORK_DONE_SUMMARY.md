@@ -6,17 +6,18 @@ Document Type:  Work-done summary (operator-requested brief)
 Phase:          Cross-phase
 Authority:      B — CURRENT SUPPORTING
 Status:         CURRENT
-Version:        3.0.0
-Last Updated:   2026-10-10 (platform-expansion DELIVERY cycle: the
-                 `data_engine.platform` package implemented + tested —
-                 strategy lab, instrument registry, workbook Sheets A–G,
-                 news intelligence core, MT5 + TradingView adapters,
-                 read-only dashboard/API; the four supplied CSV datasets
-                 audited (116,940 rows / 20 instruments) and classified
-                 SYNTHETIC from hard fabrication evidence)
-Supersedes:     v2.1.0 (platform-mandate registration)
+Version:        4.0.0
+Last Updated:   2026-10-10 (operator APPROVAL & IMPLEMENTATION cycle:
+                 H-1 RATIFIED, CI/WP-12 AUTHORIZED + workflow installed,
+                 BUG-008 residual CLOSED (boundary adapter accepted),
+                 keyed-MAC custody DECIDED + mechanism implemented,
+                 historical-data deferral RECORDED, and the
+                 research-history vs operational-feed distinction
+                 implemented as the 32nd mandatory readiness gate —
+                 OPERATIONAL_FEED_READY)
+Supersedes:     v3.0.0 (platform-expansion delivery cycle)
 Superseded By:  —
-Source Evidence: git log (64+ commits), session worklog, cycle reports
+Source Evidence: git log (65+ commits), session worklog, cycle reports
                  cited below, data/manifests/ + data/exports/ artifacts
 ```
 
@@ -54,20 +55,23 @@ synthetic). Live trading was never built and never authorized.
 
 | Item | State |
 |---|---|
-| HEAD | pushed to BOTH `main` and `phase-4a/4a1-architecture-correction` (`git ls-remote` verified each cycle) |
-| Test suite | **1,570 passed + 1 skipped** (×2 deterministic; was 1,447 before the platform cycle) |
-| Frozen Phase 3 | **13/13** manifest entries intact (blob-level sha256; verified before AND after every implementation cycle) |
-| Security | 0 secrets in tree / history / config; 0 dangerous ops in runtime + platform packages; **1 exposed PAT — rotation STILL owed by operator (exposure #12)** |
-| Paper verdict | **PAPER_READY = FALSE** — STATUS = BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY (31-gate readiness, fail-closed startup) |
-| Live verdict | **LIVE TRADING — NOT AUTHORIZED** (no live/broker surface exists at all; MT5 order path refused by design) |
-| Real data | **VERIFIED_YEARS = 0** — the four supplied CSVs (116,940 rows / 20 instruments) audited and classified **SYNTHETIC** from hard fabrication evidence; registry blocks their research/backtesting/paper eligibility |
-| Platform package | **8 modules / 123 tests** — strategy lab, registry, workbook (Sheets A–G), news core, MT5 + TradingView adapters, CSV dataset audit, read-only dashboard |
-| RL runtime | **Governed advisor BUILT** (advisor-only, bounded, versioned, DISABLED by default; NOT a trained policy — honestly labeled) |
-| Scale | ~350 tracked files · 54 test files · 64 commits on the working branch |
+| HEAD | local commit ahead of remote (this cycle's commits are LOCAL ONLY — the exposed PAT is compromised and never used; push awaits a secure credential; remote refs still at f1bfe02) |
+| Test suite | **1,621 passed + 1 skipped** (was 1,570 before this cycle) |
+| Frozen Phase 3 | **13/13** manifest entries intact (verified before AND after this cycle's changes) |
+| Security | 0 secrets in tree / history / config; 0 dangerous ops; **exposed PAT — revocation STILL owed by operator (exposure #15)** |
+| Paper verdict | **PAPER_READY = FALSE** — STATUS = BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY (32-gate readiness, fail-closed startup) |
+| Live verdict | **LIVE TRADING — NOT AUTHORIZED** (no live/broker surface exists; MT5 order path refused by design) |
+| Real data | **VERIFIED_YEARS = 0** — four CSVs remain SYNTHETIC; research corpus DEFERRED per GOV-HDD-001 |
+| Governance decisions | **H-1 RATIFIED · CI/WP-12 AUTHORIZED (workflow committed) · BUG-008 residual CLOSED · keyed-MAC custody DECIDED (mechanism implemented, NOT operational — no key provisioned) · historical-data deferral RECORDED** — all five operator decisions from the 2026-10-10 mandate, recorded without fabricated signatures |
+| Readiness gates | **32 mandatory gates** (new: OPERATIONAL_FEED_READY — the minimum genuine current-feed requirement, separated from the deferred research history) |
+| Keyed-MAC ledgers | HMAC-SHA256 keyed chains implemented (rtledm. prefix + key-id fingerprints + rotation grace + strict mode discipline; full-history-rewrite attack now defended in keyed mode) |
+| Platform package | 8 modules / 123 tests — unchanged this cycle, still green |
+| RL runtime | Governed advisor BUILT (advisor-only, bounded, versioned, DISABLED by default; NOT a trained policy — honestly labeled) |
+| Scale | ~360 tracked files · 57 test files · 65 commits on the working branch |
 
 ---
 
-## 3. What was done, era by era (64+ commits)
+## 3. What was done, era by era (65+ commits)
 
 ### Era 0 — Phase 3 strategy foundation (FROZEN, before this work)
 The repo's starting point: a strategy backtest engine (`src/data_engine/strategy/`).
@@ -216,6 +220,52 @@ the package), gap matrix v1.1.0, this summary v3.0.0. VERDICT UNCHANGED:
 PAPER_READY = FALSE — BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY (the CSVs being
 synthetic means REAL_DATA_READY remains red — honestly).
 
+### Era 10 — Operator-approval cycle (current, → 1,621)
+
+The operator's APPROVAL, IMPLEMENTATION & PAPER-TRADING AUTHORIZATION
+mandate (2026-10-10) provided the human decisions the readiness
+report required. All five recorded WITHOUT fabricated signatures (the
+evidence is the operator's in-session authorization text, quoted
+verbatim in each record): **(1) H-1 RATIFIED** — Option A containment
+(GOV-H1-002-RATIFY; v1.0.0 record hash pinned); **(2) CI/WP-12
+AUTHORIZED** — `.github/workflows/ci.yml` installed VERBATIM from the
+spec (WP-12-CI-ENABLE; every workflow gate mirrored locally green;
+honestly NOT claiming any GitHub Actions run — the workflow executes
+after the next push); **(3) BUG-008 residual CLOSED** — permanent
+acceptance of the runtime-boundary adapter (GOV-B08-001) with NEW
+regression force: the 13 deferred fields dynamically discovered and
+pinned (9 strategy + 4 schemas.py — exactly the documented P2 count),
+boundary isolation both directions, structural decoupling scan (no
+runtime module imports the frozen domain at all), frozen byte-identity
+vs 13fdc7e + SUB-18 manifest; **(4) keyed-MAC custody DECIDED +
+MECHANISM IMPLEMENTED** (GOV-KMC-001) — `runtime/mac_custody.py`
+(env-var / external-key-file provisioning channels, entropy floor,
+fingerprint key ids, rotation with retired-key grace, masked reprs)
++ `LedgerFamily(mac_custody=...)` keyed chains (rtledm. HMAC hashes;
+strict two-way mode discipline; the P2-demonstrated full-history-
+rewrite attack now DEFENDED in keyed mode; restart under different
+custody fails closed) — honestly NOT OPERATIONAL until the operator
+provisions a real key through the secure channel; **(5) historical-
+data deferral RECORDED** (GOV-HDD-001) — the research corpus is
+DEFERRED, never claimed satisfied, never an activation requirement.
+**The §2 distinction implemented:** readiness gates 31 → **32** with
+`OPERATIONAL_FEED_READY` — the MINIMUM current genuine market-feed
+requirement (human-approved source with production-ingestion scope,
+validated bars, freshness at a caller-supplied logical reference time,
+correct instrument mapping, warm-up sufficiency; `runtime/feed_gate.py`)
+— cleanly separated from the deferred research history. The honest
+answer to "can paper trading run on a current feed without the 20-year
+corpus?": YES architecturally — the runtime needs live bars + lookback
+warm-up, no gate machinery demands research-grade history — but no
+approved genuine feed source exists yet, so activation remains blocked
+on operator feed provisioning. Suite 1,570 → **1,621 + 1 skipped**
+(+60 tests: 28 keyed-MAC, 23 feed-gate, 9 BUG-008 closure); frozen
+13/13 before AND after; security 0; commits LOCAL ONLY (exposed PAT —
+exposure #15 — never used; pushing requires a post-revocation secure
+credential). VERDICT UNCHANGED: PAPER_READY = FALSE — the precise
+remaining blockers are now the operational feed + REAL_VERIFIED feed
+window + PAT-rotation confirmation + keyed-MAC key provisioning.
+
 ---
 
 ## 4. What exists in the repo today
@@ -241,8 +291,7 @@ synthetic means REAL_DATA_READY remains red — honestly).
 ## 5. How everything was verified
 
 - **Tests**: full suite re-run deterministically (×2 or ×3 per cycle) at every
-  milestone; **1,570 + 1 skipped** at HEAD (×2 on 2026-10-10: 45.64 s / 44.65 s,
-  `uv --frozen`, cache disabled).
+  milestone; **1,621 + 1 skipped** at HEAD (uv --frozen, cache disabled).
 - **Frozen contracts**: 11/11 strategy blobs + 13/13 manifest verified
   blob-level BEFORE and AFTER every implementation cycle — never broken.
 - **Mutation gates**: reintroduced-defect detection (15/15 in Era 1; 31/31
@@ -257,40 +306,53 @@ synthetic means REAL_DATA_READY remains red — honestly).
 ## 6. Governance verdicts preserved (never fabricated)
 
 PAPER_READY = **FALSE** (BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY) · LIVE = **NOT
-AUTHORIZED** · ADVANCED_ML = DEFERRED · REAL_DATA_VALIDATION = BLOCKED ·
-VERIFIED_YEARS = 0 · H-1 = OPEN/CONTAINED · CI/WP-12 = HUMAN_DECISION_REQUIRED.
+AUTHORIZED** · ADVANCED_ML = DEFERRED · REAL_DATA_VALIDATION = BLOCKED
+(DEFERRED corpus per GOV-HDD-001) · VERIFIED_YEARS = 0 · H-1 =
+**RATIFIED** (2026-10-10) · CI/WP-12 = **AUTHORIZED + IMPLEMENTED**
+(2026-10-10) · BUG-008 residual = **CLOSED** (2026-10-10) · keyed-MAC
+custody = **DECIDED, mechanism implemented, NOT OPERATIONAL**.
 No approval, authorization or dataset was ever invented to force a green
 verdict.
 
-## 7. What remains — the operator decision list
+## 7. What remains — the operator decision list (updated 2026-10-10)
 
-1. **Rotate the exposed PAT** (pasted in chat 12 times; verified still active;
-   never reproduced in any repo artifact — but rotation is now overdue).
-2. **Supply + verify REAL market data** through the nine-stage REAL_VERIFIED
-   chain (today VERIFIED_YEARS = 0 — the four supplied CSV datasets were
-   audited and classified SYNTHETIC from hard fabrication evidence; they
-   cannot unlock any eligibility).
-3. **Ratify H-1** (`H1_RATIFICATION_DECISION_RECORD.md` awaits a signature).
-4. **Authorize CI/WP-12** (`CI_WP12_GATE_DECISION_RECORD.md`).
-5. **Decide the BUG-008 residual path** (13 frozen-pinned fields: manifest
-   refresh or runtime adapters) and **keyed-MAC custody**.
-6. *(Optional, later)* Register a TRAINED RL policy through the model registry
-   with out-of-sample evidence — the current advisor is an honestly-labeled
-   deterministic baseline, and swapping it requires a new policy version/hash.
-7. **Platform environment/credentials, when wanted**: Windows MT5 terminal +
-   broker (demo first) to verify the MT5 adapter for real; webhook host +
-   shared secret to deploy the TradingView endpoint; news API/RSS credentials
-   for live news ingestion; approval for the W4 user-code sandbox and any
-   write-surface web framework (the delivered dashboard is read-only stdlib).
+1. **Rotate the exposed PAT** (pasted in chat 15 times; never reproduced
+   in any repo artifact; revocation/rotation is now overdue — and the
+   local commits from the 2026-10-10 cycle still need a SAFE push after
+   rotation).
+2. **Approve a genuine current-feed data source** (SRC-APPROVAL record
+   per `PREDICTION_DATA_SOURCE_PROVENANCE_POLICY.md` §7.1) **and
+   provision the feed** — this is the precise path to
+   OPERATIONAL_FEED_READY + a REAL_VERIFIED feed-window dataset (the
+   deferred 20-year research corpus is NOT required for paper
+   activation; it remains deferred per GOV-HDD-001).
+3. **Provision the keyed-MAC ledger key** (≥ 32 random bytes via
+   `RUNTIME_LEDGER_MAC_KEY` or an external key file — secure channel
+   only, never chat) to operationalize custody (GOV-KMC-001 §5).
+4. **Confirm PAT revocation** through an authorized secure process so
+   GOVERNANCE_READY's credential-rotation component can close.
+5. *(Optional, later)* Register a TRAINED RL policy through the model
+   registry with out-of-sample evidence — the current advisor is an
+   honestly-labeled deterministic baseline.
+6. *(Optional, when wanted live)* Platform environment items: Windows
+   MT5 terminal + demo broker; webhook host + shared secret; news API
+   credentials; W4 user-code sandbox and write-surface web-framework
+   approvals.
 
-## 8. Eight documents to read first
+DONE this cycle (recorded, no longer operator decisions): H-1
+ratification, CI/WP-12 authorization, BUG-008 residual acceptance,
+keyed-MAC custody decision, historical-data deferral recording.
 
-1. `ZAI_REPOSITORY_PROGRESS_BRIEF.md` — the detailed living brief (v1.13.0)
-2. `PAPER_TRADING_READINESS_FINAL_REPORT.md` — final verdict + blocker dispositions (v2.1.0)
-3. `MASTER_DOCUMENTATION_INDEX.md` — authority map of ~90 documents
-4. `docs/PLATFORM_EXPANSION_SPEC.md` — the platform package authority: modules,
-   dataset audit evidence, security posture, limitations (v1.0.0)
-5. `docs/RL_RUNTIME_GOVERNANCE_SPEC.md` — the governed RL advisor contract (v1.0.0)
-6. `ZAI_PLATFORM_MANDATE_GAP_MATRIX.md` — mandate-to-repo status matrix, W1–W8 disposition (v1.1.0)
-7. `data/manifests/import_summary.json` — machine-readable Phase C dataset record
-8. `PHASE_4A1_IMPLEMENTATION_RECORD.md` — frozen Phase 3 manifest of record
+## 8. Documents to read first
+
+1. `ZAI_REPOSITORY_PROGRESS_BRIEF.md` — the detailed living brief
+2. `PAPER_TRADING_READINESS_FINAL_REPORT.md` — final verdict + blocker dispositions (v2.2.0, incl. §0A this cycle)
+3. `H1_RATIFICATION_DECISION_RECORD.md` + `CI_WP12_GATE_DECISION_RECORD.md` +
+   `BUG008_RESIDUAL_RESOLUTION_RECORD.md` + `KEYED_MAC_CUSTODY_DECISION_RECORD.md` +
+   `HISTORICAL_DATA_DEFERRAL_RECORD.md` — the five 2026-10-10 operator decision records
+4. `MASTER_DOCUMENTATION_INDEX.md` — authority map of ~90 documents
+5. `docs/PLATFORM_EXPANSION_SPEC.md` — the platform package authority (v1.0.0)
+6. `docs/RL_RUNTIME_GOVERNANCE_SPEC.md` — the governed RL advisor contract (v1.0.0)
+7. `docs/PAPER_READINESS_GATE.md` — the 32-gate authority (v2.2.0)
+8. `data/manifests/import_summary.json` — machine-readable Phase C dataset record
+9. `PHASE_4A1_IMPLEMENTATION_RECORD.md` — frozen Phase 3 manifest of record

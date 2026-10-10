@@ -81,6 +81,8 @@ from data_engine.runtime.ledgers import (
     LedgerFamily,
     LedgerError,
     LEDGER_NAMES,
+    KEYED_EVENT_HASH_PREFIX,
+    UNKEYED_EVENT_HASH_PREFIX,
 )
 from data_engine.runtime.pnl import (
     PnLEngine,
@@ -143,6 +145,23 @@ from data_engine.runtime.data_gate import (
     RealDataReadiness,
     validate_bars,
 )
+from data_engine.runtime.feed_gate import (
+    DEFAULT_FUTURE_TOLERANCE_SECONDS,
+    DEFAULT_MAX_STALENESS_SECONDS,
+    FeedGateError,
+    OperationalFeedReport,
+    RESEARCH_HISTORY_DECISION_ID,
+    RESEARCH_HISTORY_STATUS,
+    evaluate_operational_feed,
+)
+from data_engine.runtime.mac_custody import (
+    ENV_KEY_FILE_VAR,
+    ENV_KEY_VAR,
+    MAC_HEX_LEN,
+    MacCustody,
+    MacCustodyError,
+    keyed_event_mac,
+)
 from data_engine.runtime.recovery import (
     RecoveryManager,
     RecoveryReport,
@@ -202,6 +221,7 @@ __all__ = [
     "validate_execution_state",
     # ledgers
     "LedgerEvent", "LedgerFamily", "LedgerError", "LEDGER_NAMES",
+    "KEYED_EVENT_HASH_PREFIX", "UNKEYED_EVENT_HASH_PREFIX",
     # accounting
     "PnLEngine", "PnlRecord", "PositionState",
     # execution
@@ -228,6 +248,14 @@ __all__ = [
     # data gate
     "DataReadinessReport", "DatasetReadinessRecord", "QualityRejection",
     "RealDataReadiness", "validate_bars",
+    # operational feed gate (operator mandate 2026-10-10 §2)
+    "DEFAULT_FUTURE_TOLERANCE_SECONDS", "DEFAULT_MAX_STALENESS_SECONDS",
+    "FeedGateError", "OperationalFeedReport",
+    "RESEARCH_HISTORY_DECISION_ID", "RESEARCH_HISTORY_STATUS",
+    "evaluate_operational_feed",
+    # keyed-MAC ledger custody (operator mandate 2026-10-10 §1.5)
+    "ENV_KEY_FILE_VAR", "ENV_KEY_VAR", "MAC_HEX_LEN", "MacCustody",
+    "MacCustodyError", "keyed_event_mac",
     # recovery + runtime + readiness
     "RecoveryManager", "RecoveryReport",
     "BarOutcome", "RuntimeConfig", "TradingRuntime",

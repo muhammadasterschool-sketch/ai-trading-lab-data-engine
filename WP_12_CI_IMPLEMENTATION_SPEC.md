@@ -1,13 +1,28 @@
 # WP-12 — CI GATES IMPLEMENTATION SPEC (GitHub Actions)
 
+> **2026-10-10 update:** the operator authorized implementation
+> (WP-12-CI-ENABLE — CI_WP12_GATE_DECISION_RECORD.md v2.0.0 §2). The
+> §3 workflow below is now INSTALLED verbatim at
+> `.github/workflows/ci.yml`. It runs on the platform after the next
+> push; local mirrors of every gate were executed green this cycle
+> (record v2.0.0 §4). Nothing claims a platform run that has not
+> happened.
+
 ```text
-Document Type:  Implementation-ready CI specification (NOT ENABLED)
+Document Type:  Implementation-ready CI specification
 Phase:          Cross-cutting (Enhancement Mandate v2.0 WP-12)
-Authority:      B — CURRENT SUPPORTING (specification awaiting decision)
-Status:         PENDING HUMAN AUTHORIZATION
-Version:        1.0.0
-Last Updated:   2026-10-08
-Decision State: WP-12 = HUMAN_DECISION_REQUIRED
+Authority:      B — CURRENT SUPPORTING
+Status:         IMPLEMENTED (authorized 2026-10-10 — decision record
+                WP-12-CI-ENABLE in CI_WP12_GATE_DECISION_RECORD.md
+                v2.0.0; .github/workflows/ci.yml installed VERBATIM from
+                §3; every gate mirrored locally this cycle. The
+                workflow has NOT yet executed on GitHub Actions — no
+                platform run/approval is claimed; first push triggers
+                the first run.)
+Version:        1.1.0
+Last Updated:   2026-10-10
+Decision State: WP-12 = AUTHORIZED + IMPLEMENTED (platform execution
+                PENDING FIRST PUSH)
 ```
 
 ---

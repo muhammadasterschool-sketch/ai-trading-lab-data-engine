@@ -9,13 +9,16 @@ Document Type:  Master documentation index (SSOT)
 Phase:          Cross-phase (all phases)
 Authority:      A — AUTHORITATIVE (this index is the documentation map of record)
 Status:         CURRENT
-Version:        2.2.0
-Last Updated:   2026-10-10 (platform-expansion DELIVERY cycle:
-                 docs/PLATFORM_EXPANSION_SPEC.md v1.0.0 registered A-class
-                 as the authority for the new `data_engine.platform`
-                 package; ZAI_PLATFORM_MANDATE_GAP_MATRIX.md v1.1.0 with
-                 W1–W8 delivery statuses; ZAI_REPOSITORY_WORK_DONE_SUMMARY.md
-                 v3.0.0 with era 9)
+Version:        2.3.0
+Last Updated:   2026-10-10 (operator APPROVAL & IMPLEMENTATION cycle:
+                 five operator decision records registered — H-1
+                 RATIFIED (record v2.0.0), CI/WP-12 AUTHORIZED + workflow
+                 installed (record v2.0.0), BUG-008 residual CLOSED
+                 (GOV-B08-001), keyed-MAC custody DECIDED + mechanism
+                 implemented (GOV-KMC-001), historical-data deferral
+                 RECORDED (GOV-HDD-001); gate spec v2.2.0 — 32 gates with
+                 OPERATIONAL_FEED_READY; final report v2.2.0; work-done
+                 summary v4.0.0 with era 10)
 Supersedes:     none (first canonical index)
 Superseded By:  —
 Source Evidence: doc_discovery.py inventory (80 pre-existing docs), reference
@@ -205,9 +208,12 @@ The remaining §61 spec documents (`TRADING_RUNTIME_ARCHITECTURE.md`, `TRADING_E
 | `P2_INDEPENDENT_CORRECTION_RE_AUDIT_REPORT.md` | C | Current audit evidence — P2 independent re-audit record (v1.0.0, READ-ONLY): every P1 correction re-verified first-hand (diffs + probes + 1141/1141 x2 + 8 category subsets); **verdicts 15 CLOSED · 1 PARTIAL (BUG-008 residual rule-deferred) · 0 OPEN · 0 REGRESSED; P2 VERDICT: CONDITIONAL PASS**; frozen integrity re-verified blob-level; security scans 0; exposed PAT re-verified STILL ACTIVE (exposure #5 — rotation OPEN); OBS-1 mode-sweep recorded; open-blocker register (CRED-ROTATION / BUG-008-RESIDUAL / KEYED-MAC / PAPER-BLK-1..6 / P3 Stage-0 / OBS-1); P3 NOT AUTHORIZED | Independent re-audit of the P1 correction window (staged readiness program stage 2) | — |
 | `PAPER_TRADING_READINESS_FINAL_REPORT.md` | C | Current cycle evidence — paper-readiness RE-AUDIT final report (v2.0.0): all 28 re-audit blockers verified + closed where authorized — persistence MANDATORY, readiness-gated startup (30 gates), runtime-integrated recovery at 10 restart points, EXECUTION_STATE_SCHEMA v1.1.0, full ledger/memory chain recovery, kill-switch persistence, PARTIAL→EXPIRED defect fixed, wall-clock-free identity (cross-process ×2); 1,378/1,378 ×2; frozen 13/13 before AND after; **PAPER_READY = FALSE — BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY**. Supersedes v1.0.0 (archived at `docs/PAPER_TRADING_READINESS_FINAL_REPORT_v1.md`) | Paper-readiness re-audit cycle (operator-authorized) | — |
 | `CURRENT_REPOSITORY_PAPER_READINESS_BRIEF.md` | B | Current supporting — pre-implementation paper-readiness snapshot at f61e1ee (gap register this cycle closed) | Orientation snapshot (superseded in part by the final report above) | — |
-| `H1_RATIFICATION_DECISION_RECORD.md` | A | AUTHORITATIVE governance decision record (v1.0.0): H-1 ratification request with signature block — **HUMAN_DECISION_REQUIRED** (no approval fabricated) | H-1/F-04 containment governance | — |
+| `H1_RATIFICATION_DECISION_RECORD.md` | A | AUTHORITATIVE governance decision record (v2.0.0): **H-1 RATIFIED 2026-10-10 — Option A containment (GOV-H1-002-RATIFY)**; operator in-session authorization quoted verbatim; ratified v1.0.0 text + sha256 pinned; no signature fabricated; frozen artifacts untouched | H-1/F-04 containment governance | — |
 | `REAL_DATA_READINESS_CONTRACT.md` | A | AUTHORITATIVE data contract (v1.0.0): full §9 pipeline + dataset record schema + §10 quality gates — **BLOCKED_ON_REAL_DATA** (0 verified datasets; never invented) | Real-data readiness gate | — |
-| `CI_WP12_GATE_DECISION_RECORD.md` | A | AUTHORITATIVE governance decision record (v1.0.0): WP-12 CI authorization request with signature block — **HUMAN_DECISION_REQUIRED** (.github/ intentionally absent) | CI gate governance | — |
+| `CI_WP12_GATE_DECISION_RECORD.md` | A | AUTHORITATIVE governance decision record (v2.0.0): **WP-12 AUTHORIZED 2026-10-10 (WP-12-CI-ENABLE) + IMPLEMENTED** — `.github/workflows/ci.yml` installed verbatim; every workflow gate mirrored locally green; honestly NO GitHub Actions run claimed (first push triggers the first run) | CI gate governance | — |
+| `BUG008_RESIDUAL_RESOLUTION_RECORD.md` | A | AUTHORITATIVE governance decision record (v1.0.0, GOV-B08-001): **BUG-008 residual CLOSED — permanent acceptance of the runtime-boundary adapter** (the path preserving frozen contracts); 13 deferred fields pinned by dynamic discovery in `tests/test_bug008_boundary_closure.py`; frozen byte-identity re-proven | BUG-008 residual governance | — |
+| `KEYED_MAC_CUSTODY_DECISION_RECORD.md` | A | AUTHORITATIVE governance decision record (v1.0.0, GOV-KMC-001): **keyed-MAC custody DECIDED + mechanism IMPLEMENTED / NOT OPERATIONAL** — `runtime/mac_custody.py` + keyed ledger chains (rtledm. HMAC, rotation grace, strict mode discipline, full-history-rewrite defense); operationalization awaits genuine key provisioning via the secure channel (env-var/external-key-file); provisioning log (fingerprint-only) inside | Ledger integrity governance | — |
+| `HISTORICAL_DATA_DEFERRAL_RECORD.md` | A | AUTHORITATIVE governance decision record (v1.0.0, GOV-HDD-001): **long-term historical-data acquisition DEFERRED** by operator (2026-10-10); research-history vs operational-feed separation semantics; referenced by `runtime/feed_gate.py` and the 32-gate readiness set | Data-acquisition governance | — |
 | `docs/TRADING_RUNTIME_ARCHITECTURE.md` | A | AUTHORITATIVE runtime spec (v2.0.0): the one orchestration path, fail-closed startup chain (BLOCKER 1/2/4), complete execution-state persistence (BLOCKER 5), component map, operating states, determinism (wall-clock-free identity, BLOCKER 14) | Runtime implementation | — |
 | `docs/TRADING_EVENT_CONTRACT.md` | A | AUTHORITATIVE contract spec (v1.0.0): identity rules/prefix map, PredictionArtifact/Decision/TradePlan/ExitRecord schemas, correlation threading | Runtime contracts | — |
 | `docs/ORDER_LIFECYCLE_SPEC.md` | A | AUTHORITATIVE OMS spec (v1.0.0): 14-state machine, idempotency, partial fills, TTL, execution realism | OMS implementation | — |
