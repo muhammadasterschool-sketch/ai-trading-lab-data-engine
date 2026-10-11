@@ -7,12 +7,23 @@ Authority:      B — CURRENT SUPPORTING (evidence record for the
                 data-governance chain; readiness authority remains
                 PAPER_TRADING_READINESS_FINAL_REPORT.md)
 Status:         CURRENT
-Version:        1.0.0
+Version:        1.0.1
 Date:           2026-10-11
 Branch:         feat/master-market-data-import (created from
                 phase-4a/4a1-architecture-correction @ d49b822 —
                 remote main = phase branch = d49b822 verified before
                 any change; tree clean)
+Implementation
+Commit:         0e0174f (22 files, +559,767/−25; post-commit
+                suite re-run 1,685 + 1 skipped, tree clean)
+Push Status:    BLOCKED ON CREDENTIALS — `git push origin
+                feat/master-market-data-import` attempted and failed
+                ("could not read Username for 'https://github.com'");
+                no credential helper, no gh CLI, no token env exists in
+                the session. Remote verified unchanged at d49b822.
+                No credential was invented or committed (rule: never).
+                PR + platform CI for this branch PENDING the operator
+                push below — NOT claimed as done.
 Operator Input: Master_Market_Data_for_ZAI.zip (uploaded 2026-10-11;
                 bundle manifest MASTER_DATA_MANIFEST.json preserved at
                 data/raw/master/_bundle/, sha256
@@ -293,6 +304,22 @@ This import does NOT and CANNOT flip any readiness gate:
   requires original provider data that was never supplied.
 - The coins file's 2026-10-11 candles (all 500 symbols) are incomplete
   by acquisition evidence; stocks/metals tails are partial periods.
-- CI platform execution for THIS branch's PR had not been observed at
-  the time this record was written (push depends on operator
-  credential); the record will not claim otherwise.
+- CI platform execution for THIS branch's PR has not been observed:
+  the push was attempted and FAILED for lack of credentials (first-
+  hand evidence recorded in the header — remote still at d49b822).
+  The exact operator actions to complete delivery:
+
+  ```bash
+  # from the repository root, on feat/master-market-data-import
+  git push origin feat/master-market-data-import
+  # then open the PR (title suggestion):
+  #   "Master market-data import — governed audit + ingestion"
+  # base: main ... compare: feat/master-market-data-import
+  ```
+
+  The PR will trigger the ci workflow (pull_request → main), which
+  runs the full suite + determinism + frozen verification against
+  the committed files. Alternatively, supply a secure credential in
+  a follow-up session message and the push/PR/CI observation will be
+  executed and recorded (protocol: validate-first via API, one-time
+  inline use, never stored/echoed, rotation advisory).
