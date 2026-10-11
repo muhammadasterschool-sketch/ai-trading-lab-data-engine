@@ -1,14 +1,18 @@
 # PAPER TRADING READINESS FINAL REPORT
 
-**Document ID:** PPR-FR-002 · **Version:** 2.2.0 · **Date:** 2026-10-10
+**Document ID:** PPR-FR-002 · **Version:** 2.3.0 · **Date:** 2026-10-11
 **Prepared by:** ZAI implementation + verification agent (paper-readiness
 re-audit mandate: blocker closure + runtime-integration forensic re-audit;
 RL-governance cycle: RL runtime + observability metrics + 31st gate;
 operator approval mandate 2026-10-10: governance decisions recorded,
 keyed-MAC custody implemented, BUG-008 residual closed, research-history
-vs operational-feed distinction + 32nd gate)
+vs operational-feed distinction + 32nd gate; master-import mandate
+2026-10-11: operator master-bundle integrated on
+feat/master-market-data-import — see §0B and
+MASTER_MARKET_DATA_IMPORT_RECORD.md v1.0.0)
 **Repository:** muhammadasterschool-sketch/ai-trading-lab-data-engine
-**Branch:** phase-4a/4a1-architecture-correction
+**Branch:** phase-4a/4a1-architecture-correction (integration branch:
+feat/master-market-data-import, from d49b822)
 **Baseline at start:** f1bfe02 (remote main = phase branch = f1bfe02;
 tree clean; suite 1,570 + 1 skipped ×2 re-verified first-hand)
 **Supersedes:** v2.1.0 (whose content remains authoritative below —
@@ -105,6 +109,44 @@ provisioning. LIVE TRADING remains NOT AUTHORIZED; no live surface
 exists (MT5 order path refused by design — re-verified this cycle).
 Paper trading was NOT activated; the exact remaining blockers are
 listed in §15 (updated below by reference to this §0A).
+
+---
+
+## 0B. MASTER-DATA IMPORT AMENDMENT (v2.3.0, 2026-10-11)
+
+The operator supplied a four-file master market-data bundle
+(Coins/Forex/Stocks/Metals). It was integrated on the feature branch
+`feat/master-market-data-import` through the governed pipeline with
+checksums verified before import, originals preserved byte-for-byte,
+full independent audits, honest UNKNOWN provenance, 55 new regression
+tests, and NO readiness-gate changes. Full evidence:
+`MASTER_MARKET_DATA_IMPORT_RECORD.md` v1.0.0. Summary of what changed
+and what did NOT:
+
+- **Registered (521 instruments, 541,954 rows):** Coins_Master.csv →
+  REAL_UNVERIFIED (500 symbols, daily ms-epoch klines, integrity
+  clean, 16 partial-span candles, all 500 final candles incomplete at
+  acquisition); Forex_Master.csv → REAL_UNVERIFIED (7 USD-base rate
+  pairs — a RATE SERIES, never fabricated into OHLC); Stocks_Master.csv
+  → REAL_UNVERIFIED (9 assets, monthly/quarterly, 0/9 D1-suitable);
+  Metals_Master.csv → **INVALID** (19 impossible-OHLC rows quarantined
+  verbatim — correction requires original provider data that was
+  never supplied).
+- **VERDICT UNCHANGED: PAPER_READY = FALSE.** REAL_DATA_READY stays
+  FALSE (VERIFIED_YEARS = 0; REAL_VERIFIED remains unreachable without
+  provider identification, licence confirmation, SRC-APPROVAL and the
+  nine-stage verification chain — operator supply is approval-to-use,
+  not source approval). OPERATIONAL_FEED_READY stays FALSE (historical
+  CSVs prove nothing about a current feed's freshness/mapping/reliability;
+  additionally the forex file is not OHLC, stocks/metals are not daily,
+  and the coins file's final candles are incomplete). GOVERNANCE_READY
+  components unchanged (H-1 ✓, CI/WP-12 ✓; PAT rotation, keyed-MAC key
+  provisioning, source approval open).
+- **Suite:** 1,630 → **1,685 passed + 1 skipped** (+55 master-dataset
+  tests) with one pre-existing weak assertion replaced by a real one
+  (legacy non-chronology check was post-sort/vacuous — fixed with
+  byte-identical legacy manifests verified before commit).
+- **Frozen Phase 3: 13/13 unchanged. Security scans: clean.**
 
 ---
 
@@ -473,6 +515,14 @@ frozen-contract change was committed.
    verified feed-window dataset satisfies the runtime gate; the
    long-term research corpus remains DEFERRED per GOV-HDD-001 and is
    never falsely reported).
+   > **v2.3.0 note (master-import):** the operator's master bundle is
+   > now REGISTERED (3 × REAL_UNVERIFIED + 1 × INVALID; provider,
+   > licence and source approval all UNKNOWN — see
+   > MASTER_MARKET_DATA_IMPORT_RECORD.md §5/§8). Registration changed
+   > nothing about this gate: REAL_UNVERIFIED/INVALID data can never
+   > satisfy it; the promotion path (SRC-APPROVAL + licence +
+   > nine-stage chain, provider-derived corrections for the 19 metals
+   > violations) remains exactly as documented.
 3. **GOVERNANCE_READY = FALSE — remaining components:**
    a. **PAT rotation confirmation** — the exposed token (now exposure
       #15) must be revoked/rotated by the operator through a secure
@@ -528,7 +578,8 @@ AND AUDIT_READY           (PASS — continuous chains)
 AND REPLAY_READY          (PASS — cross-process ×2)
 AND OBSERVABILITY_READY   (PASS — RuntimeMetrics wired, v2.1.0)
 AND SECURITY_READY        (PASS — scans; PAT rotation OPEN)
-AND TESTS_READY           (PASS — 1621 ×2 deterministic, v2.2.0)
+AND TESTS_READY           (PASS — 1685 ×2 deterministic, v2.3.0
+                            master-import cycle)
 AND GOVERNANCE_READY      (FALSE — H-1 ✓ and CI/WP-12 ✓ recorded
                             2026-10-10; open components: PAT rotation
                             confirmation, keyed-MAC custody

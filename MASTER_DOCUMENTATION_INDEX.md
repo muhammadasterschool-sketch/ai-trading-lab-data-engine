@@ -9,19 +9,13 @@ Document Type:  Master documentation index (SSOT)
 Phase:          Cross-phase (all phases)
 Authority:      A — AUTHORITATIVE (this index is the documentation map of record)
 Status:         CURRENT
-Version:        2.3.1
-Last Updated:   2026-10-10 (PUSH continuation cycle: work-done summary
-                 advanced to v4.1.0 — era-10 push record, suite count
-                 corrected to the first-hand re-verified 1,630 + 1
-                 skipped, stale summary row fixed v3.0.0 → v4.1.0.
-                 Earlier the same day — operator APPROVAL & IMPLEMENTATION
-                 cycle: five operator decision records registered — H-1
-                 RATIFIED (record v2.0.0), CI/WP-12 AUTHORIZED + workflow
-                 installed (record v2.0.0), BUG-008 residual CLOSED
-                 (GOV-B08-001), keyed-MAC custody DECIDED + mechanism
-                 implemented (GOV-KMC-001), historical-data deferral
-                 RECORDED (GOV-HDD-001); gate spec v2.2.0 — 32 gates with
-                 OPERATIONAL_FEED_READY; final report v2.2.0)
+Version:        2.4.0
+Last Updated:   2026-10-11 (MASTER-IMPORT cycle: operator master-bundle
+                 integrated on feat/master-market-data-import — new record
+                 MASTER_MARKET_DATA_IMPORT_RECORD.md v1.0.0 registered;
+                 PAPER_TRADING_READINESS_FINAL_REPORT.md advanced to
+                 v2.3.0 §0B master-import amendment — verdict UNCHANGED
+                 PAPER_READY = FALSE)
 Supersedes:     none (first canonical index)
 Superseded By:  —
 Source Evidence: doc_discovery.py inventory (80 pre-existing docs), reference
@@ -209,7 +203,7 @@ The remaining §61 spec documents (`TRADING_RUNTIME_ARCHITECTURE.md`, `TRADING_E
 | `SECURITY_CREDENTIAL_FORENSIC_REPORT.md` | C | Current audit evidence — P0 deliverable of the staged readiness program (v1.0.0) | Credential exposure forensic (4th chat exposure, value withheld, verified STILL ACTIVE via API); full tree/config/history sweeps (0 credentials); push hygiene record; staged readiness program P0–P8 registration (P0 COMPLETE, P1 correction window AWAITING HUMAN AUTHORIZATION); NO TRADING IMPLEMENTATION PERFORMED | — |
 | `P1_CORRECTION_WINDOW_REPORT.md` | C | Current audit evidence — P1 execution record (v1.0.0): 16/16 authorized findings corrected with objective evidence (1141/1141 tests x3, 0/17 AFTER-probes defective, 31/31 BUG-008 mutations blocked, frozen gates 11/11 + 13/13); closure verdicts deferred to the P2 re-audit; local commits 1277331 + docs (NOT pushed per rule 11) | Correction-window execution record for BUG-001..009 + ARCH-F1/F3/F4/F6 + RT-F7/F8/F13 | — |
 | `P2_INDEPENDENT_CORRECTION_RE_AUDIT_REPORT.md` | C | Current audit evidence — P2 independent re-audit record (v1.0.0, READ-ONLY): every P1 correction re-verified first-hand (diffs + probes + 1141/1141 x2 + 8 category subsets); **verdicts 15 CLOSED · 1 PARTIAL (BUG-008 residual rule-deferred) · 0 OPEN · 0 REGRESSED; P2 VERDICT: CONDITIONAL PASS**; frozen integrity re-verified blob-level; security scans 0; exposed PAT re-verified STILL ACTIVE (exposure #5 — rotation OPEN); OBS-1 mode-sweep recorded; open-blocker register (CRED-ROTATION / BUG-008-RESIDUAL / KEYED-MAC / PAPER-BLK-1..6 / P3 Stage-0 / OBS-1); P3 NOT AUTHORIZED | Independent re-audit of the P1 correction window (staged readiness program stage 2) | — |
-| `PAPER_TRADING_READINESS_FINAL_REPORT.md` | C | Current cycle evidence — paper-readiness RE-AUDIT final report (v2.0.0): all 28 re-audit blockers verified + closed where authorized — persistence MANDATORY, readiness-gated startup (30 gates), runtime-integrated recovery at 10 restart points, EXECUTION_STATE_SCHEMA v1.1.0, full ledger/memory chain recovery, kill-switch persistence, PARTIAL→EXPIRED defect fixed, wall-clock-free identity (cross-process ×2); 1,378/1,378 ×2; frozen 13/13 before AND after; **PAPER_READY = FALSE — BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY**. Supersedes v1.0.0 (archived at `docs/PAPER_TRADING_READINESS_FINAL_REPORT_v1.md`) | Paper-readiness re-audit cycle (operator-authorized) | — |
+| `PAPER_TRADING_READINESS_FINAL_REPORT.md` | C | Current cycle evidence — paper-readiness RE-AUDIT final report (**v2.3.0**: §0B master-import amendment — operator bundle registered 3 × REAL_UNVERIFIED + 1 × INVALID, verdict UNCHANGED; v2.2.0 §0A: operator decisions recorded, keyed-MAC custody, 32nd gate OPERATIONAL_FEED_READY; v2.0.0: all 28 re-audit blockers verified + closed where authorized — persistence MANDATORY, readiness-gated startup, runtime-integrated recovery at 10 restart points, EXECUTION_STATE_SCHEMA v1.1.0, full ledger/memory chain recovery, kill-switch persistence, PARTIAL→EXPIRED defect fixed, wall-clock-free identity (cross-process ×2); frozen 13/13 before AND after; **PAPER_READY = FALSE — BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY**. Supersedes v1.0.0 (archived at `docs/PAPER_TRADING_READINESS_FINAL_REPORT_v1.md`) | Paper-readiness re-audit cycle (operator-authorized) | — |
 | `CURRENT_REPOSITORY_PAPER_READINESS_BRIEF.md` | B | Current supporting — pre-implementation paper-readiness snapshot at f61e1ee (gap register this cycle closed) | Orientation snapshot (superseded in part by the final report above) | — |
 | `H1_RATIFICATION_DECISION_RECORD.md` | A | AUTHORITATIVE governance decision record (v2.0.0): **H-1 RATIFIED 2026-10-10 — Option A containment (GOV-H1-002-RATIFY)**; operator in-session authorization quoted verbatim; ratified v1.0.0 text + sha256 pinned; no signature fabricated; frozen artifacts untouched | H-1/F-04 containment governance | — |
 | `REAL_DATA_READINESS_CONTRACT.md` | A | AUTHORITATIVE data contract (v1.0.0): full §9 pipeline + dataset record schema + §10 quality gates — **BLOCKED_ON_REAL_DATA** (0 verified datasets; never invented) | Real-data readiness gate | — |
@@ -217,6 +211,7 @@ The remaining §61 spec documents (`TRADING_RUNTIME_ARCHITECTURE.md`, `TRADING_E
 | `BUG008_RESIDUAL_RESOLUTION_RECORD.md` | A | AUTHORITATIVE governance decision record (v1.0.0, GOV-B08-001): **BUG-008 residual CLOSED — permanent acceptance of the runtime-boundary adapter** (the path preserving frozen contracts); 13 deferred fields pinned by dynamic discovery in `tests/test_bug008_boundary_closure.py`; frozen byte-identity re-proven | BUG-008 residual governance | — |
 | `KEYED_MAC_CUSTODY_DECISION_RECORD.md` | A | AUTHORITATIVE governance decision record (v1.0.0, GOV-KMC-001): **keyed-MAC custody DECIDED + mechanism IMPLEMENTED / NOT OPERATIONAL** — `runtime/mac_custody.py` + keyed ledger chains (rtledm. HMAC, rotation grace, strict mode discipline, full-history-rewrite defense); operationalization awaits genuine key provisioning via the secure channel (env-var/external-key-file); provisioning log (fingerprint-only) inside | Ledger integrity governance | — |
 | `HISTORICAL_DATA_DEFERRAL_RECORD.md` | A | AUTHORITATIVE governance decision record (v1.0.0, GOV-HDD-001): **long-term historical-data acquisition DEFERRED** by operator (2026-10-10); research-history vs operational-feed separation semantics; referenced by `runtime/feed_gate.py` and the 32-gate readiness set | Data-acquisition governance | — |
+| `MASTER_MARKET_DATA_IMPORT_RECORD.md` | A | AUTHORITATIVE import record (v1.0.0, 2026-10-11): **operator master-bundle integrated on feat/master-market-data-import** — 4/4 SHA-256 verified before import; originals preserved byte-for-byte under data/raw/master/; LFS explicitly unsupported (analysis recorded); Coins REAL_UNVERIFIED (500 symbols, all final candles incomplete at acquisition), Forex REAL_UNVERIFIED (USD-base RATE SERIES — OHLC fabrication forbidden), Stocks REAL_UNVERIFIED (monthly/quarterly, 0/9 D1-suitable), Metals **INVALID** (19 impossible-OHLC rows quarantined verbatim); provenance honestly UNKNOWN; 521 instruments registered; legacy vacuous non-chronology check fixed with byte-identical legacy manifests verified; +55 regression tests (suite 1,685 + 1 skipped); **no readiness gate changed — PAPER_READY = FALSE unchanged** | Master-bundle import governance | — |
 | `docs/TRADING_RUNTIME_ARCHITECTURE.md` | A | AUTHORITATIVE runtime spec (v2.0.0): the one orchestration path, fail-closed startup chain (BLOCKER 1/2/4), complete execution-state persistence (BLOCKER 5), component map, operating states, determinism (wall-clock-free identity, BLOCKER 14) | Runtime implementation | — |
 | `docs/TRADING_EVENT_CONTRACT.md` | A | AUTHORITATIVE contract spec (v1.0.0): identity rules/prefix map, PredictionArtifact/Decision/TradePlan/ExitRecord schemas, correlation threading | Runtime contracts | — |
 | `docs/ORDER_LIFECYCLE_SPEC.md` | A | AUTHORITATIVE OMS spec (v1.0.0): 14-state machine, idempotency, partial fills, TTL, execution realism | OMS implementation | — |

@@ -465,13 +465,19 @@ def audit_csv_file(path: Path, kind: CsvKind) -> CsvDatasetAudit:
     )
 
     for symbol, g in df.groupby("_sym", sort=True):
+        # non-chronology is measured on the FILE's original row order —
+        # computing it after the sort below would be vacuous (always 0).
+        # (Correction 2026-10-11, master-import cycle: the check was
+        # previously post-sort and therefore could never fire; it is
+        # now pre-sort. All four committed raw CSVs are chronological
+        # in file order, so committed manifests are unchanged by this
+        # fix — verified byte-identical before committing.)
+        non_chrono = int((g["_date"].diff().dt.total_seconds() < 0).sum())
+        total_non_chrono += non_chrono
         g = g.sort_values("_date")
         row_counts[symbol] = len(g)
         dates = g["_date"]
         coverage_dates.extend(dates.dropna().tolist())
-
-        non_chrono = int((dates.diff().dt.total_seconds() < 0).sum())
-        total_non_chrono += non_chrono
 
         has_ohlc = g[["_Open", "_High", "_Low", "_Close"]].notna().all(axis=1)
         valid = g[has_ohlc]

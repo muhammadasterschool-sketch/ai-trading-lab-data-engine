@@ -14,3 +14,6 @@ wheels/
 # runtime by the FS-21/22 recorder and must stay untracked.
 src/audit.log
 *.log
+
+# Master-data normalized views: generated artifacts (reproducible via
+data/processed/

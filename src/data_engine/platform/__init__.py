@@ -75,6 +75,23 @@ from data_engine.platform.datasets import (
     audit_csv_file,
     ingest_csv_dataset,
 )
+from data_engine.platform.master_datasets import (
+    AnchorResult as MasterAnchorResult,
+    CoinsMasterAudit,
+    CoinsSymbolAudit,
+    ForexMasterAudit,
+    ForexPairAudit,
+    MasterDataKind,
+    MasterDatasetRecord,
+    MasterProvenanceRecord,
+    OhlcvAssetAudit,
+    OhlcvMasterAudit,
+    OhlcvViolationRow,
+    audit_coins_master,
+    audit_forex_master,
+    audit_ohlcv_master,
+    ingest_master_dataset,
+)
 
 __all__ = [
     "PLATFORM_CONTRACT_VERSION",
@@ -126,4 +143,19 @@ __all__ = [
     "PlatformDatasetRecord",
     "audit_csv_file",
     "ingest_csv_dataset",
+    "MasterAnchorResult",
+    "CoinsMasterAudit",
+    "CoinsSymbolAudit",
+    "ForexMasterAudit",
+    "ForexPairAudit",
+    "MasterDataKind",
+    "MasterDatasetRecord",
+    "MasterProvenanceRecord",
+    "OhlcvAssetAudit",
+    "OhlcvMasterAudit",
+    "OhlcvViolationRow",
+    "audit_coins_master",
+    "audit_forex_master",
+    "audit_ohlcv_master",
+    "ingest_master_dataset",
 ]
