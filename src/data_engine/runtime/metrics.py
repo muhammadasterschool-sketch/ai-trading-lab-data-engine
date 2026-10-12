@@ -41,6 +41,7 @@ COUNTER_NAMES = (
     "no_trade_total",
     "orders_created",
     "orders_risk_rejected",
+    "orders_killswitch_cancelled",
     "fills",
     "partial_fill_events",
     "kill_switch_trips",

@@ -1,6 +1,6 @@
 # PAPER TRADING READINESS FINAL REPORT
 
-**Document ID:** PPR-FR-002 · **Version:** 2.5.0 · **Date:** 2026-10-12
+**Document ID:** PPR-FR-002 · **Version:** 2.6.0 · **Date:** 2026-10-12
 **Prepared by:** ZAI implementation + verification agent (paper-readiness
 re-audit mandate: blocker closure + runtime-integration forensic re-audit;
 RL-governance cycle: RL runtime + observability metrics + 31st gate;
@@ -11,7 +11,8 @@ vs operational-feed distinction + 32nd gate; master-import mandate
 feat/master-market-data-import — see §0B and
 MASTER_MARKET_DATA_IMPORT_RECORD.md v1.0.0; next-execution mandate
 2026-10-12: Phase A–C re-verification + PAPER-RUN-PNL-1 closure — see
-§0D)
+§0D; kill-switch enforcement audit 2026-10-12: order-path trace +
+RUN-KS-1/RUN-KS-2/RUN-HALT-1 closure — see §0E)
 **Repository:** muhammadasterschool-sketch/ai-trading-lab-data-engine
 **Branch:** phase-4a/4a1-architecture-correction (integration branch:
 feat/master-market-data-import, from d49b822)
@@ -330,6 +331,129 @@ nine-stage chain — plus the OPEN Phase-C items above (RUN-DD-1 is
 the next ranked blocker). The branch is NOT pushed (no safe
 credential; the chat-exposed PAT remains compromised and unused).
 LIVE NOT AUTHORIZED.
+
+---
+
+## 0E. KILL-SWITCH ENFORCEMENT AUDIT AMENDMENT (v2.6.0, 2026-10-12)
+
+The operator's continuation mandate required: verify the full-suite
+regression after the 7 PAPER-RUN-PNL-1 acceptance tests (no assumed
+counts), verify frozen artifacts and test integrity, trace EVERY
+paper-order entry point through risk approval and kill-switch
+enforcement with exact file/function references, add or run tests
+proving orders are REJECTED on risk failure / active kill switch /
+uncertain execution state, then rank remaining blockers. Executed on
+`fix/paper-runtime-killswitch-fill-enforcement` (base `efd92c1`, the
+PAPER-RUN-PNL-1 commit).
+
+### 0E.1 Baseline verification (first-hand, nothing assumed)
+
+- Full suite at `efd92c1`: `uv run pytest -q -p no:cacheprovider` =
+  **1,762 passed + 1 skipped ×2** (53.0 s / 54.0 s; Python 3.12.15,
+  pytest 9.1.1) — the claimed count independently reproduced; the 1
+  skip is pre-existing and by design
+  (`tests/test_runtime_models.py::…baseline is seed-free`).
+- Frozen Phase 3 strategy package **11/11 byte-identical** to
+  `main@13fdc7e` (CI-frozen-blob logic replicated locally). Test-tree
+  integrity: **0 deleted** test files, 4 added
+  (`test_master_datasets`/`test_feed_composition`/
+  `test_provider_binance_public`/`test_runtime_pnl_correctness`),
+  1 modified = the documented F-24 STRENGTHENING (vacuous `>= 0`
+  assertion replaced by `== 1 + INVALID`); 5 skip-markers all
+  pre-existing/conditional — **nothing weakened, removed, or skipped**.
+- GitHub state (operator-supplied token used READ-ONLY for
+  PR/CI inspection after API validation; never printed/committed;
+  NO push performed): PR #1 open/clean/mergeable at head `4e6dfc5`,
+  remote main `d49b822`; CI runs `38147771879` and `38147316090`
+  both SUCCESS (3.11+3.12 legs, all steps green incl. frozen-blob
+  and secret-scan steps). Token rotation advisory REMAINS OPEN.
+
+### 0E.2 Audit findings — the complete order-path trace
+
+Every paper order is created by ONE function:
+`TradingRuntime._execute_plan` (`src/data_engine/runtime/runtime.py`),
+reached from exactly two call sites — `_process_bar_body` step 8
+(entries) and `_submit_protection_exits` (protective exits). The path
+is: 21-check `RiskGate.evaluate` (fail-closed, ledgered) → OMS
+`create_order` (idempotent identity) → `validate_order` →
+`risk_approve` (RT-F1 structural: refuses non-PASSING or
+fingerprint-mismatched assessments) → `submit` (refuses ambiguous
+states) → `acknowledge`. Fills flow ONLY through
+`_process_pending_orders`, and the whole bar is refused in
+NON_TRADING_STATES. The RL advisor is advisory/record-only (no
+execution authority). Three enforcement bypasses were found and
+proven executable (`scripts/probe_killswitch_fill_enforcement.py`):
+
+| ID | Severity | Finding (pre-fix, all first-hand reproduced) | Status |
+|---|---|---|---|
+| RUN-KS-1 | HIGH | A SYMBOL-scope kill-switch trip did NOT stop in-flight orders: a risk-approved order filled COMPLETELY (100 units) on the bar after the trip — `_process_pending_orders` never consulted the kill switch | **CLOSED this cycle** |
+| RUN-KS-2 | HIGH | An ORDER-scope switch had NO enforcement point anywhere (docstring promises "ORDER blocks one order id"; `check(order_id=…)` exists but no caller passed it) — the targeted order filled completely | **CLOSED this cycle** |
+| RUN-HALT-1 | MED-HIGH | An operator-halted session resumed RUNNING on restart (`start()` special-cased only persisted DEGRADED; persisted HALTED fell through) — violating halt()'s documented TERMINAL safe-stop contract | **CLOSED this cycle** |
+
+Existing rejection coverage verified and pinned: risk-failure
+rejection (`test_runtime_safety` 10 block-tests + OMS
+`test_risk_approval_requires_passing_assessment` +
+`test_risk_approval_fingerprint_mismatch_refused`), new-order
+rejection under active switch (`test_new_order_blocked_under_active_switch`,
+`test_kill_switch_blocks_all_new_orders`,
+`test_symbol_kill_switch_no_trade_for_symbol`), uncertain-state
+rejection (`test_fi_11_gateway_timeout` + OMS
+`test_ambiguous_retry_refused` + the pinned
+`test_execution_uncertain_refuses_subsequent_bars`).
+
+### 0E.3 The controlled fix (RUN-KS-1/RUN-KS-2/RUN-HALT-1)
+
+Acceptance tests FIRST (`tests/test_killswitch_fill_enforcement.py`,
+7 tests: 4 verified RED on the pre-fix code for exactly the
+documented reasons + 3 GREEN behaviour pins). Implementation
+(`runtime.py` + one `metrics.py` counter, `COUNTER_NAMES`):
+
+- **Fill-time enforcement**: `_process_pending_orders` now consults
+  `KillSwitchManager.check(symbol, order_id)` for every in-flight
+  order that is NOT a tracked exit; on `KillSwitchActive` the order
+  is CANCELLED (partial orders: the filled part stays, the remainder
+  is cancelled via `ORDER_CANCELLED_AFTER_PARTIAL`), pending
+  protection is dropped, the `orders_killswitch_cancelled` counter
+  increments, and an `ORDER_CANCELLED_KILL_SWITCH` incident with the
+  governing-switch description is ledgered. GLOBAL/ACCOUNT/PORTFOLIO
+  scopes were already covered by the operating-state bar guard — the
+  check is defense-in-depth for them.
+- **Carve-out preserved**: risk-reducing EXIT orders still fill under
+  an active switch (mirrors the risk gate's documented
+  closing-order exemption — the switch blocks NEW exposure, not risk
+  reduction); pinned by test.
+- **Terminal HALT**: `start()` step 5b restores a persisted HALTED
+  session AS HALTED (`RUNTIME_RESUMED_HALTED` incident; bars refused;
+  trading requires a NEW session). Placed AFTER the critical-switch
+  check so a critical switch still raises the LOUD refusal (pinned
+  by test). No schema change; existing restart matrix unaffected.
+
+Regression evidence: full suite **1,769 passed + 1 skipped ×2**
+(1,762 + 7 new; zero regressions); frozen strategy package **11/11
+intact**; secret scan **0 hits all history**; `EXECUTION_STATE_FIELDS`
+and every frozen contract UNTOUCHED.
+
+### 0E.4 Remaining paper-runtime blockers (ranked, post-fix)
+
+| Rank | ID | Severity | Finding |
+|---|---|---|---|
+| 1 | RUN-DD-1 | MED-HIGH | no ACCOUNT-equity drawdown limit — the gate's `drawdown` check measures the SYMBOL price-window drawdown (limit 0.15), never account equity vs initial equity; a multi-day account bleed trips nothing |
+| 2 | RUN-ST-1 | MED | in-session staleness hardcoded always-fresh (`last_bar_age_bars=0`); no wall-clock feed watchdog (pre-start freshness IS enforced by the feed gate) |
+| 3 | RUN-CA-1 | MED | no operator cancel/manual-close API; protection exits frozen after HALT |
+| 4 | RUN-PM-1 | LOW | `partial_fill_events` metric counts the completing fill |
+| 5 | RUN-DA-1 | LOW | dead attribute `_entry_orders_by_symbol` |
+| 6 | RUN-OBS-1 | LOW (new) | exit-path risk rejections are ledgered (`RISK_ASSESSMENT_FAIL`) but NOT surfaced in `BarOutcome.risk_failed_checks` (`_submit_protection_exits` discards the failed-checks tuple) |
+
+### 0E.5 Verdict (unchanged)
+
+**PAPER_READY = FALSE.** This cycle closed all three audit-confirmed
+enforcement bypasses (kill-switch fill-time enforcement + terminal
+HALT); the remaining distance to TRUE is unchanged in kind:
+SRC-APPROVAL, provisioned operational feed, keyed-MAC key
+provisioning, PAT rotation confirmation, REAL_DATA_READY nine-stage
+chain — plus the ranked OPEN items above (RUN-DD-1 next). The branch
+is NOT pushed (read-only credential use only; no push authorized
+this cycle). LIVE NOT AUTHORIZED.
 
 ---
 

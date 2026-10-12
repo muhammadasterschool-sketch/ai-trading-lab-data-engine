@@ -67,6 +67,7 @@ from data_engine.runtime.identity import (
     prefixed_hash,
 )
 from data_engine.runtime.kill_switch import (
+    KillSwitchActive,
     KillSwitchManager,
     KillSwitchScope,
 )
@@ -505,6 +506,29 @@ class TradingRuntime:
                 "is active; a restart NEVER clears a kill switch "
                 "(BLOCKER 12)"
             )
+
+        # -- 5b. persisted HALTED is TERMINAL (RUN-HALT-1) ---------------
+        # HALT is the terminal safe stop (operator action or
+        # persistence failure). A restart must NEVER silently resume
+        # a halted session into RUNNING: the terminal state is
+        # restored, bars are refused, and trading requires a NEW
+        # session. (Placed AFTER the critical-switch check so a
+        # critical switch still raises the LOUD refusal.)
+        if self._restored_runtime_state == "HALTED":
+            self._state = RuntimeState.HALTED
+            self._ledgers.record(
+                ledger="incident",
+                event_type="RUNTIME_RESUMED_HALTED",
+                correlation_id=f"session:{self._config.session_id}",
+                actor="runtime",
+                payload={
+                    "reason": "persisted runtime state was HALTED — "
+                              "restart never resumes a terminal safe stop",
+                    "action": "restored as HALTED (bars refused); begin "
+                              "a new session to trade again",
+                },
+            )
+            return
 
         self._state = RuntimeState.RUNNING
         self._started_at = datetime.now(UTC)
@@ -1394,14 +1418,60 @@ class TradingRuntime:
         consumed (fill_index continues the order's numbering — no
         duplicate fill identities, no duplicate fills). Protective
         levels attach after the FIRST fill of an entry order.
+
+        Kill-switch enforcement at FILL time (RUN-KS-1/RUN-KS-2,
+        2026-10-12 audit): an in-flight order that would ADD
+        exposure is CANCELLED — never filled — while ANY governing
+        switch is active (SYMBOL/ORDER scope enforced here;
+        GLOBAL/ACCOUNT/PORTFOLIO additionally refuse the whole bar
+        through the operating-state guard). Risk-reducing EXIT
+        orders are exempt, mirroring the risk gate's documented
+        closing-order carve-out (the switch blocks NEW exposure,
+        not risk reduction).
         """
         fills: list = []
         from data_engine.runtime.contracts import OrderLifecycle as _LC
+        pending_exit_ids = {
+            oid for oid, _, _ in self._pending_exits.values()
+        }
         for order in list(self._oms.orders()):
             if order.status not in (
                 _LC.SUBMITTED, _LC.ACKNOWLEDGED, _LC.PARTIALLY_FILLED
             ):
                 continue
+            if order.order_id not in pending_exit_ids:
+                try:
+                    self._kill_switch.check(
+                        symbol=order.symbol, order_id=order.order_id,
+                    )
+                except KillSwitchActive as exc:
+                    # Fail closed: cancel the in-flight order (the
+                    # already-filled part of a partial order stays;
+                    # the remainder is cancelled) and ledger the
+                    # incident with the governing-switch description.
+                    self._oms.request_cancel(order.order_id)
+                    self._oms.finalize_cancel(order.order_id)
+                    self._pending_protection.pop(order.order_id, None)
+                    self._metrics.increment("orders_killswitch_cancelled")
+                    self._ledgers.record(
+                        ledger="incident",
+                        event_type="ORDER_CANCELLED_KILL_SWITCH",
+                        correlation_id=correlation_id,
+                        actor="runtime.execution",
+                        payload={
+                            "order_id": order.order_id,
+                            "symbol": order.symbol,
+                            "reason": str(exc),
+                            "filled_quantity": str(order.filled_quantity),
+                            "cancelled_quantity": str(
+                                order.remaining_quantity
+                            ),
+                            "action": "in-flight order cancelled — "
+                                      "governing kill switch active "
+                                      "before fill (fail closed)",
+                        },
+                    )
+                    continue
             if order.submitted_at_bar is None or order.submitted_at is None:
                 continue
             latency_start = order.submitted_at_bar + self._realism.fill_lag_bars
