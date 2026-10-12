@@ -1,6 +1,6 @@
 # PAPER TRADING READINESS FINAL REPORT
 
-**Document ID:** PPR-FR-002 · **Version:** 2.3.0 · **Date:** 2026-10-11
+**Document ID:** PPR-FR-002 · **Version:** 2.4.0 · **Date:** 2026-10-12
 **Prepared by:** ZAI implementation + verification agent (paper-readiness
 re-audit mandate: blocker closure + runtime-integration forensic re-audit;
 RL-governance cycle: RL runtime + observability metrics + 31st gate;
@@ -109,6 +109,133 @@ provisioning. LIVE TRADING remains NOT AUTHORIZED; no live surface
 exists (MT5 order path refused by design — re-verified this cycle).
 Paper trading was NOT activated; the exact remaining blockers are
 listed in §15 (updated below by reference to this §0A).
+
+---
+
+
+## 0C. PAPER-READINESS ENGINEERING AMENDMENT (v2.4.0, 2026-10-12)
+
+The paper-readiness engineering mandate (operator, 2026-10-12) required:
+baseline audit, REAL market-data provider architecture, source
+governance, feed-gate integration, paper-execution verification,
+security verification, regression tests, an honest per-gate readiness
+evaluation, and operator documentation. Executed on
+`feat/master-market-data-import` (base `4e6dfc5`).
+
+### 0C.1 What was built (code, all fail-closed)
+
+- **`src/data_engine/providers/`** — a REAL provider package on the
+  EXISTING framework (`MarketDataProvider` / `ProviderFactory` /
+  `Candle`; no second ingestion framework):
+  - `transport.py` — stdlib-only single-attempt HTTP GET, typed
+    failures (connect/timeout/HTTP/protocol), hard timeout, 16 MiB
+    response cap, injectable sleeper; NO credentials ever attached.
+  - `binance_public.py` — Binance public spot klines adapter (crypto
+    pilot, BTCUSDT, 1m–1d): closed-candle enforcement by default
+    (close_time < reference), UTC grid-aligned timestamps, duplicate/
+    out-of-order/misalignment/OHLC rejection (row-indexed, fail
+    closed), gap REPORTING (never fabrication), bounded pagination
+    (max_pages) + bounded connect/timeout retries with backoff, HTTP
+    429/418 → typed rate-limit error with NO retry storm, client-side
+    rolling request budget, per-page raw JSON SHA-256 + params +
+    retrieval timestamps preserved (provenance), API-key configuration
+    REFUSED (public-only, structurally incapable of trading), pilot
+    allowlist (exactly BTCUSDT). Registered as
+    `binance-public-spot` in the existing ProviderFactory.
+  - `rate_series.py` — forex USD-base rate-series reader that is
+    STRUCTURALLY not a candle feed (does not subclass the provider
+    ABC; `PROVIDES_CANDLES = False`; `fetch_candles` unconditionally
+    refused; `assert_not_a_candle_feed` guard). Rate→OHLC conversion
+    is forbidden by construction.
+- **`src/data_engine/runtime/feed_composition.py`** — the Phase-D
+  integration: adapter → closed-bar warm-up window (grid-close ≤
+  as_of: no open/future bars, defence in depth) → registry-confirmed
+  canonical mapping (unconfirmed fails closed) →
+  `evaluate_operational_feed` (the 32nd gate) → honest
+  `GateEvidence` (`passed` mirrors the verdict; never forced).
+  Runtime-decoupled from the frozen schemas domain (opaque timeframe
+  + explicit timedelta interval — BUG-008 boundary respected).
+- **`src/data_engine/platform/feed_source_candidates.py`** — governed
+  candidate records, ALL UNVETTED: `binance-public-spot` (licence
+  UNKNOWN, terms NOT reviewed), plus forex/stocks/metals declared as
+  BLOCKED MARKETS with MISSING DEPENDENCY (no genuine 15m source
+  validated). No approvals exist or are fabricated; no credentials
+  anywhere (schema-forbid enforced).
+- **`scripts/binance_public_smoke.py`** — OPTIONAL labelled live
+  smoke (connectivity + mechanics only; explicitly NOT source
+  approval, NOT a CI test, never collected by pytest).
+- **Docs:** `docs/OPERATOR_SOURCE_APPROVAL_PACK.md` (SRC-APPROVAL
+  template + evidence requirements — human decision only) and
+  `docs/PAPER_OPERATOR_RUNBOOK.md` (setup, secrets, approval,
+  start/stop, verification, recovery, market disabling, honest
+  Pydroid 3 limitations).
+
+### 0C.2 Tests (executed, first-hand)
+
+- **+70 regression tests** (41 adapter: construction guards, happy
+  path, closed-candle exclusion/inclusion, boundary notes, duplicates/
+  ordering/alignment/OHLC/volume failures, malformed/short/malformed-
+  JSON envelopes, 429 no-retry-storm, bounded retry exhaustion with
+  backoff verification, rate budget, pagination stitching/empty-page/
+  max-pages, registry-first mapping, connectivity diagnostics;
+  29 composition: candidates UNVETTED, blocked-market records,
+  no-credentials scan, closed-window fetch, open/future-bar refusal
+  (stub providers prove independence), outage fail-closed, rate-series
+  structural refusal, registry-confirmed/unconfirmed mapping, UNVETTED
+  verdict + reasons, approved-FIXTURE pass (machinery works), AI
+  approval structurally rejected, insufficient warm-up, stale feed,
+  gap rejection, wrong-symbol refusal, honest evidence shape, and the
+  RUNTIME end-to-end: UNVETTED source → start REFUSED /
+  approved-fixture → start OK with ledger verification).
+- **Full suite after integration: 1,755 passed + 1 skipped**
+  (baseline 1,685 + 1 skipped re-verified BEFORE edits; frozen
+  strategy package untouched — the BUG-008 decoupling test caught and
+  forced the composition fix BEFORE commit). Deterministic.
+- **Secret scan across ALL git history: 0 hits** (CI-equivalent
+  command re-run locally). No credentials in code, docs, manifests,
+  or candidate records.
+
+### 0C.3 The 32-gate honest evaluation (current, per-gate)
+
+Verdict formula unchanged: PAPER_READY = ALL 32 TRUE. Gate-by-gate
+(PASS = objective current evidence; the source-of-truth command is
+listed; all executed locally on this branch):
+
+| # | Gate | Status | Evidence (first-hand, this cycle) | Command |
+|---|---|---|---|---|
+| 1 | DATA_READY | PASS | Dataset machinery + 1,755-test suite | `uv run pytest -q` |
+| 2 | REAL_DATA_READY | **FAIL** | 0 REAL_VERIFIED datasets; VERIFIED_YEARS = 0; master bundle = 3 REAL_UNVERIFIED + 1 INVALID | `uv run pytest tests/test_master_datasets.py tests/test_data_engine.py -q` |
+| 3 | OPERATIONAL_FEED_READY | **FAIL** | Machinery now COMPLETE and integration-proven, but the genuine verdict is FALSE: `binance-public-spot` is UNVETTED (no human SRC-APPROVAL), no feed provisioned, no continuity evidence. Runtime start REFUSED on FALSE — proven by test | `uv run pytest tests/test_feed_composition.py -q` |
+| 4–13 | PIT/SEQUENCE/BASELINE/MODEL/PREDICTION/CALIBRATION/UNCERTAINTY/REGIME/CRASH/RL_GOV | PASS | Pre-existing objective evidence, untouched, re-executed in the full suite | `uv run pytest -q` |
+| 14–23 | DECISION/TRADE_PLAN/RISK/KILLSWITCH/OMS/EXECUTION/PERSISTENCE/RECOVERY/PARTIAL_FILL/SLTP | PASS | Pre-existing evidence + this cycle's audit found NO weakening (paper-only, no live route, fail-closed risk) | `uv run pytest tests/test_runtime_safety.py tests/test_runtime_oms.py tests/test_paper_trading.py -q` |
+| 24–31 | RECONCILIATION/LEDGER/MEMORY/AUDIT/REPLAY/OBSERVABILITY/SECURITY/TESTS | PASS | MAC custody contract tests (env channel, entropy floor, no material leak, tamper detection); secret scan 0 hits; 1,755 tests green | `uv run pytest tests/test_mac_custody.py -q` + history grep |
+| 32 | GOVERNANCE_READY | **FAIL** | H-1 ✓ and CI/WP-12 ✓ remain recorded; OPEN: PAT rotation confirmation (the exposed token was re-supplied in chat AGAIN this session — treated as compromised, NOT used for any operation; exposure count incremented), keyed-MAC key provisioning (mechanism + runbook ready; no key exists), data-source approval (template ready; no decision recorded) | — (human actions) |
+
+### 0C.4 Verdict (unchanged, now with complete machinery)
+
+**PAPER_READY = FALSE — BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY.**
+
+The engineering distance to TRUE shrank to exactly these human/data
+dependencies (no code blocker remains on the feed path):
+
+1. **SRC-APPROVAL** for `binance-public-spot` by the operator, after
+   personal review of Binance terms/jurisdiction/reliability
+   (docs/OPERATOR_SOURCE_APPROVAL_PACK.md — fill and record).
+2. **Provision the operational feed** on the paper-session host and
+   let `build_paper_feed_evidence` evaluate live (freshness/mapping/
+   warm-up gates apply automatically).
+3. **Provision the keyed-MAC ledger key** (≥ 32 bytes genuine entropy,
+   outside git — runbook §5; record the fingerprint).
+4. **Confirm PAT revocation/rotation** of every chat-exposed token
+   through a secure channel (the token re-supplied this session was
+   NOT used; rotation remains outstanding).
+5. **REAL_DATA_READY** requires the nine-stage verification chain on
+   an approved dataset (VERIFIED_YEARS ≥ 5 for the research corpus;
+   a verified feed-window dataset satisfies the runtime gate) —
+   unchanged from §15.
+
+LIVE NOT AUTHORIZED (unchanged; the live boundary is untouched and
+continues to deny unconditionally).
 
 ---
 

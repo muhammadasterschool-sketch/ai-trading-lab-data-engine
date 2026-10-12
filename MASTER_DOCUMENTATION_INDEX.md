@@ -9,13 +9,15 @@ Document Type:  Master documentation index (SSOT)
 Phase:          Cross-phase (all phases)
 Authority:      A — AUTHORITATIVE (this index is the documentation map of record)
 Status:         CURRENT
-Version:        2.4.1
-Last Updated:   2026-10-11 (MASTER-IMPORT delivery completion:
-                 import record advanced to v1.1.0 — branch pushed
-                 b9c4361, PR #1 opened vs main, platform CI run
-                 38147316090 conclusion=SUCCESS (3.11 + 3.12, all
-                 gates green); merge left to operator; verdict
-                 UNCHANGED PAPER_READY = FALSE)
+Version:        2.4.2
+Last Updated:   2026-10-12 (paper-readiness engineering cycle:
+                 readiness report §0C v2.4.0 — real provider package
+                 (Binance public klines adapter + forex rate-series
+                 separation + transport layer), feed composition into
+                 the 32nd gate, UNVETTED source candidates + blocked
+                 markets, +70 regression tests (suite 1,755 + 1
+                 skipped), operator source-approval pack + runbook
+                 registered; verdict UNCHANGED PAPER_READY = FALSE)
 Supersedes:     none (first canonical index)
 Superseded By:  —
 Source Evidence: doc_discovery.py inventory (80 pre-existing docs), reference
@@ -212,6 +214,8 @@ The remaining §61 spec documents (`TRADING_RUNTIME_ARCHITECTURE.md`, `TRADING_E
 | `KEYED_MAC_CUSTODY_DECISION_RECORD.md` | A | AUTHORITATIVE governance decision record (v1.0.0, GOV-KMC-001): **keyed-MAC custody DECIDED + mechanism IMPLEMENTED / NOT OPERATIONAL** — `runtime/mac_custody.py` + keyed ledger chains (rtledm. HMAC, rotation grace, strict mode discipline, full-history-rewrite defense); operationalization awaits genuine key provisioning via the secure channel (env-var/external-key-file); provisioning log (fingerprint-only) inside | Ledger integrity governance | — |
 | `HISTORICAL_DATA_DEFERRAL_RECORD.md` | A | AUTHORITATIVE governance decision record (v1.0.0, GOV-HDD-001): **long-term historical-data acquisition DEFERRED** by operator (2026-10-10); research-history vs operational-feed separation semantics; referenced by `runtime/feed_gate.py` and the 32-gate readiness set | Data-acquisition governance | — |
 | `MASTER_MARKET_DATA_IMPORT_RECORD.md` | A | AUTHORITATIVE import record (v1.1.0, 2026-10-11): **operator master-bundle integrated on feat/master-market-data-import — DELIVERED: branch pushed b9c4361, PR #1 open vs main, platform CI run 38147316090 SUCCESS (3.11 + 3.12; full suite, determinism ×3, frozen-blob, secret scan 0, prediction acceptance); merge left to operator** — 4/4 SHA-256 verified before import and re-verified by platform CI against the pushed tree; originals preserved byte-for-byte under data/raw/master/; LFS explicitly unsupported (analysis recorded); Coins REAL_UNVERIFIED (500 symbols, all final candles incomplete at acquisition), Forex REAL_UNVERIFIED (USD-base RATE SERIES — OHLC fabrication forbidden), Stocks REAL_UNVERIFIED (monthly/quarterly, 0/9 D1-suitable), Metals **INVALID** (19 impossible-OHLC rows quarantined verbatim); provenance honestly UNKNOWN; 521 instruments registered; legacy vacuous non-chronology check fixed with byte-identical legacy manifests verified; +55 regression tests (suite 1,685 + 1 skipped); PAT rotation advisory open; **no readiness gate changed — PAPER_READY = FALSE unchanged** | Master-bundle import governance | — |
+| `docs/OPERATOR_SOURCE_APPROVAL_PACK.md` | B | CURRENT SUPPORTING operator evidence pack (v1.0.0, 2026-10-12): the four evidence classes (connectivity / OHLCV validity / operational feed readiness / research verification — never conflated); `binance-public-spot` candidate facts with UNKNOWN licence/terms explicitly listed; blocked-market register (forex/stocks/metals — MISSING DEPENDENCY, not approvable); the exact SRC-APPROVAL decision template (policy §7.1) + recording commands through the registry's human-only API; post-approval semantics (approval necessary, NOT sufficient — gate still evaluates live inputs; live boundary untouched) | Human source-approval governance | — |
+| `docs/PAPER_OPERATOR_RUNBOOK.md` | B | CURRENT SUPPORTING operator procedures (v1.0.0, 2026-10-12): install (uv, Python 3.11/3.12); placeholder-only env template; offline suite; optional labelled live smoke; MAC-key provisioning outside git (entropy floor, fingerprint-only logging); source-approval recording; paper-session bootstrap through `build_paper_feed_evidence` (refuses while any gate fails); live-isolation verification commands; health/feed/positions/audit inspection; restart/feed-outage recovery semantics; market disabling via allowlist + approval; honest Pydroid 3 limitation (diagnostics only, NOT a supported execution environment) | Operator procedures | — |
 | `docs/TRADING_RUNTIME_ARCHITECTURE.md` | A | AUTHORITATIVE runtime spec (v2.0.0): the one orchestration path, fail-closed startup chain (BLOCKER 1/2/4), complete execution-state persistence (BLOCKER 5), component map, operating states, determinism (wall-clock-free identity, BLOCKER 14) | Runtime implementation | — |
 | `docs/TRADING_EVENT_CONTRACT.md` | A | AUTHORITATIVE contract spec (v1.0.0): identity rules/prefix map, PredictionArtifact/Decision/TradePlan/ExitRecord schemas, correlation threading | Runtime contracts | — |
 | `docs/ORDER_LIFECYCLE_SPEC.md` | A | AUTHORITATIVE OMS spec (v1.0.0): 14-state machine, idempotency, partial fills, TTL, execution realism | OMS implementation | — |

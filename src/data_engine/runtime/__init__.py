@@ -154,6 +154,14 @@ from data_engine.runtime.feed_gate import (
     RESEARCH_HISTORY_STATUS,
     evaluate_operational_feed,
 )
+from data_engine.runtime.feed_composition import (
+    FeedCompositionError,
+    build_paper_feed_evidence,
+    evaluate_paper_feed,
+    fetch_feed_window,
+    operational_feed_evidence,
+    resolve_canonical_instrument,
+)
 from data_engine.runtime.mac_custody import (
     ENV_KEY_FILE_VAR,
     ENV_KEY_VAR,
@@ -253,6 +261,12 @@ __all__ = [
     "FeedGateError", "OperationalFeedReport",
     "RESEARCH_HISTORY_DECISION_ID", "RESEARCH_HISTORY_STATUS",
     "evaluate_operational_feed",
+    "FeedCompositionError",
+    "build_paper_feed_evidence",
+    "evaluate_paper_feed",
+    "fetch_feed_window",
+    "operational_feed_evidence",
+    "resolve_canonical_instrument",
     # keyed-MAC ledger custody (operator mandate 2026-10-10 §1.5)
     "ENV_KEY_FILE_VAR", "ENV_KEY_VAR", "MAC_HEX_LEN", "MacCustody",
     "MacCustodyError", "keyed_event_mac",
