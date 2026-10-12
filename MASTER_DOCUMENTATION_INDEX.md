@@ -9,10 +9,34 @@ Document Type:  Master documentation index (SSOT)
 Phase:          Cross-phase (all phases)
 Authority:      A — AUTHORITATIVE (this index is the documentation map of record)
 Status:         CURRENT
-Version:        2.14.0
-Last Updated:   2026-10-13 (instrument-discovery mandate cycle,
-                 Batch 7 — Bitget mock venue + broker instrument
-                 discovery/catalog/platform-registry sync on
+Version:        2.15.0
+Last Updated:   2026-10-13 (Batch 8 — independent runtime audit:
+                 docs/reports/BATCH_8_INDEPENDENT_RUNTIME_AUDIT.md
+                 created on dedicated branch
+                 audit/batch-8-independent-runtime-audit from 4237151;
+                 every Batch 5–7 claim re-established FIRST-HAND:
+                 commits 39e7939/4237151 resolved + diffed; remote
+                 heads verified == local tips via authenticated
+                 ls-remote (Batches 2–7 all pushed; PRs #1/#2 open,
+                 CI on current heads NOT VERIFIED — session PAT is
+                 git-scope-only, API 401); baseline reproduced
+                 exactly (2,215 + 1 skipped ×3 deterministic,
+                 80.52/81.08/81.22s); authoritative execution path,
+                 Batch 6 controls (ST-1/CA-1/PM-1/OBS-1/DA-1/DD-1 +
+                 snapshot compat) and Batch 7 discovery/catalog all
+                 VERIFIED in code + 141 focused tests; frozen 11/11 +
+                 manifest 13/13; CI-equivalent secret scan 0 hits
+                 across ALL history (6 stricter-heuristic hits are
+                 the intentional mock redaction fixture); ZERO
+                 reproducible defects → zero fixes (two suspicions
+                 refuted by evidence: workflow YAML valid at byte
+                 level — display artifact; heuristic-scan hits are
+                 test constants); PAPER_READY = FALSE unchanged —
+                 BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY; PAT exposure
+                 #19 flagged for rotation)
+                 Prior 2.14.0 — Batch 7 (instrument-discovery
+                 mandate cycle): Bitget mock venue + broker
+                 instrument discovery/catalog/platform-registry sync on
                  continuous branch
                  feat/runtime-risk-broker-neutral-tenancy (from
                  39e7939, tree clean, baseline re-verified
@@ -460,6 +484,7 @@ The remaining §61 spec documents (`TRADING_RUNTIME_ARCHITECTURE.md`, `TRADING_E
 | `ZAI_DEFECT_REGISTER.md` | B | Current supporting — live register (1 HIGH contained, 5 MEDIUM, 8 LOW) | Defect register of record | — |
 | `AUDIT_DOCUMENTATION_LINKS.md` | C | Current audit evidence | Documentation link audit (this cycle) | — |
 | `AUDIT_DOCUMENTATION_NORMALIZATION.md` | C | Current audit evidence | Documentation normalization final report (this cycle) | — |
+| `docs/reports/BATCH_8_INDEPENDENT_RUNTIME_AUDIT.md` | A | AUTHORITATIVE Batch 8 independent audit (v1.0.0, 2026-10-13): first-hand re-verification of Batches 5–7 — repository/remote evidence chain (commits resolved + remote heads == local tips, authenticated ls-remote), authoritative broker-neutral execution path (single submission path, identity-bound risk decision, deterministic fills, exactly-once accounting, UNKNOWN-reconciles-from-venue-truth, restart idempotency, precision fail-closed, mock-only enforcement), Batch 6 controls all VERIFIED (watchdog fail-closed incl. bridge honesty; audited operator cancel/close; partial-fill metric; exit-risk observability; dead-state removal; account-drawdown boundaries/trip/restart; snapshot config evolution fail-closed-by-default with no risk-policy override), Batch 7 discovery/catalog (registration ≠ eligibility, fail-closed discovery, Bitget = mock spot-v2 semantics ONLY), tenancy contract verification with infrastructure limitations stated, 2,215+1 ×3 deterministic, frozen 11/11, manifest 13/13, secret scan 0 across all history, zero reproducible defects (two suspicions refuted by byte-level evidence), 32-gate table with 3 honest FAILs (REAL_DATA/OPERATIONAL_FEED/GOVERNANCE — human/data dependencies), real-vs-mock broker matrix, ranked operator actions incl. PAT rotation (exposure #19); PAPER_READY = FALSE unchanged | Independent runtime audit + safety-gate verification + paper-readiness evidence (Batch 8) | — |
 
 ## Cross-Phase Security
 
