@@ -1,6 +1,6 @@
 # PAPER TRADING READINESS FINAL REPORT
 
-**Document ID:** PPR-FR-002 · **Version:** 2.4.0 · **Date:** 2026-10-12
+**Document ID:** PPR-FR-002 · **Version:** 2.5.0 · **Date:** 2026-10-12
 **Prepared by:** ZAI implementation + verification agent (paper-readiness
 re-audit mandate: blocker closure + runtime-integration forensic re-audit;
 RL-governance cycle: RL runtime + observability metrics + 31st gate;
@@ -9,7 +9,9 @@ keyed-MAC custody implemented, BUG-008 residual closed, research-history
 vs operational-feed distinction + 32nd gate; master-import mandate
 2026-10-11: operator master-bundle integrated on
 feat/master-market-data-import — see §0B and
-MASTER_MARKET_DATA_IMPORT_RECORD.md v1.0.0)
+MASTER_MARKET_DATA_IMPORT_RECORD.md v1.0.0; next-execution mandate
+2026-10-12: Phase A–C re-verification + PAPER-RUN-PNL-1 closure — see
+§0D)
 **Repository:** muhammadasterschool-sketch/ai-trading-lab-data-engine
 **Branch:** phase-4a/4a1-architecture-correction (integration branch:
 feat/master-market-data-import, from d49b822)
@@ -236,6 +238,98 @@ dependencies (no code blocker remains on the feed path):
 
 LIVE NOT AUTHORIZED (unchanged; the live boundary is untouched and
 continues to deny unconditionally).
+
+---
+
+## 0D. NEXT-EXECUTION MANDATE AMENDMENT (v2.5.0, 2026-10-12)
+
+The operator's next-execution mandate required: Phase A GitHub-state
+verification, Phase B a reproducible baseline, Phase C an
+source-inspected blocker plan over the seven paper-runtime areas
+(risk/kill-switch enforcement, persistence, restart recovery,
+partial-fill accounting, reconciliation/audit, SL/TP semantics,
+lineage), and Phase D exactly ONE highest-priority controlled fix on
+a dedicated branch. Executed on `fix/paper-runtime-pnl-correctness`
+(base `7f384e6`, the local-only provider-architecture commit on top
+of PR #1 head `4e6dfc5`).
+
+### 0D.1 Phase A–B (re-verified first-hand)
+
+- PR #1 open/clean/mergeable, head `4e6dfc5`, base `main@d49b822`
+  (NOT merged — operator decision). CI evidence of record: runs
+  `38147316090`/`38147771879` SUCCESS (unauthenticated GitHub API is
+  currently rate-limited; the compromised chat-exposed PAT was NOT
+  used — rotation remains OPEN).
+- Workflow YAML verified INTACT by semantic parse
+  (push: [main, phase-4a/**], pull_request: [main]).
+- CSV assets 4/4 byte-exact with manifest SHA-256s; git blobs
+  complete; Coins 49.7 MB < the 100 MB GitHub limit.
+- Baseline: `uv run pytest -q -p no:cacheprovider` = **1,755 passed
+  + 1 skipped** twice (Python 3.12.15, pytest 9.1.1, HEAD `7f384e6`);
+  frozen Phase 3 **11/11 intact**; full-history secret scan **0 hits**.
+
+### 0D.2 Phase C findings (source-verified, seven mandated areas)
+
+All seven areas are structurally wired and tested (risk gate →
+fingerprint-bound OMS approval → latency-aware partial fills →
+reconciliation → ledgers → recovery → SL/TP → full lineage).
+Defects found and registered:
+
+| ID | Severity | Finding | Status after this cycle |
+|---|---|---|---|
+| RUN-EQ-1 | HIGH | runtime equity double-counted transaction costs (basis-embedded costs subtracted AGAIN via `_equity_realized`) | **CLOSED this cycle** (PAPER-RUN-PNL-1) |
+| RUN-RL-1 | HIGH | mandatory `loss_limit` check structurally vacuous (`_daily_realized_return` = non-negative costs ratio; no day boundary) | **CLOSED this cycle** (PAPER-RUN-PNL-1) |
+| RUN-DD-1 | MED-HIGH | no ACCOUNT-equity drawdown limit (market-drawdown crash-guard only) | OPEN — next ranked blocker |
+| RUN-ST-1 | MED | in-session staleness hardcoded always-fresh; no wall-clock watchdog (pre-start freshness IS enforced by the feed gate) | OPEN |
+| RUN-CA-1 | MED | no operator cancel/manual-close API; protection exits frozen after HALT | OPEN |
+| RUN-PM-1 | LOW | `partial_fill_events` metric counts the completing fill | OPEN |
+| RUN-DA-1 | LOW | dead attribute `_entry_orders_by_symbol` | OPEN |
+
+Evidence probe: `scripts/probe_equity_double_count.py` — after one
+0.2-cost fill at an unchanged market (10 000 initial) the pre-fix
+equity formula returned 9 999.60 vs the true 9 999.80 (costs
+double-counted); after a −50% price move the pre-fix daily measure
+returned +2e-05 (the loss limit passed — structurally blind to
+losses).
+
+### 0D.3 Phase D — PAPER-RUN-PNL-1 closure (the one approved fix)
+
+Branch `fix/paper-runtime-pnl-correctness`; acceptance tests defined
+FIRST (`tests/test_runtime_pnl_correctness.py`, 7 tests — verified RED
+on the pre-fix code, GREEN after):
+
+- `_current_equity` = initial + realized + unrealized (costs embedded
+  EXACTLY ONCE by the authoritative PaperPosition core). The persisted
+  `equity_realized` accumulator remains cost observability only
+  (schema 1.1.0 UNCHANGED — full backward compatibility with existing
+  snapshots).
+- `_daily_realized_return` = TRUE mark-to-market account return since
+  the current UTC day's first admitted bar; the day-start anchor is
+  deterministically RECONSTRUCTED by replaying OMS fills with
+  `bar_index` before that bar (no new persisted field — restart-stable
+  by construction); unestablishable/non-positive anchor ⇒ −1.0 so the
+  loss limit FAILS CLOSED.
+- Acceptance coverage: costs-counted-once (unit + full-chain equity
+  identity), beyond-limit loss refuses new entries with `loss_limit`
+  as the ONLY failing check, moderate loss does NOT trip, UTC-day
+  anchor reset, determinism, restart-stability.
+
+Regression evidence: full suite **1,762 passed + 1 skipped** twice
+(baseline 1,755 + 7 new; zero regressions; no test weakened/deleted);
+frozen strategy package **11/11 intact**; secret scan **0 hits**;
+`paper/models.py` (the BUG-002-corrected accounting core),
+`EXECUTION_STATE_FIELDS`, and every frozen contract UNTOUCHED.
+
+### 0D.4 Verdict (unchanged)
+
+**PAPER_READY = FALSE.** This cycle closed two HIGH paper-runtime
+defects; the remaining distance to TRUE is unchanged in kind:
+SRC-APPROVAL, provisioned operational feed, keyed-MAC key
+provisioning, PAT rotation confirmation, REAL_DATA_READY
+nine-stage chain — plus the OPEN Phase-C items above (RUN-DD-1 is
+the next ranked blocker). The branch is NOT pushed (no safe
+credential; the chat-exposed PAT remains compromised and unused).
+LIVE NOT AUTHORIZED.
 
 ---
 

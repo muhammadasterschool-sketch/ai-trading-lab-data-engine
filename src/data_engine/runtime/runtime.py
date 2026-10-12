@@ -315,6 +315,13 @@ class TradingRuntime:
         self._pending_exits: dict = {}       # symbol -> (order_id, reason, snapshot)
         self._restarted = False              # True after state restoration
         self._restored_runtime_state = None  # persisted operating state
+        # PAPER-RUN-PNL-1: in-memory day-anchor memo (UTC date ->
+        # day-start account equity). This is a PURE DETERMINISM CACHE —
+        # the anchor is a pure function of persisted state (bars +
+        # OMS fills) and is recomputed identically after restart; it
+        # is therefore deliberately NOT part of the persisted
+        # execution-state schema.
+        self._day_anchor_cache = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -1350,6 +1357,13 @@ class TradingRuntime:
             source_event=fill.fill_id,
         )
         self._positions[fill.symbol] = updated
+        # PAPER-RUN-PNL-1: cumulative transaction-cost accumulator —
+        # OBSERVABILITY ONLY. These costs are ALREADY embedded exactly
+        # once in the position's average-cost basis / realized P&L by
+        # the authoritative PaperPosition core (paper/models.py
+        # price-inclusive basis). It must NEVER be subtracted from
+        # account equity again (RUN-EQ-1 double count) and is NOT a
+        # P&L measure (RUN-RL-1).
         self._equity_realized = (
             self._equity_realized + fill.commission + fill.slippage_cost
             + fill.spread_cost
@@ -1757,11 +1771,111 @@ class TradingRuntime:
         return round(worst, 12)
 
     def _daily_realized_return(self) -> float:
-        if self._config.initial_equity <= 0:
+        """TRUE daily account P&L return (PAPER-RUN-PNL-1).
+
+        Mark-to-market (realized + unrealized) account-equity return
+        between the current UTC day's first admitted bar and the
+        latest admitted bar's close. Transaction costs enter exactly
+        once via the cost-embedded basis. The day-start anchor is
+        deterministically reconstructed by replaying every OMS fill
+        admitted before the day's first bar (see
+        :meth:`_day_start_equity`) — no persisted day state, so the
+        value is identical before and after a restart.
+
+        Fail-closed (RUN-RL-1): an anchor that cannot be established
+        or is non-positive yields -1.0 so the mandatory ``loss_limit``
+        risk-gate check FAILS (new orders refused, never permitted on
+        an unprovable loss state). Before the first admitted bar no
+        day has started and nothing can have been lost: 0.0.
+        """
+        if not self._bars:
             return 0.0
-        return float(self._equity_realized / self._config.initial_equity)
+        try:
+            anchor = self._day_start_equity()
+            if anchor <= 0:
+                return -1.0
+            mark = Decimal(str(self._bars[-1]["close"]))
+            current = self._current_equity(mark)
+            return float((current - anchor) / anchor)
+        except Exception:
+            return -1.0
+
+    def _day_start_equity(self) -> Decimal:
+        """Account equity at the start of the CURRENT UTC day
+        (PAPER-RUN-PNL-1 acceptance interface).
+
+        Deterministic reconstruction: every OMS fill whose
+        ``bar_index`` precedes the first admitted bar of the current
+        UTC day is replayed onto a fresh :class:`PositionState`
+        (costs embedded once — identical accounting to the live
+        position book), then marked at the previous day's last close.
+        Before the session's first bar the anchor is the initial
+        equity. Bars timestamps are strictly increasing (BUG-007
+        discipline) so the day's first bar is found by scanning
+        backwards from the latest bar.
+        """
+        if not self._bars:
+            return self._config.initial_equity
+        last_ts = self._bars[-1].get("timestamp")
+        if last_ts is None or not getattr(last_ts, "tzinfo", None):
+            raise RuntimeContractError(
+                "cannot establish the daily anchor: latest bar timestamp "
+                "is not timezone-aware (fail closed)"
+            )
+        day = last_ts.astimezone(UTC).date()
+        cached = self._day_anchor_cache
+        if cached is not None and cached[0] == day:
+            return cached[1]
+        day_start_index = len(self._bars) - 1
+        for i in range(len(self._bars) - 1, -1, -1):
+            ts_i = self._bars[i].get("timestamp")
+            if ts_i is None or not getattr(ts_i, "tzinfo", None) \
+                    or ts_i.astimezone(UTC).date() != day:
+                break
+            day_start_index = i
+        # Replay all fills admitted BEFORE the day's first bar onto a
+        # fresh position book (deterministic; reconciliation replays
+        # fills the same way).
+        replayed: dict = {}
+        for order in self._oms.orders():
+            for fill in order.fills:
+                if fill.bar_index is None or fill.bar_index < day_start_index:
+                    state = replayed.get(
+                        fill.symbol, PositionState(symbol=fill.symbol)
+                    )
+                    replayed[fill.symbol] = state.apply_fill(
+                        fill_quantity=fill.quantity,
+                        fill_price=fill.price,
+                        side=fill.side,
+                        commission=fill.commission,
+                        slippage_cost=fill.slippage_cost,
+                        spread_cost=fill.spread_cost,
+                        filled_at=fill.filled_at,
+                        source_event=fill.fill_id,
+                    )
+        anchor = self._config.initial_equity
+        for state in replayed.values():
+            anchor += state.realized_pnl
+        if day_start_index > 0:
+            prev_close = Decimal(
+                str(self._bars[day_start_index - 1]["close"])
+            )
+            pos = replayed.get(self._config.symbol)
+            if pos is not None and not pos.is_flat:
+                anchor += self._pnl_engine.unrealized(pos, prev_close)
+        self._day_anchor_cache = (day, anchor)
+        return anchor
 
     def _current_equity(self, mark_price: Decimal) -> Decimal:
+        """TRUE account equity (PAPER-RUN-PNL-1).
+
+        initial_equity + realized P&L + unrealized at ``mark_price``.
+        Transaction costs enter EXACTLY ONCE — embedded in the
+        average-cost basis and realized P&L by the authoritative
+        ``PaperPosition`` core (price-inclusive basis). The persisted
+        ``_equity_realized`` accumulator is cost observability and
+        must never be subtracted here (RUN-EQ-1 double count).
+        """
         position = self._positions.get(
             self._config.symbol, PositionState(symbol=self._config.symbol)
         )
@@ -1769,7 +1883,6 @@ class TradingRuntime:
         return (
             self._config.initial_equity
             + position.realized_pnl
-            - self._equity_realized
             + unrealized
         )
 

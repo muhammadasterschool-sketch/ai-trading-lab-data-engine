@@ -9,15 +9,27 @@ Document Type:  Master documentation index (SSOT)
 Phase:          Cross-phase (all phases)
 Authority:      A — AUTHORITATIVE (this index is the documentation map of record)
 Status:         CURRENT
-Version:        2.4.2
-Last Updated:   2026-10-12 (paper-readiness engineering cycle:
-                 readiness report §0C v2.4.0 — real provider package
-                 (Binance public klines adapter + forex rate-series
-                 separation + transport layer), feed composition into
-                 the 32nd gate, UNVETTED source candidates + blocked
-                 markets, +70 regression tests (suite 1,755 + 1
-                 skipped), operator source-approval pack + runbook
-                 registered; verdict UNCHANGED PAPER_READY = FALSE)
+Version:        2.5.0
+Last Updated:   2026-10-12 (next-execution mandate cycle: Phase A–C
+                 re-verification (PR #1/CI/data/baseline 1,755 + 1
+                 skipped ×2, frozen 11/11, secret scan 0) + Phase C
+                 source-inspected blocker register (RUN-EQ-1/RL-1/DD-1/
+                 ST-1/CA-1/PM-1/DA-1) + Phase D controlled fix
+                 PAPER-RUN-PNL-1 CLOSED on branch
+                 fix/paper-runtime-pnl-correctness (equity costs counted
+                 exactly once + TRUE daily loss limit with deterministic
+                 UTC-day anchor; +7 acceptance tests, suite 1,762 + 1
+                 skipped ×2, zero regressions, frozen untouched);
+                 readiness report §0D v2.5.0; verdict UNCHANGED
+                 PAPER_READY = FALSE; 2026-10-12 paper-readiness
+                 engineering cycle: readiness report §0C v2.4.0 — real
+                 provider package (Binance public klines adapter + forex
+                 rate-series separation + transport layer), feed
+                 composition into the 32nd gate, UNVETTED source
+                 candidates + blocked markets, +70 regression tests
+                 (suite 1,755 + 1 skipped), operator source-approval pack
+                 + runbook registered; verdict UNCHANGED PAPER_READY =
+                 FALSE)
 Supersedes:     none (first canonical index)
 Superseded By:  —
 Source Evidence: doc_discovery.py inventory (80 pre-existing docs), reference
@@ -205,7 +217,7 @@ The remaining §61 spec documents (`TRADING_RUNTIME_ARCHITECTURE.md`, `TRADING_E
 | `SECURITY_CREDENTIAL_FORENSIC_REPORT.md` | C | Current audit evidence — P0 deliverable of the staged readiness program (v1.0.0) | Credential exposure forensic (4th chat exposure, value withheld, verified STILL ACTIVE via API); full tree/config/history sweeps (0 credentials); push hygiene record; staged readiness program P0–P8 registration (P0 COMPLETE, P1 correction window AWAITING HUMAN AUTHORIZATION); NO TRADING IMPLEMENTATION PERFORMED | — |
 | `P1_CORRECTION_WINDOW_REPORT.md` | C | Current audit evidence — P1 execution record (v1.0.0): 16/16 authorized findings corrected with objective evidence (1141/1141 tests x3, 0/17 AFTER-probes defective, 31/31 BUG-008 mutations blocked, frozen gates 11/11 + 13/13); closure verdicts deferred to the P2 re-audit; local commits 1277331 + docs (NOT pushed per rule 11) | Correction-window execution record for BUG-001..009 + ARCH-F1/F3/F4/F6 + RT-F7/F8/F13 | — |
 | `P2_INDEPENDENT_CORRECTION_RE_AUDIT_REPORT.md` | C | Current audit evidence — P2 independent re-audit record (v1.0.0, READ-ONLY): every P1 correction re-verified first-hand (diffs + probes + 1141/1141 x2 + 8 category subsets); **verdicts 15 CLOSED · 1 PARTIAL (BUG-008 residual rule-deferred) · 0 OPEN · 0 REGRESSED; P2 VERDICT: CONDITIONAL PASS**; frozen integrity re-verified blob-level; security scans 0; exposed PAT re-verified STILL ACTIVE (exposure #5 — rotation OPEN); OBS-1 mode-sweep recorded; open-blocker register (CRED-ROTATION / BUG-008-RESIDUAL / KEYED-MAC / PAPER-BLK-1..6 / P3 Stage-0 / OBS-1); P3 NOT AUTHORIZED | Independent re-audit of the P1 correction window (staged readiness program stage 2) | — |
-| `PAPER_TRADING_READINESS_FINAL_REPORT.md` | C | Current cycle evidence — paper-readiness RE-AUDIT final report (**v2.3.0**: §0B master-import amendment — operator bundle registered 3 × REAL_UNVERIFIED + 1 × INVALID, verdict UNCHANGED; v2.2.0 §0A: operator decisions recorded, keyed-MAC custody, 32nd gate OPERATIONAL_FEED_READY; v2.0.0: all 28 re-audit blockers verified + closed where authorized — persistence MANDATORY, readiness-gated startup, runtime-integrated recovery at 10 restart points, EXECUTION_STATE_SCHEMA v1.1.0, full ledger/memory chain recovery, kill-switch persistence, PARTIAL→EXPIRED defect fixed, wall-clock-free identity (cross-process ×2); frozen 13/13 before AND after; **PAPER_READY = FALSE — BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY**. Supersedes v1.0.0 (archived at `docs/PAPER_TRADING_READINESS_FINAL_REPORT_v1.md`) | Paper-readiness re-audit cycle (operator-authorized) | — |
+| `PAPER_TRADING_READINESS_FINAL_REPORT.md` | C | Current cycle evidence — paper-readiness RE-AUDIT final report (**v2.5.0 §0D**: next-execution mandate — Phase A–C re-verified, RUN-EQ-1/RUN-RL-1 (equity cost double-count + vacuous daily loss limit) CLOSED via PAPER-RUN-PNL-1 on fix/paper-runtime-pnl-correctness with 7 acceptance tests first (suite 1,762 + 1 skipped ×2, zero regressions), RUN-DD-1/ST-1/CA-1/PM-1/DA-1 registered OPEN; **v2.4.0 §0C**: real provider architecture + feed composition + 32-gate table; **v2.3.0**: §0B master-import amendment — operator bundle registered 3 × REAL_UNVERIFIED + 1 × INVALID, verdict UNCHANGED; v2.2.0 §0A: operator decisions recorded, keyed-MAC custody, 32nd gate OPERATIONAL_FEED_READY; v2.0.0: all 28 re-audit blockers verified + closed where authorized — persistence MANDATORY, readiness-gated startup, runtime-integrated recovery at 10 restart points, EXECUTION_STATE_SCHEMA v1.1.0, full ledger/memory chain recovery, kill-switch persistence, PARTIAL→EXPIRED defect fixed, wall-clock-free identity (cross-process ×2); frozen 13/13 before AND after; **PAPER_READY = FALSE — BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY**. Supersedes v1.0.0 (archived at `docs/PAPER_TRADING_READINESS_FINAL_REPORT_v1.md`) | Paper-readiness re-audit cycle (operator-authorized) + next-execution mandate 2026-10-12 | — |
 | `CURRENT_REPOSITORY_PAPER_READINESS_BRIEF.md` | B | Current supporting — pre-implementation paper-readiness snapshot at f61e1ee (gap register this cycle closed) | Orientation snapshot (superseded in part by the final report above) | — |
 | `H1_RATIFICATION_DECISION_RECORD.md` | A | AUTHORITATIVE governance decision record (v2.0.0): **H-1 RATIFIED 2026-10-10 — Option A containment (GOV-H1-002-RATIFY)**; operator in-session authorization quoted verbatim; ratified v1.0.0 text + sha256 pinned; no signature fabricated; frozen artifacts untouched | H-1/F-04 containment governance | — |
 | `REAL_DATA_READINESS_CONTRACT.md` | A | AUTHORITATIVE data contract (v1.0.0): full §9 pipeline + dataset record schema + §10 quality gates — **BLOCKED_ON_REAL_DATA** (0 verified datasets; never invented) | Real-data readiness gate | — |
