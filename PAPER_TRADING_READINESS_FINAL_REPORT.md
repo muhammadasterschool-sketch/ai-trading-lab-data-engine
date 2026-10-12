@@ -1,6 +1,6 @@
 # PAPER TRADING READINESS FINAL REPORT
 
-**Document ID:** PPR-FR-002 · **Version:** 2.12.0 · **Date:** 2026-10-12
+**Document ID:** PPR-FR-002 · **Version:** 2.13.0 · **Date:** 2026-10-13
 **Prepared by:** ZAI implementation + verification agent (paper-readiness
 re-audit mandate: blocker closure + runtime-integration forensic re-audit;
 RL-governance cycle: RL runtime + observability metrics + 31st gate;
@@ -17,7 +17,7 @@ architecture mandate 2026-10-12: broker-neutral execution layer
 (Phase M1, mocks + guarded session + 236 tests) — see §0F;
 full-platform discovery mandate 2026-10-12: ingestion-classification
 fail-closed hardening (ING/VAL defect family, +20 tests) — see §0G
-and PHASE_1_DISCOVERY_AUDIT_REPORT.md v1.0.0; runtime-risk-safety mandate 2026-10-12 Batch 2: RUN-DD-1 account-equity drawdown limit (new mandatory check + enforcement, +14 tests) — see §0H)
+and PHASE_1_DISCOVERY_AUDIT_REPORT.md v1.0.0; runtime-risk-safety mandate 2026-10-12 Batch 2: RUN-DD-1 account-equity drawdown limit (new mandatory check + enforcement, +14 tests) — see §0H; safety-residuals mandate 2026-10-13 Batch 6: RUN-ST-1 in-session feed watchdog + RUN-CA-1 operator cancel/manual-close + RUN-PM-1/DA-1/OBS-1 + snapshot config compatibility (+34 tests) — see §0L)
 **Repository:** muhammadasterschool-sketch/ai-trading-lab-data-engine
 **Branch:** phase-4a/4a1-architecture-correction (integration branch:
 feat/broker-neutral-execution-architecture, from 1c286d2 on
@@ -287,11 +287,12 @@ Defects found and registered:
 |---|---|---|---|
 | RUN-EQ-1 | HIGH | runtime equity double-counted transaction costs (basis-embedded costs subtracted AGAIN via `_equity_realized`) | **CLOSED this cycle** (PAPER-RUN-PNL-1) |
 | RUN-RL-1 | HIGH | mandatory `loss_limit` check structurally vacuous (`_daily_realized_return` = non-negative costs ratio; no day boundary) | **CLOSED this cycle** (PAPER-RUN-PNL-1) |
-| RUN-DD-1 | MED-HIGH | no ACCOUNT-equity drawdown limit (market-drawdown crash-guard only) | OPEN — next ranked blocker |
-| RUN-ST-1 | MED | in-session staleness hardcoded always-fresh; no wall-clock watchdog (pre-start freshness IS enforced by the feed gate) | OPEN |
-| RUN-CA-1 | MED | no operator cancel/manual-close API; protection exits frozen after HALT | OPEN |
-| RUN-PM-1 | LOW | `partial_fill_events` metric counts the completing fill | OPEN |
-| RUN-DA-1 | LOW | dead attribute `_entry_orders_by_symbol` | OPEN |
+| RUN-DD-1 | MED-HIGH | no ACCOUNT-equity drawdown limit (market-drawdown crash-guard only) | **CLOSED** (§0H) |
+| RUN-ST-1 | MED | in-session staleness hardcoded always-fresh; no wall-clock watchdog (pre-start freshness IS enforced by the feed gate) | **CLOSED** (§0L) |
+| RUN-CA-1 | MED | no operator cancel/manual-close API; protection exits frozen after HALT | **CLOSED** (§0L) |
+| RUN-PM-1 | LOW | `partial_fill_events` metric counts the completing fill | **CLOSED** (§0L) |
+| RUN-DA-1 | LOW | dead attribute `_entry_orders_by_symbol` | **CLOSED** (§0L) |
+| RUN-OBS-1 | LOW | exit-path risk rejections not surfaced in `BarOutcome.risk_failed_checks` | **CLOSED** (§0L) |
 
 Evidence probe: `scripts/probe_equity_double_count.py` — after one
 0.2-cost fill at an unchanged market (10 000 initial) the pre-fix
@@ -935,6 +936,148 @@ readiness verdict requires the full independently-tested runtime
 chain on the operational feed. Standing human blockers unchanged
 (SRC-APPROVAL, operational feed provisioning, keyed-MAC key, PAT
 rotation confirmation, REAL_DATA_READY chain). LIVE NOT AUTHORIZED.
+
+---
+
+## 0L. RUNTIME SAFETY RESIDUALS + SNAPSHOT COMPATIBILITY AMENDMENT — BATCH 6 (v2.13.0, 2026-10-13)
+
+The three-batch continuation mandate's Batch 6 closed every
+remaining OPEN paper-runtime safety residual registered in §0D/§0E
+plus the §0H-recorded snapshot-compatibility limitation. Baseline
+re-verified FIRST-HAND at 7b532bb (Batch 5 head): branch
+feat/runtime-risk-broker-neutral-tenancy, tree clean, suite
+**2,133 + 1 skipped** (72.9s) — matching the §0K record exactly.
+All fixes are RED-first (34 new acceptance tests in
+`tests/test_runtime_safety_residuals.py`, verified failing on the
+pre-fix code for the documented reasons: missing interfaces).
+
+### 0L.1 RUN-ST-1 — in-session wall-clock feed watchdog (MED → CLOSED)
+
+`RuntimeConfig.max_feed_staleness_seconds` (`Optional[StrictInt]`,
+default `None` = DISABLED) + an injectable `wall_clock` seam on
+`TradingRuntime`. A bar whose timezone-aware timestamp is STRICTLY
+older than the limit on the runtime's wall clock is still ADMITTED
+— in-flight settlement, TTL expiry, RUN-DD-1 drawdown enforcement,
+protective exits and persistence all continue (the watchdog blocks
+NEW EXPOSURE, never settlement or protection) — but the
+prediction/decision/entry chain is SKIPPED (fail closed), a
+`FEED_STALE_BLOCK` incident is ledgered (DETERMINISTIC payload: bar
+timestamp + configured limit; never the measured wall-clock age —
+INV-01 discipline), and the `feed_stale_bars` counter increments.
+A bar without a provable timestamp is STALE when the watchdog is on
+(freshness unprovable ⇒ fail closed); future-dated bars are not
+stale (clock-skew remains the pre-start feed gate's domain).
+
+Design decision (documented honestly): the DEFAULT is DISABLED to
+preserve the runtime's deterministic-replay posture — historical bar
+timestamps legitimately trail the wall clock, and every existing
+operational-mode test replays such histories. An operational
+live-clock paper session OPTS IN with an explicit limit (the paper
+operator runbook §7 now documents this as REQUIRED for live-clock
+operation). The broker bridge's external-order risk context derives
+`last_bar_age_bars` from the SAME wall clock when the watchdog is
+enabled — a stalled feed fails the mandatory `data_staleness` check
+fail-closed for external submissions (the pre-fix hardcode of 0 was
+structurally always-fresh).
+
+### 0L.2 RUN-CA-1 — operator cancel / manual close (MED → CLOSED)
+
+Two audited, fail-closed operator APIs:
+
+- **`operator_cancel_order(order_id, *, reason)`** — live orders
+  only (unknown/terminal ids are loud refusals); permitted in
+  RUNNING/DEGRADED/HALTED, refused in the §28 ambiguity states
+  (EXECUTION_UNCERTAIN / RECOVERY_REQUIRED / RECONCILIATION_REQUIRED
+  — reconcile first). Cancels through the REAL OMS transition pair
+  (request_cancel → finalize_cancel; partial fills keep their
+  filled part) and the venue boundary when attached; drops pending
+  protection; ledgers `ORDER_CANCELLED_OPERATOR` + counter +
+  immediate persistence (BLOCKER 12).
+- **`operator_close_position(symbol=None, *, reason)`** — RUNNING
+  submits a MANUAL_CLOSE order through the AUTHORITATIVE gate→OMS
+  path (closing carve-outs apply; settles on later bars through the
+  normal latency model). HALTED settles IMMEDIATELY at the latest
+  admitted bar (open ± adverse half spread + per-unit commission,
+  deterministic bar-derived mark): every live order for the symbol
+  is cancelled first (the frozen-protection condition), the closing
+  order is risk-gated (a failure is a LOUD refusal naming the failed
+  checks — no override path exists), and ONE full MARKET fill
+  applies through `_apply_execution_fills` — the same authoritative
+  OMS→position→P&L path every fill uses (exactly-once accounting,
+  `OPERATOR_MANUAL_CLOSE` incident, counter, immediate persistence).
+  With a venue attached the settlement is deliberately NOT submitted
+  to the venue (the venue refuses non-RUNNING runtimes BY DESIGN);
+  the incident records that venue truth was not consulted — an
+  operator-owned out-of-band settlement, never a hidden
+  direct-execution fallback in the normal path.
+
+### 0L.3 Low-severity residuals (LOW → CLOSED)
+
+- **RUN-PM-1**: `partial_fill_events` re-queries the LIVE OMS order
+  after each applied fill — the COMPLETING fill (remaining hits
+  zero) is no longer counted as a partial-fill event. The fix is in
+  the ONE shared fill-application path, so internal-mode and
+  venue-mode runs stay bit-identical.
+- **RUN-DA-1**: the dead `_entry_orders_by_symbol` attribute is
+  removed (written once in `__init__`, never read — zero references
+  in src or tests).
+- **RUN-OBS-1**: `_submit_protection_exits` now returns
+  `(orders, failed_checks)` and `BarOutcome.risk_failed_checks`
+  surfaces EXIT-path rejections (previously ledgered as
+  `RISK_ASSESSMENT_FAIL` but silently discarded from the outcome —
+  an operator reading the bar outcome could not see WHY a protective
+  exit was refused).
+
+### 0L.4 Snapshot config compatibility (§0H limitation → CLOSED)
+
+The §0H record noted that config-digest evolution "refuses pre-§0H
+snapshots (fail-closed)" — every schema addition changed the digest
+of an UNCHANGED session, with an opaque generic mismatch refusal.
+Batch 6 adds `SNAPSHOT_CONFIG_EVOLUTION` (ordered registry of
+post-formula config-field additions: §0H `max_account_drawdown_
+fraction`, §0L `max_feed_staleness_seconds` +
+`allow_snapshot_config_evolution`) and
+`RuntimeConfig.allow_snapshot_config_evolution` (StrictBool, default
+False). A digest mismatch now decomposes FIRST: a mismatch that is
+EXACTLY the documented additive evolution (legacy suffix-strip
+digest recomputation for pre-Batch-6 snapshots, or exact
+field-wise decomposition over the now-persisted
+`identity["config"]` view) refuses by DEFAULT with a precise
+message naming the added fields and the opt-in; with the explicit
+operator opt-in the session RESUMES and the evolution is ledgered
+as `SNAPSHOT_CONFIG_EVOLVED` (recorded after ledger restoration so
+it joins the permanent audit chain). Any SHARED-field value change
+still refuses (never silently continue under another identity —
+BLOCKER 21 unchanged). FUTURE config additions MUST be appended to
+the registry. EXECUTION_STATE_SCHEMA_VERSION stays 1.1.0 (the
+identity mapping is schema-opaque; new snapshots remain loadable by
+the unchanged schema validator).
+
+### 0L.5 Verification
+
+Suite 2,133 + 1 skipped -> **2,167 + 1 skipped** (+34, zero
+regressions, ZERO existing tests modified or weakened) x3
+consecutive runs (77.8s / 77.7s / 77.7s). Frozen Phase 3 blobs
+11/11 byte-identical to 13fdc7e; manifest pins 13/13; real-
+credential scan over all changed files: 0 hits (the 5 literal hits
+of the legacy gate script are the pre-existing MOCK test literals
+`mock-secret-material-DO-NOT-PRINT` from the committed Batch-M1
+broker tests — unchanged by this cycle). Changed surface:
+`src/data_engine/runtime/runtime.py`,
+`src/data_engine/runtime/metrics.py` (4 new counters:
+`feed_stale_bars`, `orders_operator_cancelled`,
+`orders_operator_close_submitted`, `orders_operator_closed`),
+`tests/test_runtime_safety_residuals.py` (new), readiness report +
+index + operator runbook (this amendment).
+
+### 0L.6 Verdict (unchanged)
+
+**PAPER_READY = FALSE.** The watchdog's default-off posture is a
+documented deterministic-replay compatibility decision — live-clock
+operation REQUIRES the explicit opt-in (runbook §7). Standing human
+blockers unchanged (SRC-APPROVAL, operational feed provisioning,
+keyed-MAC key, PAT rotation confirmation, REAL_DATA_READY chain).
+LIVE NOT AUTHORIZED.
 
 ---
 

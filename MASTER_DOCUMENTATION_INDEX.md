@@ -9,8 +9,59 @@ Document Type:  Master documentation index (SSOT)
 Phase:          Cross-phase (all phases)
 Authority:      A — AUTHORITATIVE (this index is the documentation map of record)
 Status:         CURRENT
-Version:        2.12.0
-Last Updated:   2026-10-12 (runtime-risk-safety mandate cycle,
+Version:        2.13.0
+Last Updated:   2026-10-13 (safety-residuals mandate cycle,
+                 Batch 6 — ALL remaining OPEN paper-runtime
+                 safety residuals CLOSED on continuous branch
+                 feat/runtime-risk-broker-neutral-tenancy (from
+                 7b532bb, tree clean, baseline re-verified
+                 first-hand: 2,133 + 1 skipped, 72.9s): RUN-ST-1
+                 in-session wall-clock feed watchdog
+                 (RuntimeConfig.max_feed_staleness_seconds,
+                 Optional[StrictInt], default None = disabled for
+                 deterministic-replay compatibility — an operational
+                 live-clock session OPTS IN; a stale bar is still
+                 ADMITTED (fills/TTL/drawdown/protection/persistence
+                 continue) but the prediction/decision/entry chain
+                 is SKIPPED fail-closed with a deterministic
+                 FEED_STALE_BLOCK incident + feed_stale_bars
+                 counter; injectable wall_clock seam; the bridge's
+                 external-order risk context derives the honest
+                 wall-clock bar age so data_staleness fails closed
+                 on a stalled feed), RUN-CA-1 operator APIs
+                 (operator_cancel_order — live orders only, real
+                 OMS transition pair + venue boundary, ledgered +
+                 counted + persisted immediately, refused in the §28
+                 ambiguity states; operator_close_position — RUNNING
+                 submits a MANUAL_CLOSE order through the AUTHORITATIVE
+                 gate→OMS path settling on later bars, HALTED settles
+                 IMMEDIATELY at the latest admitted bar through the
+                 one authoritative fill path with every live order
+                 for the symbol cancelled first — the post-HALT
+                 frozen-protection escape hatch; risk failures are
+                 LOUD refusals naming the failed checks), RUN-PM-1
+                 (partial_fill_events re-queries the live OMS order —
+                 the completing fill is no longer counted), RUN-DA-1
+                 (dead _entry_orders_by_symbol removed), RUN-OBS-1
+                 (exit-path risk rejections surfaced in
+                 BarOutcome.risk_failed_checks); SNAPSHOT CONFIG
+                 COMPATIBILITY (§0H limitation closed): the ordered
+                 SNAPSHOT_CONFIG_EVOLUTION registry +
+                 allow_snapshot_config_evolution opt-in — a digest
+                 mismatch that decomposes EXACTLY into documented
+                 additive schema evolution refuses by DEFAULT with
+                 a precise actionable message and resumes under the
+                 explicit operator opt-in with a ledgered
+                 SNAPSHOT_CONFIG_EVOLVED incident; shared-field
+                 changes always refuse; new snapshots persist
+                 identity["config"] for exact future decomposition;
+                 EXECUTION_STATE_SCHEMA 1.1.0 unchanged); +34
+                 RED-first acceptance tests; suite 2,167 + 1 skipped
+                 ×3 deterministic (77.8/77.7/77.7s); frozen 11/11;
+                 manifest 13/13; real-credential scan 0 on changed
+                 files; readiness report §0L v2.13.0 + operator
+                 runbook operator-API documentation; verdict
+                 UNCHANGED PAPER_READY = FALSE, LIVE NOT AUTHORIZED.
                  Batch 2 — RUN-DD-1 account-equity drawdown limit
                  CLOSED on continuous branch
                  feat/runtime-risk-broker-neutral-tenancy (from

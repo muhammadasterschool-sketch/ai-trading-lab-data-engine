@@ -62,6 +62,12 @@ COUNTER_NAMES = (
     "orders_venue_submitted",
     "orders_venue_refused",
     "orders_venue_unknown",
+    # Batch 6 (runtime safety residuals): in-session feed-watchdog
+    # blocks (RUN-ST-1) + operator action observability (RUN-CA-1).
+    "feed_stale_bars",
+    "orders_operator_cancelled",
+    "orders_operator_close_submitted",
+    "orders_operator_closed",
 )
 
 #: The known gauge vocabulary (latency observability, unhashed).

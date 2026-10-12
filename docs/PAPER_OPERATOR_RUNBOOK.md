@@ -2,11 +2,11 @@
 
 ```text
 Document Type:  Operator procedures (setup, run, verify, recover)
-Phase:          Paper-readiness engineering cycle (2026-10-11/12)
+Phase:          Paper-readiness engineering cycle (2026-10-11/12/13)
 Authority:      B — CURRENT SUPPORTING (procedures; governance
                 authority remains with the decision records)
 Status:         CURRENT
-Version:        1.0.0
+Version:        1.1.0
 Audience:       The human operator of a PAPER-ONLY trading session
 Environment:    Desktop/Linux (Python 3.11 or 3.12, uv). Pydroid 3 is
                 NOT supported for running this repository — see §12.
@@ -154,6 +154,50 @@ store persist the exact position (recovery is proven at ten restart
 points). The kill switch (trip reasons recorded in the incident
 ledger) refuses new entries until cleared per governance.
 
+**In-session feed watchdog (v1.1.0, RUN-ST-1):** for a LIVE-CLOCK
+paper session, configure `RuntimeConfig.max_feed_staleness_seconds`
+(explicit positive seconds; e.g. 900 for 15-minute bars) when you
+construct the runtime. The default `None` deliberately leaves the
+watchdog DISABLED — the runtime's default posture is deterministic
+replay, where historical bar timestamps legitimately trail the wall
+clock. With it enabled, a bar whose wall-clock age STRICTLY exceeds
+the limit is still admitted (fills, TTL expiry, drawdown
+enforcement, protective exits and persistence continue) but the
+runtime SKIPS the prediction/decision chain — NO new exposure on
+stale data, a `FEED_STALE_BLOCK` incident is ledgered per stale bar
+and the `feed_stale_bars` metric counts them. External orders
+submitted through the broker bridge are refused by the mandatory
+`data_staleness` risk check while the feed is stale. **Treat the
+explicit opt-in as REQUIRED for live-clock operation** — it is the
+in-session successor to the pre-start feed gate's freshness check.
+
+## 7b. Operator cancel / manual close (v1.1.0, RUN-CA-1)
+
+Two audited, fail-closed operator APIs exist on the running
+`TradingRuntime` (every action is ledgered, counted and persisted
+immediately):
+
+- **`operator_cancel_order(order_id, *, reason)`** — cancel ONE
+  live pending order. Works in RUNNING/DEGRADED/HALTED. Unknown or
+  already-terminal orders are LOUD refusals (never silent no-ops);
+  the §28 ambiguity states (EXECUTION_UNCERTAIN / RECOVERY_REQUIRED
+  / RECONCILIATION_REQUIRED) refuse — reconcile first. A
+  partially-filled order keeps its filled part; only the remainder
+cancels.
+- **`operator_close_position(symbol=None, *, reason)`** — close
+  (liquidate) the live position. In RUNNING this submits a
+  MANUAL_CLOSE order through the normal risk-gated OMS path that
+  settles on the next bars. In HALTED — the condition where frozen
+  protection exits can never fill — it settles IMMEDIATELY at the
+  latest admitted bar (open ± half spread, per-unit commission,
+  deterministic mark), cancelling every live order for the symbol
+  first, through the same authoritative OMS→position→P&L path every
+  fill uses. A risk-gate failure is a LOUD refusal that names the
+  failed checks — there is no override path; fix the underlying
+  condition or accept the refusal.
+
+Both APIs are risk-REDUCING only: neither can add exposure.
+
 ## 8. Verify the paper broker cannot touch live execution
 
 ```bash
@@ -189,7 +233,20 @@ Structural guarantees (all test-pinned):
   rate-limit); the composition surfaces them; new entries stop and
   the diagnostic reason is recorded. Stale windows (> 900 s by
   default) fail the feed gate — new entries stop until fresh data
-  returns. Nothing is fabricated during the outage.
+  returns. Nothing is fabricated during the outage. IN-SESSION (with
+  the §7 watchdog enabled): stale bars are admitted but
+  decision-free (`FEED_STALE_BLOCK` incidents; `feed_stale_bars`
+  metric) — decisions resume automatically when the feed catches
+  up.
+- Config-schema evolution across an upgrade (v1.1.0): a restart
+  after new config fields were added refuses by DEFAULT with a
+  message naming the added fields. Resume the session ONLY if you
+  accept the new limits applying prospectively, by setting
+  `RuntimeConfig.allow_snapshot_config_evolution=True` explicitly —
+  the resume is then ledgered as `SNAPSHOT_CONFIG_EVOLVED` in the
+  permanent audit chain. A restart with any CHANGED config VALUE
+  (risk limits, equity, models) always refuses: that is a different
+  session identity, never silently continued.
 
 ## 11. Disable a market that fails validation
 
