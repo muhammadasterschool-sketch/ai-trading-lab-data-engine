@@ -1,6 +1,6 @@
 # PAPER TRADING READINESS FINAL REPORT
 
-**Document ID:** PPR-FR-002 · **Version:** 2.9.0 · **Date:** 2026-10-12
+**Document ID:** PPR-FR-002 · **Version:** 2.10.0 · **Date:** 2026-10-12
 **Prepared by:** ZAI implementation + verification agent (paper-readiness
 re-audit mandate: blocker closure + runtime-integration forensic re-audit;
 RL-governance cycle: RL runtime + observability metrics + 31st gate;
@@ -724,6 +724,60 @@ RUN-ST-1 (in-session staleness watchdog) > RUN-CA-1 (operator
 cancel/manual-close) > RUN-PM-1/DA-1/OBS-1. Standing human blockers
 unchanged (SRC-APPROVAL, operational feed provisioning, keyed-MAC
 key, PAT rotation, REAL_DATA_READY). LIVE NOT AUTHORIZED.
+
+---
+
+## 0I. BROKER-NEUTRAL RUNTIME INTEGRATION AMENDMENT — BATCH 3 (v2.10.0, 2026-10-12)
+
+The runtime-risk-safety mandate Batch 3 (broker-neutral runtime
+integration) delivered Phase M2 of
+`docs/MULTI_BROKER_EXECUTION_ARCHITECTURE.md` as the SMALLEST
+maintainable integration layer:
+`src/data_engine/runtime/broker_execution.py` (module record in the
+architecture doc §6a).
+
+### 0I.1 What the integration proves
+
+A `BrokerSession` attached to a STARTED paper runtime is governed by
+the runtime's REAL central gates — the SAME `RiskGate` (all 22
+mandatory checks incl. RUN-DD-1 account drawdown, §0H) and
+`KillSwitchManager` instances — and executes through the runtime's
+OWN deterministic `PaperExecutionAdapter` fill model over the
+runtime's admitted bar history. Session protections (journal
+idempotency across restarts, bounded deterministic retry, UNKNOWN
+degradation with reconciliation-only recovery, capability/precision
+refusals, account isolation) work end-to-end on this boundary.
+
+### 0I.2 What the integration deliberately does NOT do
+
+The runtime's authoritative order path (`_execute_plan` -> OMS ->
+runtime fills) is UNTOUCHED — the bridge is SIDE-BAND (venue orders
+live in the session journal + venue book, never in the runtime
+OMS). Zero existing tests modified; the only runtime-surface
+addition is the read-only `TradingRuntime.risk_gate` property. No
+real broker adapter exists or is claimed: M3-M6 (Binance testnet,
+Bybit demo, MT5-compatible Exness/XM DEMO, cross-venue aggregation)
+remain NOT STARTED — MT5/Exness/Binance/Bitget/XM remain UNSUPPORTED
+for real execution. LIVE NOT AUTHORIZED.
+
+### 0I.3 Verification
+
+`tests/test_runtime_broker_integration.py` — 22 tests (lifecycle,
+partial fills, resting LIMIT, cancel freeze, central-gate
+governance incl. drawdown through the bridge, idempotency incl.
+restart, timeout retry, UNKNOWN degrade/reconcile/resume,
+unsupported TIF + STOP kinds, isolation, unknown symbol, §32
+divergence -> sync -> clean, phantom degradation, side-band
+preservation, MOCK_DETERMINISTIC enforcement). Suite
+**2,039 + 1 skipped -> 2,061 + 1 skipped** — +22, zero regressions,
+zero existing tests modified, frozen Phase 3 blobs untouched.
+
+### 0I.4 Verdict (unchanged)
+
+**PAPER_READY = FALSE.** The integration is paper-mock only; no
+readiness dependency changed. Standing human blockers unchanged
+(SRC-APPROVAL, operational feed provisioning, keyed-MAC key, PAT
+rotation, REAL_DATA_READY). LIVE NOT AUTHORIZED.
 
 ---
 

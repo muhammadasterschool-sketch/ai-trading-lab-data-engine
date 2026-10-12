@@ -9,7 +9,7 @@ Document Type:  Master documentation index (SSOT)
 Phase:          Cross-phase (all phases)
 Authority:      A — AUTHORITATIVE (this index is the documentation map of record)
 Status:         CURRENT
-Version:        2.9.0
+Version:        2.10.0
 Last Updated:   2026-10-12 (runtime-risk-safety mandate cycle,
                  Batch 2 — RUN-DD-1 account-equity drawdown limit
                  CLOSED on continuous branch
@@ -33,7 +33,24 @@ Last Updated:   2026-10-12 (runtime-risk-safety mandate cycle,
                  fixture sites declare the new mandatory input
                  (zero assertions weakened); readiness report
                  §0H v2.9.0; verdict UNCHANGED PAPER_READY =
-                 FALSE, LIVE NOT AUTHORIZED. Also this cycle:
+                 FALSE, LIVE NOT AUTHORIZED. Batch 3 same cycle:
+                 broker-neutral runtime integration Phase M2
+                 DELIVERED as the side-band bridge
+                 src/data_engine/runtime/broker_execution.py —
+                 BrokerSession governed by the runtime's REAL
+                 RiskGate (22 checks incl. account drawdown) +
+                 KillSwitchManager, executing through the runtime's
+                 own PaperExecutionAdapter fill model over admitted
+                 bars; runtime order path UNTOUCHED (side-band);
+                 +22 tests (lifecycle/partial fills/resting LIMIT/
+                 cancel/central-gate governance/idempotency incl.
+                 restart/timeout retry/UNKNOWN reconcile/unsupported
+                 kinds/isolation/§32 divergence/phantom/side-band
+                 preservation); suite 2,061 + 1 skipped; architecture
+                 doc v1.1.0 §6a with explicit remaining adapter work
+                 (M3-M6 NOT STARTED, no real broker claimed);
+                 readiness report §0I v2.10.0; verdict UNCHANGED.
+                 Also this cycle:
                  full-platform discovery mandate cycle:
                  Phase 1 audit delivered on branch
                  fix/ingestion-classification-fail-closed (from d945833):

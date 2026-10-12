@@ -4,9 +4,11 @@
 Document Type:  Architecture proposal + audit + implementation plan (Phase M1)
 Phase:          Multi-Broker Architecture Mandate (operator-issued 2026-10-12)
 Authority:      A — AUTHORITATIVE for the broker-neutral execution design
-Status:         CURRENT (Phase M1 implemented; Phases M2–M6 planned, NOT started)
-Version:        1.0.0
-Last Updated:   2026-10-12
+Status:         CURRENT (Phase M1 implemented; Phase M2 implemented as the
+                 runtime-side paper-mock bridge — see §6a; Phases M3–M6
+                 planned, NOT started)
+Version:        1.1.0
+Last Updated:   2026-10-12 (Phase M2 / runtime-risk-safety mandate Batch 3)
 ```
 
 ---
@@ -316,7 +318,7 @@ authorized.
 | Phase | Scope | Risk | Status |
 |---|---|---|---|
 | **M1** | Broker-neutral core (models/errors/capabilities/redaction/interface) + guarded session + four deterministic mocks + failure-injection tests. Purely ADDITIVE; zero frozen files touched. | MINIMAL (no runtime path changes; no network) | **DELIVERED this cycle** |
-| **M2** | Wire the paper runtime's execution boundary onto `BrokerSession` behind a `PaperBrokerAdapter` that hosts the existing `PaperExecutionAdapter` fill model; bridge `RiskGate`/`KillSwitchManager` into the session's injectable gates; prove EXECUTION_STATE_SCHEMA compatibility. | MEDIUM (touches the live order path; must preserve all frozen contracts and the 1,769-test behaviour) | NOT STARTED — requires review of THIS document |
+| **M2** | Wire the paper runtime's execution boundary onto `BrokerSession` behind a `PaperBrokerAdapter` that hosts the existing `PaperExecutionAdapter` fill model; bridge `RiskGate`/`KillSwitchManager` into the session's injectable gates; prove EXECUTION_STATE_SCHEMA compatibility. | MEDIUM (touches the live order path; must preserve all frozen contracts and the 1,769-test behaviour) | **DELIVERED (Batch 3, 2026-10-12)** as `src/data_engine/runtime/broker_execution.py` — the SMALLEST maintainable integration layer: side-band bridge, runtime order path UNTOUCHED (see §6a) |
 | **M3** | Real Binance spot TESTNET adapter behind the same interface (REST + filters + weights; env-injected credentials, never in repo; testnet funds only). | MEDIUM-HIGH (first real network execution surface) | NOT STARTED — requires operator authorization + SRC-APPROVAL-style review |
 | **M4** | Real Bybit v5 demo/testnet adapter (orderLinkId, one-way mode, lotSizeFilter). | MEDIUM-HIGH | NOT STARTED |
 | **M5** | Real MT5-compatible adapter (Exness/XM DEMO accounts, Windows terminal session injection per `platform/mt5.py` protocol; REAL account mode structurally refused until an explicit operator LIVE-authorization protocol exists). | HIGH (real broker terminals) | NOT STARTED |
@@ -325,6 +327,83 @@ authorized.
 Every phase lands on a dedicated feature branch with the same
 discipline as this one: acceptance tests first, full-suite green,
 frozen-blob verification, secret scan 0, honest verdict.
+
+---
+
+## 6a. Phase M2 delivery record (Batch 3 — 2026-10-12)
+
+**Branch:** `feat/runtime-risk-broker-neutral-tenancy` (from `82f46d9`,
+continuing the Batch-2 commit `ff5f7d3`). **Module:**
+`src/data_engine/runtime/broker_execution.py` (the ONLY
+runtime<->brokers seam; exported from `data_engine.runtime`).
+
+**What was built (the smallest maintainable integration layer):**
+
+- `RuntimeRiskGateBridge` — the session's injectable risk gate,
+  backed by the runtime's REAL `RiskGate` instance (all 22 mandatory
+  checks incl. RUN-DD-1 account drawdown). One `OrderRequest` is
+  translated into the runtime's canonical `TradePlan` +
+  live-state `RiskContext` (TRUE equity, live position, drawdown,
+  volatility, daily return at the latest admitted bar); the
+  assessment is ledgered into the runtime's ledger family.
+  Refused translations (fail closed): STOP/STOP_LIMIT kinds
+  (`paper_oms_order_kind`), foreign symbols
+  (`bridge_symbol_context` — no authoritative market context),
+  zero admitted bars (`no_market_context`).
+- `RuntimeKillSwitchGate` — the session's injectable kill-switch
+  gate, backed by the runtime's REAL `KillSwitchManager` (any
+  governing trip refuses venue submissions; the runtime stays
+  authoritative).
+- `RuntimePaperExecutionAdapter` — a `BrokerAdapter` hosting the
+  runtime's OWN `PaperExecutionAdapter` fill model over the
+  runtime's admitted bar history (identical latency, participation
+  partial fills, LIMIT protection, cost decomposition — aggregated
+  into the venue-neutral `fee` field exactly once). MARKET/LIMIT +
+  GTC + ATTACHED SL/TP only (exactly what the frozen paper OMS
+  supports); integrator-supplied instrument specs (never guessed);
+  execution advances on venue polls; venue-side netting book +
+  §32 reconciliation (ORDER_MISSING / PHANTOM / STATUS_DIVERGENCE /
+  FILL_QUANTITY_DIVERGENCE + UNKNOWN resolutions).
+- `attach_runtime_paper_session(...)` — the factory wiring the
+  bridges into a guarded `BrokerSession` (journal idempotency,
+  bounded deterministic retry, UNKNOWN degradation, capability and
+  precision pre-checks, account isolation).
+
+**Deliberate design decision — SIDE-BAND integration:** the
+runtime's authoritative order path (`_execute_plan` -> OMS ->
+runtime fills) is UNTOUCHED. Venue orders live in the session
+journal + the adapter's venue book, never in the runtime
+OMS/position book. The M2 table row's original wording ("wire the
+runtime's execution boundary ONTO BrokerSession") is satisfied by
+governance + hosting, not by re-routing the live order path —
+re-routing would have risked the frozen contracts for zero safety
+gain. The runtime-side properties added: `TradingRuntime.risk_gate`
+(read-only seam) only.
+
+**Tests:** `tests/test_runtime_broker_integration.py` — 22 tests:
+market lifecycle (OPEN -> FILLED with cost decomposition), multi-bar
+partial fills, resting LIMIT + BUG-001 price protection, cancel
+freeze, central-gate governance (runtime kill-switch trip refuses
+venue orders; no-SL refused by the REAL gate; RUN-DD-1 drawdown
+refused through the bridge; no-market-context refusal; foreign
+symbol refusal), idempotency (exact ack replay, key-reuse refusal,
+journal survives session restart), timeout retry with deterministic
+backoff evidence, UNKNOWN degrade -> reconcile -> resume,
+unsupported TIF/STOP-kind refusals, account isolation, unknown
+symbol, STATUS_DIVERGENCE -> sync_order_state -> clean re-reconcile,
+phantom-order degradation, side-band preservation (runtime OMS
+untouched), MOCK_DETERMINISTIC-only enforcement.
+
+**Verification:** suite 2,039 + 1 skipped -> **2,061 + 1 skipped**
+(+22, zero regressions, zero existing tests modified).
+
+**Remaining adapter work (explicit, NOT claimed):** M3 (Binance
+spot TESTNET), M4 (Bybit v5 demo), M5 (MT5-compatible Exness/XM
+DEMO), M6 (cross-venue aggregation) are all NOT STARTED — no real
+broker adapter exists or is claimed; MT5/Exness/Binance/Bitget/XM
+remain UNSUPPORTED for real execution. Executing runtime orders
+through a real venue (replacing the side-band venue) remains
+future, separately-reviewed work.
 
 ---
 

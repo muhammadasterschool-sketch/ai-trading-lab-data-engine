@@ -9,9 +9,12 @@ The ONE orchestration path (mandate §24):
     KillSwitch → OMS → PaperExecutionGateway → Fill →
     PositionState → Reconciliation → Ledgers → Memory → Monitoring
 
-PAPER MODE ONLY. No broker integration, no live execution, no
-production credentials, no autonomous capital allocation (mandate
-§58/§59/§61). This package implements PAPER readiness machinery;
+PAPER MODE ONLY. No live execution, no production credentials, no
+autonomous capital allocation (mandate §58/§59/§61). Broker
+integration exists ONLY as the paper-mock Phase M2 bridge
+(``runtime/broker_execution.py`` — MOCK_DETERMINISTIC venues gated
+by the runtime's own RiskGate/KillSwitchManager; REAL adapters are
+refused). This package implements PAPER readiness machinery;
 declaring PAPER_READY remains the exclusive verdict of
 :class:`PaperReadinessGate` from objective evidence.
 """
@@ -200,6 +203,15 @@ from data_engine.runtime.metrics import (
     MetricsError,
     RuntimeMetrics,
 )
+from data_engine.runtime.broker_execution import (
+    RUNTIME_PAPER_VENUE_ID,
+    RUNTIME_PAPER_VENUE_CAPABILITIES,
+    BridgeContractError,
+    RuntimeKillSwitchGate,
+    RuntimeRiskGateBridge,
+    RuntimePaperExecutionAdapter,
+    attach_runtime_paper_session,
+)
 
 __all__ = [
     "RUNTIME_CONTRACT_VERSION",
@@ -279,4 +291,9 @@ __all__ = [
     "RLObservation", "RLPolicyConfig", "propose_rl_action",
     # runtime observability (mandate §26)
     "COUNTER_NAMES", "GAUGE_NAMES", "MetricsError", "RuntimeMetrics",
+    # Phase M2 broker-neutral integration seam (paper-mock only)
+    "RUNTIME_PAPER_VENUE_ID", "RUNTIME_PAPER_VENUE_CAPABILITIES",
+    "BridgeContractError", "RuntimeKillSwitchGate",
+    "RuntimeRiskGateBridge", "RuntimePaperExecutionAdapter",
+    "attach_runtime_paper_session",
 ]

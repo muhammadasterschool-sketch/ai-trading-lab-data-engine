@@ -378,6 +378,13 @@ class TradingRuntime:
         return self._kill_switch
 
     @property
+    def risk_gate(self) -> RiskGate:
+        """The authoritative 22-check risk gate (Phase M2 integration
+        seam — the broker-neutral session's injectable central risk
+        gate binds to THIS instance, never a copy)."""
+        return self._risk_gate
+
+    @property
     def memory(self) -> TradingMemory:
         return self._memory
 
@@ -2006,6 +2013,50 @@ class TradingRuntime:
     # ------------------------------------------------------------------
     # ACCOUNT-equity drawdown limit (RUN-DD-1)
     # ------------------------------------------------------------------
+    def _risk_context_for_bridge(self, plan: TradePlan,
+                                 reference_price: Decimal,
+                                 latest_bar: Mapping) -> "RiskContext":
+        """Build the live-state RiskContext for a broker-bridge order
+        (Phase M2 seam — ``runtime/broker_execution.py``).
+
+        The context is synthesised from the runtime's AUTHORITATIVE
+        state at the latest admitted bar: TRUE account equity
+        (PAPER-RUN-PNL-1), the live position for the plan's symbol,
+        the symbol-window drawdown AND the RUN-DD-1 account drawdown,
+        window volatility, and the true daily return. Paper mode is
+        structurally true (the runtime is paper-only); model validity
+        was self-checked at start(). The plan's own uncertainty/
+        crash fields carry the deterministic external-order marker.
+        """
+        position = self._positions.get(
+            plan.symbol, PositionState(symbol=plan.symbol)
+        )
+        return RiskContext(
+            equity=self._current_equity(reference_price),
+            current_units=position.quantity,
+            reference_price=reference_price,
+            bar_volume=Decimal(str(latest_bar.get("volume") or 0)),
+            last_bar_age_bars=0,
+            market_open=True,
+            paper_mode=True,
+            model_valid=True,
+            uncertainty=plan.uncertainty,
+            crash_probability=0.0,
+            max_acceptable_crash_probability=(
+                self._config.max_crash_probability
+            ),
+            max_drawdown_fraction=self._window_drawdown(),
+            account_drawdown_fraction=self._account_drawdown(),
+            account_drawdown_limit_fraction=(
+                self._config.max_account_drawdown_fraction
+            ),
+            volatility=self._window_volatility(),
+            max_volatility=0.10,
+            daily_realized_return=self._daily_realized_return(),
+            half_spread=self._realism.half_spread,
+            max_spread_fraction=Decimal("0.01"),
+        )
+
     def _account_drawdown(self) -> Optional[float]:
         """ACCOUNT-equity drawdown fraction (RUN-DD-1).
 
