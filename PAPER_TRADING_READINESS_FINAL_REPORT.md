@@ -1,6 +1,6 @@
 # PAPER TRADING READINESS FINAL REPORT
 
-**Document ID:** PPR-FR-002 · **Version:** 2.8.0 · **Date:** 2026-10-12
+**Document ID:** PPR-FR-002 · **Version:** 2.9.0 · **Date:** 2026-10-12
 **Prepared by:** ZAI implementation + verification agent (paper-readiness
 re-audit mandate: blocker closure + runtime-integration forensic re-audit;
 RL-governance cycle: RL runtime + observability metrics + 31st gate;
@@ -17,7 +17,7 @@ architecture mandate 2026-10-12: broker-neutral execution layer
 (Phase M1, mocks + guarded session + 236 tests) — see §0F;
 full-platform discovery mandate 2026-10-12: ingestion-classification
 fail-closed hardening (ING/VAL defect family, +20 tests) — see §0G
-and PHASE_1_DISCOVERY_AUDIT_REPORT.md v1.0.0)
+and PHASE_1_DISCOVERY_AUDIT_REPORT.md v1.0.0; runtime-risk-safety mandate 2026-10-12 Batch 2: RUN-DD-1 account-equity drawdown limit (new mandatory check + enforcement, +14 tests) — see §0H)
 **Repository:** muhammadasterschool-sketch/ai-trading-lab-data-engine
 **Branch:** phase-4a/4a1-architecture-correction (integration branch:
 feat/broker-neutral-execution-architecture, from 1c286d2 on
@@ -599,6 +599,131 @@ standing human blockers unchanged (SRC-APPROVAL, operational feed,
 keyed-MAC key, PAT rotation, REAL_DATA_READY). LIVE NOT AUTHORIZED.
 Push of this branch is blocked on an operator credential (exact
 commands recorded in the audit report §9).
+
+---
+
+## 0H. RUNTIME-RISK-SAFETY AMENDMENT — BATCH 2 (v2.9.0, 2026-10-12)
+
+The runtime-risk-safety mandate (Batch 2: account-equity drawdown
+limit; every order/fill path respects the risk gate and kill
+switch) executed on the continuous feature branch
+`feat/runtime-risk-broker-neutral-tenancy`, from `82f46d9`
+(`fix/ingestion-classification-fail-closed`, §0G head).
+
+### 0H.1 Baseline re-verified (nothing assumed)
+
+Suite at `82f46d9`: **2,025 passed + 1 skipped** (55.57 s) — matches
+the §0G.3 record exactly. Working tree clean; all prior local
+branches preserved; `git log` chain intact.
+
+### 0H.2 RUN-DD-1 closed (the ranked next blocker since §0E)
+
+**Defect:** the mandatory `drawdown` risk-gate check measured ONLY
+the SYMBOL's price-window drawdown (`_window_drawdown` over bar
+closes). The ACCOUNT's own mark-to-market equity drawdown was never
+limited: a session could lose half its equity with every mandatory
+check passing, and no automatic protective action existed.
+
+**Accepted interface (implemented, fail-closed):**
+
+1. **Calculation** — `_account_drawdown() = (peak - current) / peak`;
+   both are TRUE mark-to-market account equity (PAPER-RUN-PNL-1
+   accounting: initial + realized + unrealized at the latest
+   admitted bar's close, costs exactly once); `peak` is the session
+   high-water mark replayed deterministically from persisted bars +
+   OMS fills (same discipline as the daily anchor: **no new persisted
+   field**, restart-stable by construction; in-memory memo is a pure
+   determinism cache keyed by (bar count, fill count)).
+2. **Configuration** — `RuntimeConfig.max_account_drawdown_fraction`
+   (default 0.20; validated finite fraction in (0, 1]).
+3. **Risk gate** — NEW mandatory check `account_drawdown`
+   (MANDATORY_CHECKS 21 → 22): unknown ⇒ FAIL CLOSED (never
+   neutral); strictly above limit ⇒ entry orders refused with
+   `ACCOUNT DRAWDOWN LIMIT`; closing/reducing orders stay permitted
+   (the limit blocks NEW exposure, not risk reduction — mirroring
+   the kill-switch carve-out). Equality is in-limit (consistent with
+   `drawdown`/`loss_limit`).
+4. **Enforcement** — evaluated on EVERY admitted bar after that
+   bar's fills (fill-driven AND price-driven breaches): a strict
+   breach is ledgered as `ACCOUNT_DRAWDOWN_LIMIT_BREACH` (full
+   calculation inputs), trips the ACCOUNT kill switch (auditable
+   source `runtime.risk.drawdown`) and HALTS terminally; the trip
+   persists immediately (BLOCKER 12) and a restart REFUSES to clear
+   it (critical-switch loud refusal, verified). In-flight entry
+   remainders are frozen by the terminal HALT (no bar can process ⇒
+   no fill past the limit — verified).
+5. **Missing/anomalous equity data** — fresh session ⇒ 0.0 (peak ==
+   current == initial); unanchorable equity path (fill `bar_index`
+   missing/outside admitted history — unreachable through the
+   governed adapter, defence-in-depth) ⇒ `None` ⇒ gate fails closed
+   + `ACCOUNT_DRAWDOWN_UNKNOWN` incident, NO trip on an unknown
+   measure (the human-reset switch is reserved for MEASURED
+   breaches). Non-positive current equity ⇒ 1.0 (maximal measured
+   drawdown).
+6. **Observability** — new counter `drawdown_limit_breaches`
+   (closed vocabulary extended additively).
+
+**Every order/fill path re-verified:** the single order path
+(`_execute_plan` → 22-check RiskGate → OMS RT-F1 fingerprint-bound
+approval) now carries the account-drawdown input for BOTH entry and
+protective-exit plans; fills remain governed by the RUN-KS-1/2
+fill-time kill-switch enforcement plus the terminal-HALT freeze.
+
+### 0H.3 Tests (RED-first, all verified)
+
+`tests/test_runtime_account_drawdown.py` — **14 tests**, all 14
+verified RED pre-fix for the documented reasons (the interface did
+not exist), all GREEN post-fix: measurement (fresh/round-trip/open-
+position/unrealized-peak), config validation (0/negative/>1/NaN
+refused; 1.0 and 0.001 legal), gate refusal (only failing check =
+`account_drawdown`), exact-limit boundary (equality passes, gate AND
+enforcement), closing-order carve-out during breach (entry refused,
+close created), unknown-data fail-closed (+ incident + no trip),
+breach trip (state/switch/ledger/metric + next-bar refusal),
+price-driven breach (no new fills), in-flight freeze (fill-lag order
+never fills past the trip), restart refusal (critical switch +
+identical reconstructed measure), organic-session restart stability
+(peak + drawdown identical after full restore).
+
+Two pre-existing fixture sites updated to satisfy the new mandatory
+input (`tests/test_runtime_safety.py::_ctx`,
+`tests/test_runtime_pnl_correctness.py::_seed_order_fill` — both now
+declare `account_drawdown_fraction=0.0` explicitly; **zero assertions
+weakened**, the fixtures merely satisfy the stricter contract).
+
+### 0H.4 Verification
+
+Full suite **2,039 + 1 skipped × 3 consecutive** (59.53/60.95/58.80 s)
+— +14 tests, zero regressions, zero tests weakened. Frozen Phase 3
+blobs 11/11 byte-identical to `13fdc7e`. Secret scan 0 hits on all
+changed files.
+
+### 0H.5 Known limitations (honest)
+
+- **Config-identity evolution:** the new config field enters
+  `config_digest`; snapshots persisted by pre-§0H code fail the
+  identity binding on restart (fail-closed refusal — new session
+  required). This is the correct direction but operators must know
+  old sessions do not carry over.
+- **Peak replay cost:** the high-water mark is replayed from bar
+  history on each new bar (memoized per (bar, fill) counts) — same
+  asymptotic class as the existing per-bar full-state persistence;
+  a perf pass is future work, not a safety issue.
+- **HALT freezes exits too:** a tripped session leaves open
+  positions unmanaged (bars refused) — consistent with the existing
+  ACCOUNT/GLOBAL switch semantics (operator winds down in a NEW
+  session). Documented trade-off, not a regression.
+- Feed staleness itself remains RUN-ST-1 (open, separately ranked).
+
+### 0H.6 Verdict (unchanged)
+
+**PAPER_READY = FALSE.** This batch closes a runtime-safety blocker;
+it does not touch the operational feed, the 32-gate stack, or any
+readiness dependency. Ranked runtime blockers after this cycle:
+RUN-ST-1 (in-session staleness watchdog) > RUN-CA-1 (operator
+cancel/manual-close) > RUN-PM-1/DA-1/OBS-1. Standing human blockers
+unchanged (SRC-APPROVAL, operational feed provisioning, keyed-MAC
+key, PAT rotation, REAL_DATA_READY). LIVE NOT AUTHORIZED.
 
 ---
 

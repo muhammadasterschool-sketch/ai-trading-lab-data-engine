@@ -45,6 +45,7 @@ COUNTER_NAMES = (
     "fills",
     "partial_fill_events",
     "kill_switch_trips",
+    "drawdown_limit_breaches",
     "halts",
     "reconciliation_mismatches",
     "recovery_events",

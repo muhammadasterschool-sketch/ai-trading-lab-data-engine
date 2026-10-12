@@ -104,6 +104,7 @@ def _ctx(**over):
         uncertainty=UNC,
         crash_probability=0.05,
         max_drawdown_fraction=0.02,
+        account_drawdown_fraction=0.0,
         volatility=0.01,
         daily_realized_return=0.001,
         half_spread=Decimal("0.05"),

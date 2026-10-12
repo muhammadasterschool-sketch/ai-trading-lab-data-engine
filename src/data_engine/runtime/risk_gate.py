@@ -4,8 +4,8 @@ The RiskGate is invoked by the authoritative TradingRuntime before
 EVERY paper order. Checks (mandate §25 list, each fail-closed):
 
 exposure · leverage · concentration · liquidity · spread ·
-volatility · drawdown · loss limits · crash risk · stale data ·
-model health · uncertainty · market status · order bounds ·
+volatility · drawdown · account drawdown · loss limits · crash risk ·
+stale data · model health · uncertainty · market status · order bounds ·
 duplicate order · kill switch · SL · TP · risk/reward · paper mode
 
 Guarantees:
@@ -81,6 +81,7 @@ MANDATORY_CHECKS = (
     "spread",
     "volatility",
     "drawdown",
+    "account_drawdown",
     "loss_limit",
     "stop_loss_presence",
     "take_profit_validity",
@@ -107,6 +108,11 @@ class RiskContext(BaseModel):
     max_acceptable_crash_probability: float = 0.20
     max_drawdown_fraction: Optional[float] = None
     drawdown_limit_fraction: float = 0.15
+    #: RUN-DD-1: the ACCOUNT's own mark-to-market equity drawdown
+    #: from its session high-water mark, measured by the runtime
+    #: (None = unmeasurable → the check FAILS CLOSED, never neutral).
+    account_drawdown_fraction: Optional[float] = None
+    account_drawdown_limit_fraction: float = 0.20
     daily_loss_limit_fraction: float = 0.03
     daily_realized_return: Optional[float] = None
     realized_pnl_today: Optional[Decimal] = None
@@ -458,6 +464,45 @@ class RiskGate:
                 if dd_ok
                 else f"drawdown {context.max_drawdown_fraction} exceeds "
                      f"limit {context.drawdown_limit_fraction}",
+            )
+
+        # 17b. ACCOUNT-equity drawdown (RUN-DD-1) — the check above
+        # measures the SYMBOL's price-window drawdown (a MARKET
+        # condition); THIS check measures the ACCOUNT's own
+        # mark-to-market equity drawdown from its session high-water
+        # mark — the quantity that actually protects the user's
+        # capital. Closing/reducing orders stay permitted: the limit
+        # blocks NEW exposure, not risk reduction (fail-safe
+        # direction, mirroring the kill-switch carve-out).
+        if is_closing:
+            record(
+                "account_drawdown",
+                True,
+                "risk-reducing order: drawdown-limited close permitted "
+                "(the limit blocks new exposure, not risk reduction)",
+            )
+        elif context.account_drawdown_fraction is None:
+            record(
+                "account_drawdown",
+                False,
+                "account equity drawdown unknown — fail closed "
+                "(never neutral)",
+            )
+        else:
+            acc_dd_ok = (
+                context.account_drawdown_fraction
+                <= context.account_drawdown_limit_fraction
+            )
+            record(
+                "account_drawdown",
+                acc_dd_ok,
+                f"account drawdown {context.account_drawdown_fraction} "
+                f"<= limit {context.account_drawdown_limit_fraction}"
+                if acc_dd_ok
+                else f"ACCOUNT DRAWDOWN LIMIT: "
+                     f"{context.account_drawdown_fraction} exceeds "
+                     f"limit {context.account_drawdown_limit_fraction} "
+                     "— new exposure refused",
             )
 
         # 18. daily loss limit

@@ -122,6 +122,17 @@ class RuntimeConfig(BaseModel):
     crash_exit_probability: float = 0.40
     max_position_units: Decimal = Decimal("100")
     risk_fraction: Decimal = Decimal("0.01")
+    #: RUN-DD-1: ACCOUNT-equity drawdown limit — the maximum
+    #: tolerated decline of mark-to-market account equity from the
+    #: session high-water mark (default 20%). A STRICT breach
+    #: trips the ACCOUNT kill switch (terminal HALT, auditable
+    #: source ``runtime.risk.drawdown``, persists immediately per
+    #: BLOCKER 12) and the mandatory ``account_drawdown`` risk-gate
+    #: check refuses new entry orders; closing/reducing orders stay
+    #: permitted (the limit blocks new exposure, not risk
+    #: reduction). Equality is IN limit: only a strict breach
+    #: trips (consistent with the drawdown/loss_limit checks).
+    max_account_drawdown_fraction: float = 0.20
     #: BLOCKER 1: explicit non-operational marking. When True the
     #: runtime is a UNIT-TEST FIXTURE — persistence and the paper
     #: readiness gate are skipped and every start is ledgered as
@@ -148,6 +159,21 @@ class RuntimeConfig(BaseModel):
         if v is None or not v.is_finite() or v <= 0:
             raise RuntimeContractError("initial equity must be positive")
         return v
+
+    @field_validator("max_account_drawdown_fraction")
+    @classmethod
+    def _validate_drawdown_limit(cls, v: float) -> float:
+        if (
+            not isinstance(v, (int, float))
+            or isinstance(v, bool)
+            or not math.isfinite(v)
+            or not (0 < v <= 1)
+        ):
+            raise RuntimeContractError(
+                "max_account_drawdown_fraction must be a finite "
+                "fraction in (0, 1] (fail closed)"
+            )
+        return float(v)
 
     @field_validator("lookback", "horizon", "stride", "ttl_bars")
     @classmethod
@@ -323,6 +349,14 @@ class TradingRuntime:
         # is therefore deliberately NOT part of the persisted
         # execution-state schema.
         self._day_anchor_cache = None
+        # RUN-DD-1: in-memory high-water-mark memo —
+        # (admitted-bar count, OMS-fill count) -> peak equity. PURE
+        # DETERMINISM CACHE: the peak is a pure function of persisted
+        # state (bars + OMS fills) and is replayed identically after a
+        # restart; it is therefore deliberately NOT part of the
+        # persisted execution-state schema (same discipline as the
+        # day-anchor memo above).
+        self._dd_peak_cache = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -906,6 +940,15 @@ class TradingRuntime:
         orders_created: list = []
         risk_failed: tuple = ()
 
+        # -- 2b. ACCOUNT-equity drawdown enforcement (RUN-DD-1) ------------
+        # Evaluated AFTER this bar's fills and BEFORE any new decision:
+        # both fill-driven and price-driven breaches are caught at the
+        # first bar where they exist. A strict breach trips the ACCOUNT
+        # kill switch and HALTS the session terminally; closing orders
+        # submitted later in THIS bar remain permitted (risk-reduction
+        # carve-out) and every FOLLOWING bar is refused (HALTED).
+        self._enforce_account_drawdown(idx, correlation_id)
+
         # -- 3. TTL expiry for live orders (§39) ----------------------------
         for order in list(self._oms.live_orders()):
             self._oms.expire_if_elapsed(order.order_id, idx)
@@ -1323,6 +1366,10 @@ class TradingRuntime:
             crash_probability=float(plan.crash_risk.get("probability", 1.0)),
             max_acceptable_crash_probability=self._config.max_crash_probability,
             max_drawdown_fraction=self._window_drawdown(),
+            account_drawdown_fraction=self._account_drawdown(),
+            account_drawdown_limit_fraction=(
+                self._config.max_account_drawdown_fraction
+            ),
             volatility=self._window_volatility(),
             max_volatility=0.10,
             daily_realized_return=self._daily_realized_return(),
@@ -1954,6 +2001,204 @@ class TradingRuntime:
             self._config.initial_equity
             + position.realized_pnl
             + unrealized
+        )
+
+    # ------------------------------------------------------------------
+    # ACCOUNT-equity drawdown limit (RUN-DD-1)
+    # ------------------------------------------------------------------
+    def _account_drawdown(self) -> Optional[float]:
+        """ACCOUNT-equity drawdown fraction (RUN-DD-1).
+
+        Calculation (mark-to-market, PAPER-RUN-PNL-1 accounting):
+        ``drawdown = (peak - current) / peak`` where ``current`` is
+        the TRUE account equity at the LATEST ADMITTED bar's close
+        (initial + realized + unrealized; costs exactly once) and
+        ``peak`` is the session high-water mark of that same equity
+        over every admitted bar close — deterministically replayed
+        from the persisted bar history + OMS fills (the identical
+        reconstruction discipline as the daily anchor: no new
+        persisted field, so the value is restart-stable by
+        construction). The mark is always the latest admitted bar —
+        the freshest equity state the runtime possesses (feed
+        staleness itself is RUN-ST-1, a separate blocker).
+
+        Fail-closed semantics:
+
+        - fresh session (no bars): ``0.0`` — peak == current ==
+          initial, nothing is at risk yet;
+        - unanchorable equity path (a fill whose ``bar_index`` is
+          missing or outside the admitted bar history): ``None`` —
+          the mandatory ``account_drawdown`` risk-gate check then
+          REFUSES new orders ("unknown — fail closed");
+        - non-positive current equity: ``1.0`` — a wiped-out
+          account is past any limit (maximal measured drawdown).
+        """
+        if not self._bars:
+            return 0.0
+        try:
+            peak = self._peak_account_equity()
+            if peak is None or peak <= 0:
+                return None
+            mark = Decimal(str(self._bars[-1]["close"]))
+            current = self._current_equity(mark)
+            if current <= 0:
+                return 1.0
+            if current >= peak:
+                return 0.0
+            return float((peak - current) / peak)
+        except Exception:
+            # Unmeasurable is NOT tradable: None fails closed at the
+            # risk gate (never a neutral 0.0).
+            return None
+
+    def _peak_account_equity(self) -> Optional[Decimal]:
+        """Session high-water mark of mark-to-market account equity.
+
+        Deterministic replay: every OMS fill is re-applied to a
+        fresh :class:`PositionState` book in ``(bar_index,
+        fill_index)`` order — exactly the authoritative
+        cost-embedded accounting — and equity is marked at every
+        admitted bar's close (realized across symbols + unrealized
+        for the configured symbol, mirroring the day-anchor
+        reconstruction). Pure function of persisted state (bars +
+        OMS fills): identical before and after a restart, in-session
+        and post-restore.
+
+        A fill whose ``bar_index`` is missing or outside the
+        admitted bar history makes the path unanchorable → ``None``
+        (fail closed). The governed execution adapter can never
+        produce such a fill — only corrupted or foreign restored
+        state can (defence in depth).
+        """
+        if not self._bars:
+            return self._config.initial_equity
+        n_bars = len(self._bars)
+        fills: list = []
+        for order in self._oms.orders():
+            for fill in order.fills:
+                idx = fill.bar_index
+                if idx is None or idx < 0 or idx >= n_bars:
+                    return None
+                fills.append(fill)
+        fills.sort(key=lambda f: (f.bar_index, f.fill_index))
+        key = (n_bars, len(fills))
+        cached = self._dd_peak_cache
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        replayed: dict = {}
+        peak = self._config.initial_equity
+        fill_i = 0
+        n_fills = len(fills)
+        for bar_i in range(n_bars):
+            while fill_i < n_fills and fills[fill_i].bar_index <= bar_i:
+                f = fills[fill_i]
+                state = replayed.get(
+                    f.symbol, PositionState(symbol=f.symbol)
+                )
+                replayed[f.symbol] = state.apply_fill(
+                    fill_quantity=f.quantity,
+                    fill_price=f.price,
+                    side=f.side,
+                    commission=f.commission,
+                    slippage_cost=f.slippage_cost,
+                    spread_cost=f.spread_cost,
+                    filled_at=f.filled_at,
+                    source_event=f.fill_id,
+                )
+                fill_i += 1
+            mark = Decimal(str(self._bars[bar_i]["close"]))
+            equity = self._config.initial_equity + sum(
+                s.realized_pnl for s in replayed.values()
+            )
+            pos = replayed.get(self._config.symbol)
+            if pos is not None and not pos.is_flat:
+                equity += self._pnl_engine.unrealized(pos, mark)
+            if equity > peak:
+                peak = equity
+        self._dd_peak_cache = (key, peak)
+        return peak
+
+    def _enforce_account_drawdown(
+        self, bar_index: int, correlation_id: str
+    ) -> None:
+        """RUN-DD-1 enforcement point (called on EVERY admitted bar,
+        after that bar's fills and before any new decision).
+
+        - Unknown measure (``None``): ledgered as
+          ``ACCOUNT_DRAWDOWN_UNKNOWN`` — new orders fail closed at
+          the gate; NO trip on an unknown measure (the switch needs
+          human reset, so it is reserved for MEASURED breaches).
+        - Strict breach (``drawdown > limit``): ledgered as
+          ``ACCOUNT_DRAWDOWN_LIMIT_BREACH`` with the full
+          calculation inputs, then the ACCOUNT kill switch is
+          tripped (auditable source ``runtime.risk.drawdown``) and
+          the session HALTS terminally. The trip persists
+          IMMEDIATELY (BLOCKER 12: a crash right after the trip must
+          never lose the state on disk); a restart NEVER clears it
+          (critical-switch loud refusal at start).
+
+        In-flight entry orders are frozen by the terminal HALT (no
+        bar is processed, so no remainder can ever fill past the
+        limit); closing orders later in the SAME bar remain
+        permitted via the risk-reduction carve-out.
+        """
+        if self._state is not RuntimeState.RUNNING:
+            return  # already in a non-trading state — nothing to enforce
+        drawdown = self._account_drawdown()
+        limit = self._config.max_account_drawdown_fraction
+        if drawdown is None:
+            self._ledgers.record(
+                ledger="incident",
+                event_type="ACCOUNT_DRAWDOWN_UNKNOWN",
+                correlation_id=correlation_id,
+                actor="runtime.risk.drawdown",
+                payload={
+                    "bar_index": bar_index,
+                    "reason": "account equity path not reconstructible "
+                              "(unanchorable fill) — the risk gate "
+                              "refuses new orders fail-closed",
+                    "action": "no trip on an unknown measure; "
+                              "investigate the fill ledger",
+                },
+            )
+            return
+        if drawdown <= limit:
+            return
+        peak = self._peak_account_equity()
+        mark = Decimal(str(self._bars[-1]["close"])) if self._bars \
+            else self._config.initial_equity
+        current = self._current_equity(mark)
+        self._metrics.increment("drawdown_limit_breaches")
+        self._ledgers.record(
+            ledger="incident",
+            event_type="ACCOUNT_DRAWDOWN_LIMIT_BREACH",
+            correlation_id=correlation_id,
+            actor="runtime.risk.drawdown",
+            payload={
+                "drawdown_fraction": round(drawdown, 12),
+                "limit_fraction": limit,
+                "peak_equity": str(peak) if peak is not None else None,
+                "current_equity": str(current),
+                "mark_price": str(mark),
+                "bar_index": bar_index,
+                "action": "ACCOUNT kill switch tripped + terminal HALT "
+                          "(RUN-DD-1: the account's own drawdown is the "
+                          "protected quantity)",
+            },
+        )
+        self._kill_switch.trip(
+            scope=KillSwitchScope.ACCOUNT,
+            reason=(
+                f"account drawdown {drawdown:.6f} exceeds limit "
+                f"{limit:.6f} (RUN-DD-1 account-equity drawdown limit)"
+            ),
+            source="runtime.risk.drawdown",
+        )
+        self._metrics.increment("kill_switch_trips")
+        self._persist_safe(f"kill-switch:ACCOUNT:*")
+        self.halt(
+            "ACCOUNT kill switch tripped by the drawdown limit: "
+            f"{drawdown:.6f} > {limit:.6f}"
         )
 
     def _persist_safe(self, correlation_id: str) -> None:

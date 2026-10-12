@@ -130,6 +130,7 @@ def _seed_order_fill(rt, plan, price, bar_index, corr):
         model_valid=True, uncertainty=plan.uncertainty,
         crash_probability=0.0, max_drawdown_fraction=0.0,
         volatility=0.01, daily_realized_return=0.0,
+        account_drawdown_fraction=0.0,
         half_spread=Decimal("0.02"), max_spread_fraction=Decimal("0.01"),
     )
     assessment = rt._risk_gate.evaluate(plan, ctx, corr)
