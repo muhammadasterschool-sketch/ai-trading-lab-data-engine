@@ -1,6 +1,6 @@
 # PAPER TRADING READINESS FINAL REPORT
 
-**Document ID:** PPR-FR-002 · **Version:** 2.10.0 · **Date:** 2026-10-12
+**Document ID:** PPR-FR-002 · **Version:** 2.11.0 · **Date:** 2026-10-12
 **Prepared by:** ZAI implementation + verification agent (paper-readiness
 re-audit mandate: blocker closure + runtime-integration forensic re-audit;
 RL-governance cycle: RL runtime + observability metrics + 31st gate;
@@ -778,6 +778,67 @@ zero existing tests modified, frozen Phase 3 blobs untouched.
 readiness dependency changed. Standing human blockers unchanged
 (SRC-APPROVAL, operational feed provisioning, keyed-MAC key, PAT
 rotation, REAL_DATA_READY). LIVE NOT AUTHORIZED.
+
+---
+
+## 0J. MULTI-USER SECURITY FOUNDATION AMENDMENT — BATCH 4 (v2.11.0, 2026-10-12)
+
+The runtime-risk-safety mandate Batch 4 delivered the multi-user
+security FOUNDATION: the new `src/data_engine/tenancy/` package
+(identity + approval/license lifecycle, short-lived authenticated
+principals, server-side authoritative resource ownership,
+deny-by-default authorization with the full capability matrix,
+per-tenant secret vault contract, per-user provisioning CONTRACT
+with a dry-run-only provisioner) plus the design authority
+document `docs/MULTI_USER_TENANCY_SECURITY_FOUNDATION.md` v1.0.0
+(threat model, control-plane boundary, mobile read-only policy,
+explicit non-claims).
+
+### 0J.1 Security properties proven by executable tests (46)
+
+- Server-side authorization: the tenant binding comes from the
+  AUTHENTICATED principal — client-supplied tenant claims are
+  compared against it and a mismatch is DENIED + recorded as a
+  security incident (checked before resource lookup, so probes
+  cannot enumerate).
+- Cross-user denial: recipients mutually invisible (both
+  directions, all actions); owner data protected by the same rules.
+- Control-plane boundary: owner/admin roles manage approvals and
+  license state but are structurally DENIED recipient trading data
+  (ledgers, databases, secrets, backups, VPS, sessions) — the
+  control plane never centralizes trading history or secrets.
+- Mobile read-only: no WRITE/ORDER_SUBMIT/SECRET_REVEAL for any
+  resource kind — there is no order-placement path reachable by a
+  read-only principal (structural proof over the registry); mobile
+  order placement is NOT implemented.
+- License gating (all inactive states, instant revocation), session
+  expiry, unknown-resource deny-by-default.
+- Secret hygiene: authorization-gated reveals with defence-in-depth
+  tenant re-checking; values never in audit records, decisions or
+  reprs; fingerprint discipline; explicit rotation.
+- Provisioning: dry-run only — full six-stack per-user contract
+  plans (VPS/database/secrets/backups/license/ledger) for APPROVED
+  tenants; `execute_plan` refused BY DESIGN; specs refuse weakening.
+
+### 0J.2 Explicit non-claims (unchanged honesty)
+
+NOT production-ready multi-tenancy: no authentication provider, no
+public API, no network surface, no real infrastructure provisioned,
+no mobile application, no end-to-end deployment tests. The Phase 1
+product-gap matrix rows (multi-user/VPS/mobile/distribution) move
+from NOT STARTED to FOUNDATION-ONLY — none are claimed complete.
+
+### 0J.3 Verification
+
+Suite 2,061 + 1 skipped -> **2,107 + 1 skipped** (+46, zero
+regressions, zero existing tests modified). Frozen Phase 3 blobs
+untouched; secret scan 0 hits on changed files.
+
+### 0J.4 Verdict (unchanged)
+
+**PAPER_READY = FALSE.** The tenancy foundation is enforcement
+machinery, not a readiness dependency. Standing human blockers
+unchanged. LIVE NOT AUTHORIZED.
 
 ---
 

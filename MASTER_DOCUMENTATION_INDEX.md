@@ -9,7 +9,7 @@ Document Type:  Master documentation index (SSOT)
 Phase:          Cross-phase (all phases)
 Authority:      A — AUTHORITATIVE (this index is the documentation map of record)
 Status:         CURRENT
-Version:        2.10.0
+Version:        2.11.0
 Last Updated:   2026-10-12 (runtime-risk-safety mandate cycle,
                  Batch 2 — RUN-DD-1 account-equity drawdown limit
                  CLOSED on continuous branch
@@ -50,7 +50,26 @@ Last Updated:   2026-10-12 (runtime-risk-safety mandate cycle,
                  doc v1.1.0 §6a with explicit remaining adapter work
                  (M3-M6 NOT STARTED, no real broker claimed);
                  readiness report §0I v2.10.0; verdict UNCHANGED.
-                 Also this cycle:
+                 Batch 4 same cycle: multi-user security FOUNDATION
+                 delivered as src/data_engine/tenancy/ (tenant
+                 identity + approval/license lifecycle, short-lived
+                 principals, server-side authoritative resource
+                 ownership registry, deny-by-default authorization
+                 with tenant-from-authenticated-context-only rule
+                 (mismatching client claims denied + audited as
+                 incidents), control-plane boundary (admin roles
+                 structurally denied tenant trading data), mobile
+                 READ_ONLY role with no order-placement path,
+                 per-tenant secret vault contract (gated reveals,
+                 redacted reprs, values never in audit), per-user
+                 provisioning CONTRACT with dry-run-only provisioner
+                 (execute refused by design); +46 security tests;
+                 suite 2,107 + 1 skipped; design authority
+                 docs/MULTI_USER_TENANCY_SECURITY_FOUNDATION.md
+                 v1.0.0 with threat model + explicit non-claims (no
+                 production multi-tenancy, no public API, no real
+                 infra, no mobile app); readiness report §0J
+                 v2.11.0; verdict UNCHANGED. Also this cycle:
                  full-platform discovery mandate cycle:
                  Phase 1 audit delivered on branch
                  fix/ingestion-classification-fail-closed (from d945833):
