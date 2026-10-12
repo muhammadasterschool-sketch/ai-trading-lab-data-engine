@@ -9,8 +9,34 @@ Document Type:  Master documentation index (SSOT)
 Phase:          Cross-phase (all phases)
 Authority:      A — AUTHORITATIVE (this index is the documentation map of record)
 Status:         CURRENT
-Version:        2.6.0
-Last Updated:   2026-10-12 (kill-switch enforcement audit cycle:
+Version:        2.7.0
+Last Updated:   2026-10-12 (multi-broker architecture mandate cycle:
+                 broker-neutral execution layer Phase M1 DELIVERED on
+                 branch feat/broker-neutral-execution-architecture (from
+                 1c286d2) — new `src/data_engine/brokers/` package:
+                 normalized models (STOP/STOP_LIMIT, TIF, UNKNOWN status,
+                 instrument precision/lot/notional specs), typed error
+                 taxonomy preserving venue-native codes, coherence-
+                 validated capability registry (REAL execution modes
+                 REFUSED at registration), credential redaction boundary,
+                 BrokerAdapter interface + guarded BrokerSession
+                 (injectable risk/kill-switch gates — absent gate refuses
+                 everything; journal-backed idempotency across restarts;
+                 bounded deterministic retry; UNKNOWN degradation with
+                 reconciliation-only recovery); four DETERMINISTIC MOCK
+                 adapters (paper / MT5-style Exness-XM-class / Binance-
+                 spot-style / Bybit-v5-style — zero network, zero real
+                 credentials, zero real orders); +236 tests incl. the
+                 central-gate independence proof parametrized over all
+                 four brokers; baseline re-verified FIRST at 1c286d2
+                 (1,769 + 1 skipped, 55.30s) then 2,005 + 1 skipped
+                 (54.76s) — zero regressions, zero existing tests
+                 modified, frozen 11/11 untouched, secret scan 0; design
+                 authority docs/MULTI_BROKER_EXECUTION_ARCHITECTURE.md
+                 v1.0.0 with capability matrix + risk-ordered phases
+                 M2–M6 all NOT STARTED; verdict UNCHANGED PAPER_READY =
+                 FALSE, LIVE NOT AUTHORIZED; kill-switch enforcement
+                 audit cycle:
                  baseline re-verified first-hand at efd92c1 (suite
                  1,762 + 1 skipped ×2, frozen 11/11, no tests
                  weakened — 1 modified test is the documented F-24
@@ -246,6 +272,7 @@ The remaining §61 spec documents (`TRADING_RUNTIME_ARCHITECTURE.md`, `TRADING_E
 | `MASTER_MARKET_DATA_IMPORT_RECORD.md` | A | AUTHORITATIVE import record (v1.1.0, 2026-10-11): **operator master-bundle integrated on feat/master-market-data-import — DELIVERED: branch pushed b9c4361, PR #1 open vs main, platform CI run 38147316090 SUCCESS (3.11 + 3.12; full suite, determinism ×3, frozen-blob, secret scan 0, prediction acceptance); merge left to operator** — 4/4 SHA-256 verified before import and re-verified by platform CI against the pushed tree; originals preserved byte-for-byte under data/raw/master/; LFS explicitly unsupported (analysis recorded); Coins REAL_UNVERIFIED (500 symbols, all final candles incomplete at acquisition), Forex REAL_UNVERIFIED (USD-base RATE SERIES — OHLC fabrication forbidden), Stocks REAL_UNVERIFIED (monthly/quarterly, 0/9 D1-suitable), Metals **INVALID** (19 impossible-OHLC rows quarantined verbatim); provenance honestly UNKNOWN; 521 instruments registered; legacy vacuous non-chronology check fixed with byte-identical legacy manifests verified; +55 regression tests (suite 1,685 + 1 skipped); PAT rotation advisory open; **no readiness gate changed — PAPER_READY = FALSE unchanged** | Master-bundle import governance | — |
 | `docs/OPERATOR_SOURCE_APPROVAL_PACK.md` | B | CURRENT SUPPORTING operator evidence pack (v1.0.0, 2026-10-12): the four evidence classes (connectivity / OHLCV validity / operational feed readiness / research verification — never conflated); `binance-public-spot` candidate facts with UNKNOWN licence/terms explicitly listed; blocked-market register (forex/stocks/metals — MISSING DEPENDENCY, not approvable); the exact SRC-APPROVAL decision template (policy §7.1) + recording commands through the registry's human-only API; post-approval semantics (approval necessary, NOT sufficient — gate still evaluates live inputs; live boundary untouched) | Human source-approval governance | — |
 | `docs/PAPER_OPERATOR_RUNBOOK.md` | B | CURRENT SUPPORTING operator procedures (v1.0.0, 2026-10-12): install (uv, Python 3.11/3.12); placeholder-only env template; offline suite; optional labelled live smoke; MAC-key provisioning outside git (entropy floor, fingerprint-only logging); source-approval recording; paper-session bootstrap through `build_paper_feed_evidence` (refuses while any gate fails); live-isolation verification commands; health/feed/positions/audit inspection; restart/feed-outage recovery semantics; market disabling via allowlist + approval; honest Pydroid 3 limitation (diagnostics only, NOT a supported execution environment) | Operator procedures | — |
+| `docs/MULTI_BROKER_EXECUTION_ARCHITECTURE.md` | A | AUTHORITATIVE multi-broker execution design (v1.0.0, 2026-10-12): current-architecture audit (execution/order/risk/persistence/reconciliation with exact file references); the broker-neutral interface contract v1.0.0 (`src/data_engine/brokers/`); the executable capability matrix for paper/MT5-style (Exness/XM-class)/Binance-spot/Bybit-v5; risk-ordered implementation phases M1–M6 (M1 DELIVERED, M2 runtime integration onward NOT STARTED); honest limitations (mocks model semantics, not networks; operational paper pipeline not yet rewired) | Multi-broker execution layer | — |
 | `docs/TRADING_RUNTIME_ARCHITECTURE.md` | A | AUTHORITATIVE runtime spec (v2.0.0): the one orchestration path, fail-closed startup chain (BLOCKER 1/2/4), complete execution-state persistence (BLOCKER 5), component map, operating states, determinism (wall-clock-free identity, BLOCKER 14) | Runtime implementation | — |
 | `docs/TRADING_EVENT_CONTRACT.md` | A | AUTHORITATIVE contract spec (v1.0.0): identity rules/prefix map, PredictionArtifact/Decision/TradePlan/ExitRecord schemas, correlation threading | Runtime contracts | — |
 | `docs/ORDER_LIFECYCLE_SPEC.md` | A | AUTHORITATIVE OMS spec (v1.0.0): 14-state machine, idempotency, partial fills, TTL, execution realism | OMS implementation | — |

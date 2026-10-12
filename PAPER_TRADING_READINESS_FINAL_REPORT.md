@@ -1,6 +1,6 @@
 # PAPER TRADING READINESS FINAL REPORT
 
-**Document ID:** PPR-FR-002 · **Version:** 2.6.0 · **Date:** 2026-10-12
+**Document ID:** PPR-FR-002 · **Version:** 2.7.0 · **Date:** 2026-10-12
 **Prepared by:** ZAI implementation + verification agent (paper-readiness
 re-audit mandate: blocker closure + runtime-integration forensic re-audit;
 RL-governance cycle: RL runtime + observability metrics + 31st gate;
@@ -12,10 +12,13 @@ feat/master-market-data-import — see §0B and
 MASTER_MARKET_DATA_IMPORT_RECORD.md v1.0.0; next-execution mandate
 2026-10-12: Phase A–C re-verification + PAPER-RUN-PNL-1 closure — see
 §0D; kill-switch enforcement audit 2026-10-12: order-path trace +
-RUN-KS-1/RUN-KS-2/RUN-HALT-1 closure — see §0E)
+RUN-KS-1/RUN-KS-2/RUN-HALT-1 closure — see §0E; multi-broker
+architecture mandate 2026-10-12: broker-neutral execution layer
+(Phase M1, mocks + guarded session + 236 tests) — see §0F)
 **Repository:** muhammadasterschool-sketch/ai-trading-lab-data-engine
 **Branch:** phase-4a/4a1-architecture-correction (integration branch:
-feat/master-market-data-import, from d49b822)
+feat/broker-neutral-execution-architecture, from 1c286d2 on
+fix/paper-runtime-killswitch-fill-enforcement)
 **Baseline at start:** f1bfe02 (remote main = phase branch = f1bfe02;
 tree clean; suite 1,570 + 1 skipped ×2 re-verified first-hand)
 **Supersedes:** v2.1.0 (whose content remains authoritative below —
@@ -454,6 +457,73 @@ provisioning, PAT rotation confirmation, REAL_DATA_READY nine-stage
 chain — plus the ranked OPEN items above (RUN-DD-1 next). The branch
 is NOT pushed (read-only credential use only; no push authorized
 this cycle). LIVE NOT AUTHORIZED.
+
+---
+
+## 0F. MULTI-BROKER EXECUTION ARCHITECTURE AMENDMENT (v2.7.0, 2026-10-12)
+
+Operator mandate: design for multiple brokers/exchanges behind ONE
+broker-neutral execution interface (paper / MT5-compatible Exness-XM
+class / Binance / Bybit), mock adapters and deterministic tests FIRST,
+no real orders, no live credentials, frozen contracts preserved,
+readiness NOT true until the full runtime chain is integrated and
+independently tested. Design authority:
+`docs/MULTI_BROKER_EXECUTION_ARCHITECTURE.md` v1.0.0.
+
+### 0F.1 What was delivered (Phase M1, purely additive)
+
+- `src/data_engine/brokers/` — normalized models (order kinds incl.
+  STOP/STOP_LIMIT, TIF, UNKNOWN-as-first-class status, instrument
+  precision/lot/notional specs), typed error taxonomy with
+  venue-native codes preserved verbatim, coherence-validated
+  capability registry (REAL execution modes REFUSED at registration),
+  credential redaction boundary, the `BrokerAdapter` interface
+  (surface pinned by tests), and the guarded `BrokerSession`
+  (injectable risk/kill-switch gates — absent gate ⇒ refuse
+  everything; journal-backed idempotency; bounded deterministic retry;
+  UNKNOWN degradation with reconciliation-only recovery; atomic
+  tamper-evident journal; account isolation).
+- Four DETERMINISTIC MOCK adapters (paper / MT5-style Exness-XM-class
+  / Binance-spot-style / Bybit-v5-style) implementing venue semantics
+  in memory — zero network, zero real credentials, zero real orders.
+  Failure-injection surface: disconnect, rate-limit, ack-timeout
+  (accepted-but-unacknowledged), definitive rejection, extra fill,
+  partial fills.
+- 236 new tests across three files (core/contract/session-guards),
+  including the central-gate independence proof PARAMETRIZED over all
+  four brokers (risk refusal and kill-switch activation block every
+  venue before the adapter is reached).
+- Baseline independently re-verified FIRST (nothing assumed): full
+  suite 1,769 passed + 1 skipped at HEAD `1c286d2` (55.30s) —
+  matching the §0E record exactly.
+
+### 0F.2 Verification record
+
+| Check | Result |
+|---|---|
+| Full suite BEFORE (baseline `1c286d2`) | 1,769 passed + 1 skipped (55.30s) |
+| Full suite AFTER | **2,005 passed + 1 skipped** (54.76s) — +236, zero regressions, zero existing tests modified |
+| Frozen Phase 3 blobs | 11/11 byte-identical to `13fdc7e` (no frozen file touched — change is purely additive) |
+| Secret scan (full history) | 0 hits; journal files/error messages proven secret-free by redaction tests |
+| Live trading | NOT AUTHORIZED — every shipped adapter is MOCK_DETERMINISTIC; REAL descriptors are refused at registration AND at session construction |
+
+### 0F.3 What was deliberately NOT done
+
+No real Binance/Bybit/MT5 network adapters (Phases M3–M5, planned by
+risk order, none started). No rewiring of the frozen paper runtime
+onto the interface (Phase M2 — requires review of the design document
+first). No live credentials. The operational paper pipeline and its
+32-gate readiness stack are untouched by this change.
+
+### 0F.4 Verdict (unchanged)
+
+**PAPER_READY = FALSE.** The multi-broker layer is interface-level
+machinery + executable proof, not the trading path. The verdict can
+only change through Phase M2 integration and independent testing of
+the full runtime chain; the standing human blockers (SRC-APPROVAL,
+operational feed provisioning, keyed-MAC key, PAT rotation
+confirmation, REAL_DATA_READY chain) are unchanged, as are the ranked
+paper-runtime blockers from §0E.4 (RUN-DD-1 next). LIVE NOT AUTHORIZED.
 
 ---
 
