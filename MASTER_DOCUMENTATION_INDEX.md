@@ -9,8 +9,37 @@ Document Type:  Master documentation index (SSOT)
 Phase:          Cross-phase (all phases)
 Authority:      A — AUTHORITATIVE (this index is the documentation map of record)
 Status:         CURRENT
-Version:        2.7.0
-Last Updated:   2026-10-12 (multi-broker architecture mandate cycle:
+Version:        2.8.0
+Last Updated:   2026-10-12 (full-platform discovery mandate cycle:
+                 Phase 1 audit delivered on branch
+                 fix/ingestion-classification-fail-closed (from d945833):
+                 baseline re-verified first-hand (2,005 + 1 skipped,
+                 56.51s); six confirmed ingestion/validation
+                 classification defects CLOSED with 20 RED-first
+                 regression tests — ING-NAT-1 (unparseable timestamps
+                 silently REAL_UNVERIFIED, NaT rows counted valid),
+                 ING-VOL-1 (negative volume invisible), ING-COL-1
+                 (schema mismatch not consulted; KeyError → contract
+                 error), VAL-ORDER-1 (out-of-order WARNING→INVALID,
+                 one incidental fixture corrected + documented),
+                 ING-STALE-1 (both evidence scripts silently ingested
+                 stale data/raw copies over new sources — now loud
+                 refusals exit 1/2), ING-NVIEW-1 (swallowed normalized-
+                 view failures still returned exit 0 — now FATAL exit
+                 3); audit columns field records original file columns;
+                 suite 2,025 + 1 skipped ×3 deterministic; frozen 11/11;
+                 secret scan 0; committed dataset classifications
+                 verified UNCHANGED under the hardened audit (read-only,
+                 no manifests regenerated); new A-class audit record
+                 PHASE_1_DISCOVERY_AUDIT_REPORT.md v1.0.0 (access/
+                 branch/PR/CI verification, stack map, safety-chain
+                 status, product-gap matrix, broker support matrix —
+                 Bitget unimplemented, no production adapter claimed,
+                 Phases 2–7 roadmap with acceptance criteria) +
+                 readiness report §0G v2.8.0; verdict UNCHANGED
+                 PAPER_READY = FALSE, LIVE NOT AUTHORIZED; push blocked
+                 on operator credential — exact commands in audit §9;
+                 multi-broker architecture mandate cycle:
                  broker-neutral execution layer Phase M1 DELIVERED on
                  branch feat/broker-neutral-execution-architecture (from
                  1c286d2) — new `src/data_engine/brokers/` package:
@@ -320,6 +349,7 @@ behavior / determinism). Future dedicated documents SHALL use
 | `ZAI_AUTONOMOUS_TRADING_SYSTEM_STATUS.md` | B | Current — §76-required living status document for the Autonomous Intelligence + Full System Expansion mandate (v1.0.0 baseline: §78 audit) | Autonomy levels L0–L8, capability matrix, duplicate-system audit, dependency graph, blocker table BLK-1..15, test/data/model inventories, authorization state | — |
 | `TRADING_RUNTIME_ARCHITECTURE_AUDIT.md` | B | Current — runtime-integration audit authority for the FINAL INTEGRATED RUNTIME mandate (see Phase RT section above) | §2 repository audit: the map from component library to governed trading runtime | — |
 | `PRE_PAPER_BUG_FORENSIC_AND_CLOSURE_REPORT.md` | A | Current — authoritative bug register for the pre-paper phase (see Phase RT section above) | Consolidated pre-paper forensic: prior-register verification + BUG-001..009 + paper-readiness blockers PAPER-BLK-1..10 | — |
+| `PHASE_1_DISCOVERY_AUDIT_REPORT.md` | A | Current — authoritative Phase 1 discovery-audit record for the full-platform mandate (v1.0.0) | Repository access/branch/PR/CI verification (unauthenticated ls-remote ground truth + CI evidence of record), verified stack + layered architecture map, trading-safety-chain status, six confirmed ING/VAL defects with executable evidence + closure, product-gap matrix (multi-user/VPS/mobile/distribution honestly NOT STARTED), broker support matrix (Bitget unimplemented; no production adapter claimed), Phases 2–7 roadmap with acceptance criteria, first-batch record, remaining blockers + operator push commands | — |
 
 ---
 

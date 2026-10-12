@@ -1,6 +1,6 @@
 # PAPER TRADING READINESS FINAL REPORT
 
-**Document ID:** PPR-FR-002 · **Version:** 2.7.0 · **Date:** 2026-10-12
+**Document ID:** PPR-FR-002 · **Version:** 2.8.0 · **Date:** 2026-10-12
 **Prepared by:** ZAI implementation + verification agent (paper-readiness
 re-audit mandate: blocker closure + runtime-integration forensic re-audit;
 RL-governance cycle: RL runtime + observability metrics + 31st gate;
@@ -14,11 +14,15 @@ MASTER_MARKET_DATA_IMPORT_RECORD.md v1.0.0; next-execution mandate
 §0D; kill-switch enforcement audit 2026-10-12: order-path trace +
 RUN-KS-1/RUN-KS-2/RUN-HALT-1 closure — see §0E; multi-broker
 architecture mandate 2026-10-12: broker-neutral execution layer
-(Phase M1, mocks + guarded session + 236 tests) — see §0F)
+(Phase M1, mocks + guarded session + 236 tests) — see §0F;
+full-platform discovery mandate 2026-10-12: ingestion-classification
+fail-closed hardening (ING/VAL defect family, +20 tests) — see §0G
+and PHASE_1_DISCOVERY_AUDIT_REPORT.md v1.0.0)
 **Repository:** muhammadasterschool-sketch/ai-trading-lab-data-engine
 **Branch:** phase-4a/4a1-architecture-correction (integration branch:
 feat/broker-neutral-execution-architecture, from 1c286d2 on
-fix/paper-runtime-killswitch-fill-enforcement)
+fix/paper-runtime-killswitch-fill-enforcement; this cycle:
+fix/ingestion-classification-fail-closed, from d945833)
 **Baseline at start:** f1bfe02 (remote main = phase branch = f1bfe02;
 tree clean; suite 1,570 + 1 skipped ×2 re-verified first-hand)
 **Supersedes:** v2.1.0 (whose content remains authoritative below —
@@ -524,6 +528,77 @@ the full runtime chain; the standing human blockers (SRC-APPROVAL,
 operational feed provisioning, keyed-MAC key, PAT rotation
 confirmation, REAL_DATA_READY chain) are unchanged, as are the ranked
 paper-runtime blockers from §0E.4 (RUN-DD-1 next). LIVE NOT AUTHORIZED.
+
+---
+
+## 0G. FULL-PLATFORM DISCOVERY AMENDMENT (v2.8.0, 2026-10-12)
+
+The full-platform discovery mandate (repository-wide audit → phased
+improvement toward the multi-user product goal) began with a
+first-hand re-verification of the baseline and a data-quality
+audit of every ingestion/classification path. Full record:
+`PHASE_1_DISCOVERY_AUDIT_REPORT.md` v1.0.0 (branch
+`fix/ingestion-classification-fail-closed`, from `d945833`).
+
+### 0G.1 Baseline re-verified (nothing assumed)
+
+Suite at `d945833`: 2,005 passed + 1 skipped (56.51 s) — matches
+the §0F record exactly. Remote state re-verified via unauthenticated
+`git ls-remote`: main `d49b822`; PR #1 open at `4e6dfc5`; PR #2 open
+at `d945833` (CI evidence of record: run `38242367378` SUCCESS).
+GitHub REST API rate-limited from this environment — recorded
+blocker, no credential used.
+
+### 0G.2 Confirmed + closed defect family (ingestion classification)
+
+Six defects, each reproduced by an executable probe BEFORE any fix,
+closed with 20 RED-first regression tests
+(`tests/test_ingestion_classification_fail_closed.py`):
+
+- **ING-NAT-1 (HIGH):** unparseable CSV dates silently became NaT —
+  no counter, no finding, dataset still classified REAL_UNVERIFIED,
+  NaT rows counted inside `valid_ohlc_rows`.
+- **ING-VOL-1 (MED-HIGH):** negative volume invisible to the
+  platform CSV audit (volume column discovered, never checked).
+- **ING-COL-1 (MED-HIGH):** schema mismatch not consulted by
+  classification; missing critical columns crashed with a raw
+  KeyError instead of a contract error.
+- **VAL-ORDER-1 (MED-HIGH):** out-of-order timestamps rated WARNING
+  by the core validator, so ingestion admitted non-chronological
+  datasets into the canonical store (now INVALID, consistent with
+  the platform CSV path; one incidental test fixture corrected with
+  the change documented in-line).
+- **ING-STALE-1 (HIGH):** both evidence scripts silently ingested a
+  stale `data/raw/` copy when a newly supplied source file differed
+  (now loud refusals: exit 1 / exit 2; raw store never overwritten).
+- **ING-NVIEW-1 (HIGH):** normalized-view generation failures were
+  swallowed (bare except + print) and the master script still
+  returned exit 0 (now FATAL + exit 3, nothing partial written).
+
+Companion: audit `columns` field now records the file's ORIGINAL
+columns (previously polluted with audit helper columns — observed in
+the committed manifests).
+
+### 0G.3 Verification
+
+Full suite **2,025 + 1 skipped × 3 consecutive** (55.04/56.23/55.75 s)
+— +20 tests, zero regressions, zero tests weakened (test-delta
+accounting in the audit report §8). Frozen Phase 3 blobs 11/11
+byte-identical to `13fdc7e`. Secret scan 0 hits across all history.
+Read-only stability check: all four committed platform datasets keep
+their recorded SYNTHETIC classification under the hardened audit
+(no data touched, no manifests regenerated).
+
+### 0G.4 Verdict (unchanged)
+
+**PAPER_READY = FALSE.** This cycle hardens data-quality
+classification and exit-code honesty; it does not touch the
+operational paper pipeline, the 32-gate stack, or any readiness
+dependency. Ranked runtime blockers unchanged (RUN-DD-1 next);
+standing human blockers unchanged (SRC-APPROVAL, operational feed,
+keyed-MAC key, PAT rotation, REAL_DATA_READY). LIVE NOT AUTHORIZED.
+Push of this branch is blocked on an operator credential (exact
+commands recorded in the audit report §9).
 
 ---
 

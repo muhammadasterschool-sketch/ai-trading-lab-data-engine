@@ -126,6 +126,59 @@ def _normalized_lineage(records) -> dict:
     }
 
 
+def _write_normalized_views(records: list[dict]) -> None:
+    """Render the normalized views + lineage (gitignored, reproducible).
+
+    ING-NVIEW-1 (2026-10-12 fail-closed hardening): this stage was
+    previously inlined inside ``main`` wrapped in a bare
+    ``except Exception`` that PRINTED one line and let the script return
+    exit code 0 — a failed normalized-view generation was therefore
+    classified as success. Failures now propagate to ``main`` which
+    converts them into a FATAL report and exit code 3; nothing partial
+    (no lineage.json, no partial views) is left behind on failure.
+    """
+    import pandas as pd
+
+    lineage = _normalized_lineage(records)
+    import data_engine.platform.master_datasets as md
+
+    for file_name, kind in FILES:
+        df = pd.read_csv(RAW / file_name)
+        if kind is MasterDataKind.COINS:
+            out = df.copy()
+            out["date_utc"] = pd.to_datetime(
+                out["Open_time"], unit="ms", utc=True
+            ).dt.date.astype(str)
+            out["close_utc"] = pd.to_datetime(
+                out["Close_time"], unit="ms", utc=True
+            ).dt.date.astype(str)
+        elif kind is MasterDataKind.FOREX_RATES:
+            out = df.copy()  # rates stay rates — identity
+        else:
+            audit = md.audit_ohlcv_master(RAW / file_name, kind)
+            bad_idx = [v.row_index for v in audit.ohlc_violation_detail]
+            out = df.copy()
+            if bad_idx:
+                out = out.drop(index=bad_idx)
+        out_path = PROCESSED / file_name.replace(".csv", "_normalized.csv")
+        out.to_csv(out_path, index=False)
+        lineage["outputs"].append({
+            "file_name": out_path.name,
+            "sha256": _sha256_file(out_path),
+            "rows": int(len(out)),
+            "source": file_name,
+            "excluded_rows": (
+                len(df) - len(out)
+            ),
+        })
+        print(f"  normalized -> {out_path} "
+              f"(rows={len(out)}, excluded={len(df) - len(out)})")
+
+    (PROCESSED / "lineage.json").write_text(
+        json.dumps(lineage, sort_keys=True, indent=2), encoding="utf-8"
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     source = Path((argv or sys.argv[1:] or [str(RAW)])[0])
     RAW.mkdir(parents=True, exist_ok=True)
@@ -151,8 +204,23 @@ def main(argv: list[str] | None = None) -> int:
     for file_name, _kind in FILES:
         src = source / file_name
         dst = RAW / file_name
-        if src.resolve() != dst.resolve() and not dst.exists():
-            shutil.copy2(src, dst)
+        if src.resolve() != dst.resolve():
+            if not dst.exists():
+                shutil.copy2(src, dst)
+            elif _sha256_file(src) != _sha256_file(dst):
+                # ING-STALE-1 (2026-10-12 fail-closed hardening): a newly
+                # supplied source differing from the pinned raw copy was
+                # previously silently ignored (the stale raw copy was
+                # ingested instead). The master bundle is checksum-pinned,
+                # so new content requires an explicit manifest update.
+                print(
+                    f"FATAL (ING-STALE-1): supplied source {src} differs "
+                    f"from the pinned raw copy {dst} — the master bundle "
+                    "is checksum-pinned. To ingest new content, update "
+                    "BUNDLE_DECLARED_SHA256 and archive the old raw copy "
+                    "explicitly."
+                )
+                return 2
         if not dst.exists():
             print(f"MISSING: {dst} — skipping (operator must supply)")
             verified = False
@@ -245,49 +313,14 @@ def main(argv: list[str] | None = None) -> int:
         })
 
     # -- normalized views (gitignored, reproducible) --------------------
-    import pandas as pd
-
-    lineage = _normalized_lineage(records)
     try:
-        import data_engine.platform.master_datasets as md
-
-        for file_name, kind in FILES:
-            df = pd.read_csv(RAW / file_name)
-            if kind is MasterDataKind.COINS:
-                out = df.copy()
-                out["date_utc"] = pd.to_datetime(
-                    out["Open_time"], unit="ms", utc=True
-                ).dt.date.astype(str)
-                out["close_utc"] = pd.to_datetime(
-                    out["Close_time"], unit="ms", utc=True
-                ).dt.date.astype(str)
-            elif kind is MasterDataKind.FOREX_RATES:
-                out = df.copy()  # rates stay rates — identity
-            else:
-                audit = md.audit_ohlcv_master(RAW / file_name, kind)
-                bad_idx = [v.row_index for v in audit.ohlc_violation_detail]
-                out = df.copy()
-                if bad_idx:
-                    out = out.drop(index=bad_idx)
-            out_path = PROCESSED / file_name.replace(".csv", "_normalized.csv")
-            out.to_csv(out_path, index=False)
-            lineage["outputs"].append({
-                "file_name": out_path.name,
-                "sha256": _sha256_file(out_path),
-                "rows": int(len(out)),
-                "source": file_name,
-                "excluded_rows": (
-                    len(df) - len(out)
-                ),
-            })
-            print(f"  normalized -> {out_path} "
-                  f"(rows={len(out)}, excluded={len(df) - len(out)})")
-    except Exception as exc:  # pragma: no cover — evidence script safety
-        print(f"  normalized-view generation failed: {exc}")
-
-    (PROCESSED / "lineage.json").write_text(
-        json.dumps(lineage, sort_keys=True, indent=2), encoding="utf-8"
-    )
+        _write_normalized_views(records)
+    except Exception as exc:
+        # ING-NVIEW-1: normalized-view failures are FATAL — the previous
+        # behavior printed one line and still returned exit code 0,
+        # classifying a failed view generation as success.
+        print(f"FATAL (ING-NVIEW-1): normalized-view generation failed: {exc}")
+        return 3
 
     summary = {
         "kind": "master_import_summary",

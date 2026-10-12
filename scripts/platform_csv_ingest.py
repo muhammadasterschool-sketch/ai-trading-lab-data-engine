@@ -19,6 +19,7 @@ Outputs:
   data/exports/dashboard_snapshot.json  — read-only platform projection
 """
 
+import hashlib
 import json
 import shutil
 import sys
@@ -52,6 +53,14 @@ FILES = (
 )
 
 
+def _sha256_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
 def main(argv: list[str] | None = None) -> int:
     source = Path((argv or sys.argv[1:] or [str(RAW)])[0])
     RAW.mkdir(parents=True, exist_ok=True)
@@ -78,6 +87,23 @@ def main(argv: list[str] | None = None) -> int:
         if src.resolve() != dst.resolve():
             if not dst.exists():
                 shutil.copy2(src, dst)
+            elif _sha256_file(src) != _sha256_file(dst):
+                # ING-STALE-1 (2026-10-12 fail-closed hardening): the
+                # previous logic silently skipped the copy whenever a
+                # destination file already existed and then ingested the
+                # STALE destination — a newly supplied source file was
+                # ignored without any warning. Refuse loudly instead:
+                # the raw store is immutable and is never overwritten, so
+                # the operator must explicitly remove or archive the
+                # stale copy (or ingest from a clean root).
+                print(
+                    f"FATAL (ING-STALE-1): newly supplied source {src} "
+                    f"differs from the existing raw copy {dst} — refusing "
+                    "to silently ingest the stale destination. Remove or "
+                    "archive the stale raw copy explicitly, or ingest from "
+                    "a clean root."
+                )
+                return 1
 
         record = ingest_csv_dataset(dst, kind, registry, audit_log=log)
         audit = record.audit

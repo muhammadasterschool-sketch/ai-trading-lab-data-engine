@@ -136,13 +136,27 @@ class DataValidator:
             ))
 
     def _check_timestamp_order(self, dataset: Dataset):
-        """Detect out-of-order timestamps."""
+        """Detect out-of-order timestamps.
+
+        VAL-ORDER-1 (2026-10-12 fail-closed hardening): out-of-order
+        timestamps were previously rated WARNING, so
+        ``DataIngester.ingest`` (which blocks only on INVALID) admitted
+        non-chronological datasets into the canonical store — corrupting
+        every downstream temporal computation (backtests, PIT views).
+        The platform CSV audit already classifies non-chronology as
+        INVALID; the core validator is now consistent with it. The
+        single pre-existing test whose fixture was incidentally
+        non-chronological (TestQualityReport.test_report_generation —
+        its purpose is report generation, not chronology semantics) was
+        corrected to a chronological fixture in the same change; the
+        detection assertion itself is unchanged.
+        """
         if len(dataset.candles) < 2:
             return
         for i in range(1, len(dataset.candles)):
             if dataset.candles[i].timestamp < dataset.candles[i-1].timestamp:
                 self.validation_results.append(ValidationResult(
-                    status=ValidationStatus.WARNING,
+                    status=ValidationStatus.INVALID,
                     record_index=i,
                     rule="timestamp_ordering",
                     severity="HIGH",
