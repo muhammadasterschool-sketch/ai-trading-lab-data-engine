@@ -4,11 +4,14 @@
 Document Type:  Architecture proposal + audit + implementation plan (Phase M1)
 Phase:          Multi-Broker Architecture Mandate (operator-issued 2026-10-12)
 Authority:      A — AUTHORITATIVE for the broker-neutral execution design
-Status:         CURRENT (Phase M1 implemented; Phase M2 implemented as the
-                 runtime-side paper-mock bridge — see §6a; Phases M3–M6
-                 planned, NOT started)
-Version:        1.1.0
-Last Updated:   2026-10-12 (Phase M2 / runtime-risk-safety mandate Batch 3)
+Status:         CURRENT (Phase M1 implemented; Phase M2 implemented
+                 TWICE-STAGED — Batch 3 side-band bridge §6a, then
+                 Batch 5 AUTHORITATIVE runtime integration §6b which
+                 completes the phase; Phases M3–M6 planned, NOT
+                 started)
+Version:        1.2.0
+Last Updated:   2026-10-12 (Batch 5 — authoritative runtime
+                 integration, Phase M2 completion)
 ```
 
 ---
@@ -318,7 +321,7 @@ authorized.
 | Phase | Scope | Risk | Status |
 |---|---|---|---|
 | **M1** | Broker-neutral core (models/errors/capabilities/redaction/interface) + guarded session + four deterministic mocks + failure-injection tests. Purely ADDITIVE; zero frozen files touched. | MINIMAL (no runtime path changes; no network) | **DELIVERED this cycle** |
-| **M2** | Wire the paper runtime's execution boundary onto `BrokerSession` behind a `PaperBrokerAdapter` that hosts the existing `PaperExecutionAdapter` fill model; bridge `RiskGate`/`KillSwitchManager` into the session's injectable gates; prove EXECUTION_STATE_SCHEMA compatibility. | MEDIUM (touches the live order path; must preserve all frozen contracts and the 1,769-test behaviour) | **DELIVERED (Batch 3, 2026-10-12)** as `src/data_engine/runtime/broker_execution.py` — the SMALLEST maintainable integration layer: side-band bridge, runtime order path UNTOUCHED (see §6a) |
+| **M2** | Wire the paper runtime's execution boundary onto `BrokerSession` behind a `PaperBrokerAdapter` that hosts the existing `PaperExecutionAdapter` fill model; bridge `RiskGate`/`KillSwitchManager` into the session's injectable gates; prove EXECUTION_STATE_SCHEMA compatibility. | MEDIUM (touches the live order path; must preserve all frozen contracts and the 1,769-test behaviour) | **DELIVERED (Batch 3 side-band §6a + Batch 5 AUTHORITATIVE §6b, 2026-10-12)** — the runtime's order path itself now flows through the guarded session when a venue is attached |
 | **M3** | Real Binance spot TESTNET adapter behind the same interface (REST + filters + weights; env-injected credentials, never in repo; testnet funds only). | MEDIUM-HIGH (first real network execution surface) | NOT STARTED — requires operator authorization + SRC-APPROVAL-style review |
 | **M4** | Real Bybit v5 demo/testnet adapter (orderLinkId, one-way mode, lotSizeFilter). | MEDIUM-HIGH | NOT STARTED |
 | **M5** | Real MT5-compatible adapter (Exness/XM DEMO accounts, Windows terminal session injection per `platform/mt5.py` protocol; REAL account mode structurally refused until an explicit operator LIVE-authorization protocol exists). | HIGH (real broker terminals) | NOT STARTED |
@@ -406,6 +409,108 @@ through a real venue (replacing the side-band venue) remains
 future, separately-reviewed work.
 
 ---
+
+## 6b. Phase M2 completion record (Batch 5 — 2026-10-12)
+
+**Branch:** `feat/runtime-risk-broker-neutral-tenancy` (continuing
+from the Batch-4 commit `9c02682`). **Module:**
+`src/data_engine/runtime/broker_execution.py` (extended) +
+surgical `runtime.py` seams + one additive `BrokerSession` method.
+
+**What was built (the AUTHORITATIVE integration):**
+
+- `attach_authoritative_paper_venue(...)` — the factory binding a
+  guarded `BrokerSession` ONTO the runtime's AUTHORITATIVE order
+  path. With a venue attached, `_execute_plan` submits every order
+  (entries AND protective exits) through the full session pipeline
+  between OMS risk-approval and OMS submission, and
+  `_process_pending_orders` fills orders EXCLUSIVELY from venue
+  polls. There is NO hidden direct-execution fallback: a runtime
+  with live pre-venue internal orders REFUSES the attachment.
+- `RuntimeOrderPathRiskGate` — the session's risk gate as an
+  identity-binding VERIFICATION (not a re-decision): the request
+  must map 1:1 onto an OMS order in RISK_APPROVED state with exactly
+  matching fingerprint fields — the structural RT-F1 evidence of the
+  runtime's ONE authoritative 22-check assessment. The venue
+  `client_order_id` IS the OMS order id.
+- `RuntimeAuthoritativeVenue` — the seam owning: the fail-closed
+  submission-block reasons (degraded session / unhealthy adapter /
+  non-RUNNING runtime); the narrow risk-reduction carve-out at the
+  venue kill-switch gate (exclusively for seam-driven reduce-only
+  orders that verifiably reduce the live position — the mirror of
+  the runtime gate's documented closing-order carve-out, so
+  protective exits traverse the SAME boundary under an active
+  switch); exactly-once `poll_order` deltas; venue-cancel routing
+  for kill-switch fill-time enforcement and TTL expiry;
+  `resolve_ambiguity` (ledgered reconciliation-only recovery —
+  cross-checked phantom adoption, never an inferred failure) and
+  `recover` (venue-book rebuild from persisted OMS + journal truth
+  with deterministic-regeneration verification; journaled UNKNOWN
+  orders are never fabricated into the venue book).
+- `RuntimePaperExecutionAdapter(authoritative=True)` — hosted fills
+  carry the OMS order identity and the OMS TTL fill window, so
+  venue-mode fills are BIT-IDENTICAL to the internal path (same
+  fill ids, quantities, prices, cost decomposition); a submission
+  without a matching RISK_APPROVED OMS order is refused by the
+  adapter itself (defence in depth). `register_recovered_order`
+  rebuilds one venue order from persisted state, verifying the
+  deterministic regeneration of every fill.
+- `BrokerSession.adopt_venue_order(request)` — the ONE additive
+  brokers-package change: an explicit, LEDGERED lost-ack re-adoption
+  action (journal ORDER_ACK + venue-truth sync) used exclusively by
+  the cross-checked phantom-adoption recovery. The session still
+  never fabricates adoption on its own.
+- Runtime seams: `TradingRuntime.venue` (read-only),
+  `_bind_authoritative_venue`, `_apply_execution_fills` (the ONE
+  fill-application path, shared verbatim by internal and venue
+  modes — bit-identical accounting), `_flag_execution_uncertain`,
+  `_resolve_venue_order`, `_resume_after_venue_reconciliation`;
+  venue counters registered in the closed metrics vocabulary.
+
+**Ambiguity discipline (the §28 mapping):** a definitive venue
+refusal REJECTS the OMS order (the venue never saw it); an ambiguous
+submission (UNKNOWN ack or exhausted TIMEOUT retries) submits + marks
+UNKNOWN + RECONCILING and sets EXECUTION_UNCERTAIN — bars, polls and
+new submissions all stop until reconciliation adopts venue truth
+through the ledgered actions. A restart inside the ambiguity stays
+fail-closed (the fresh in-memory venue honestly does not hold the
+order; nothing infers an outcome).
+
+**Tests:** `tests/test_runtime_authoritative_venue.py` — 26 tests,
+RED-first (the interface did not exist): approved orders reach the
+session under their OMS identity and fill; venue-mode ==
+internal-mode bit-identical (twin runs); organic full-chain equality
+with the internal control; risk refusal never reaches the venue;
+kill-switch blocks new venue orders; in-flight cancellation at BOTH
+books; protective exits traverse the boundary under the carve-out;
+precision refusals distinguish price vs quantity (ledgered with the
+dimension named); missing-spec attach refused; degraded/unhealthy
+venue blocks all submissions (reconnect recovers); UNKNOWN blocks
+until reconciled then resumes with exactly-once fills; lost-ack
+adoption (ledgered) and unexplainable-phantom blocked; restart
+idempotency (split run == whole run, no duplicate submissions, venue
+book rebuilt identically); key reuse refused; restart-inside-UNKNOWN
+stays blocked; recovered HALT never silently RUNNING; live
+pre-venue orders refuse attach; partial fills accounted exactly once
+(redundant poll is a no-op); zero credential leakage (executable
+scan over ledgers/state/journal/OMS); RUN-DD-1 through the venue;
+side-band factory preserved; MOCK_DETERMINISTIC pin.
+
+**Verification:** suite 2,107 + 1 skipped -> **2,133 + 1 skipped**
+(+26, zero regressions, ZERO existing tests modified) x3 consecutive
+runs (73.2s / 71.2s / 71.7s); frozen Phase 3 blobs 11/11
+byte-identical to `13fdc7e`; secret scan 0 hits across ALL history.
+
+**Honest limitations (explicit):** paper-mock venue only
+(MOCK_DETERMINISTIC enforced; REAL adapters refused — live trading
+NOT AUTHORIZED); the in-memory venue book is a deterministic
+rebuild from persisted state, not durable venue truth (Phase M3+
+tests against real venues); venue-journal growth is O(polls)
+(atomic full-file rewrites per record — acceptable for paper, a real
+concern only for real venues with their own persistence);
+`BrokerSession.adopt_venue_order` is authoritative-path machinery
+(the side-band sessions never call it). Executing runtime orders
+through a REAL venue remains M3-M6 work, NOT STARTED.
 
 ## 5. Tests (the executable evidence)
 

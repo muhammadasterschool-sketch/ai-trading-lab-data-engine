@@ -357,6 +357,13 @@ class TradingRuntime:
         # persisted execution-state schema (same discipline as the
         # day-anchor memo above).
         self._dd_peak_cache = None
+        # Batch 5 (Phase M2 completion): the broker-neutral execution
+        # venue bound to the AUTHORITATIVE order path. None = the
+        # runtime's internal paper execution path (the default; zero
+        # behavioural change). Bound ONLY via
+        # ``attach_authoritative_paper_venue`` (the runtime-package
+        # seam) — never directly.
+        self._venue = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -405,6 +412,27 @@ class TradingRuntime:
     @property
     def config(self) -> RuntimeConfig:
         return self._config
+
+    @property
+    def venue(self):
+        """The broker-neutral execution venue bound to the
+        authoritative order path (None = the runtime's internal paper
+        execution path — the default)."""
+        return self._venue
+
+    def _bind_authoritative_venue(self, venue) -> None:
+        """Runtime-package seam: bind the authoritative venue (called
+        ONLY by ``attach_authoritative_paper_venue`` after its
+        fail-closed construction checks)."""
+        if self._venue is not None:
+            raise RuntimeContractError(
+                "an authoritative venue is already bound to this runtime"
+            )
+        if venue is None:
+            raise RuntimeContractError(
+                "the authoritative venue seam cannot be None"
+            )
+        self._venue = venue
 
     def start(self) -> None:
         """INIT → RUNNING through the AUTHORITATIVE fail-closed chain.
@@ -958,7 +986,14 @@ class TradingRuntime:
 
         # -- 3. TTL expiry for live orders (§39) ----------------------------
         for order in list(self._oms.live_orders()):
-            self._oms.expire_if_elapsed(order.order_id, idx)
+            expired = self._oms.expire_if_elapsed(order.order_id, idx)
+            if expired is not None and self._venue is not None:
+                # Batch 5: keep venue truth consistent with the OMS
+                # expiry (journal-synced cancellation; failures are
+                # ledgered and surface at the next reconciliation).
+                self._venue.cancel_order(
+                    order.order_id, correlation_id, "ttl expiry"
+                )
 
         # -- 4. record exits for completed exit orders (§31) -----------------
         exits = self._record_completed_exits(bar, correlation_id)
@@ -1406,6 +1441,98 @@ class TradingRuntime:
         self._metrics.increment("orders_created")
         self._oms.validate_order(order.order_id)
         self._oms.risk_approve(order.order_id, assessment)
+        # -- Batch 5 (Phase M2 completion): the AUTHORITATIVE venue
+        # boundary. With a venue attached, the risk-approved order is
+        # submitted through the guarded BrokerSession pipeline (ONE
+        # submission path — no hidden direct-execution fallback) and
+        # fills EXCLUSIVELY from venue polls in
+        # ``_process_pending_orders``. Sequenced BETWEEN risk approval
+        # and OMS submission so a definitive venue refusal REJECTS the
+        # order (RISK_APPROVED -> REJECTED, ledgered) and an ambiguous
+        # outcome marks it UNKNOWN + RECONCILING (§28 — never an
+        # inferred failure).
+        if self._venue is not None:
+            from data_engine.runtime.broker_execution import (
+                VenueSubmissionRefused as _Refused,
+                VenueSubmissionUncertain as _Uncertain,
+            )
+            block_reason = self._venue.submission_block_reason()
+            if block_reason is not None:
+                self._oms.reject_order(
+                    order.order_id,
+                    f"venue submission blocked: {block_reason}",
+                )
+                self._metrics.increment("orders_venue_refused")
+                self._ledgers.record(
+                    ledger="incident",
+                    event_type="VENUE_SUBMISSION_BLOCKED",
+                    correlation_id=correlation_id,
+                    actor="runtime.execution",
+                    payload={
+                        "order_id": order.order_id,
+                        "reason": block_reason,
+                        "action": (
+                            "order rejected — the venue refuses new "
+                            "submissions while degraded/unhealthy "
+                            "(fail closed)"
+                        ),
+                    },
+                )
+                return [], (block_reason,)
+            signed_units = plan.quantity if plan.side.value == "BUY" \
+                else -plan.quantity
+            reduce_only = position.quantity != 0 and (
+                (position.quantity > 0) != (signed_units > 0)
+            ) and abs(signed_units) <= abs(position.quantity)
+            try:
+                self._venue.submit_order(
+                    order, reduce_only=reduce_only,
+                    correlation_id=correlation_id,
+                )
+                self._metrics.increment("orders_venue_submitted")
+            except _Refused as exc:
+                self._oms.reject_order(
+                    order.order_id,
+                    f"venue refused ({exc.reason_code}): {exc}",
+                )
+                self._metrics.increment("orders_venue_refused")
+                self._ledgers.record(
+                    ledger="incident",
+                    event_type="VENUE_SUBMISSION_REFUSED",
+                    correlation_id=correlation_id,
+                    actor="runtime.execution",
+                    payload={
+                        "order_id": order.order_id,
+                        "reason_code": exc.reason_code,
+                        "action": (
+                            "order rejected — the venue never saw it "
+                            "(definitive pre-venue refusal, fail closed)"
+                        ),
+                    },
+                )
+                return [], ()
+            except _Uncertain as exc:
+                # Ambiguous submission: the venue MAY hold a live
+                # order. NEVER infer failure from a lost ack —
+                # UNKNOWN + RECONCILING + EXECUTION_UNCERTAIN until
+                # reconciliation resolves from venue truth (§28).
+                self._oms.submit(
+                    order.order_id,
+                    submitted_at=bar["timestamp"],
+                    bar_index=bar_index,
+                )
+                self._oms.mark_unknown(
+                    order.order_id,
+                    f"venue submission outcome uncertain: {exc}",
+                )
+                self._oms.start_reconciling(order.order_id)
+                self._metrics.increment("orders_venue_unknown")
+                self._flag_execution_uncertain(
+                    f"venue submission outcome uncertain for order "
+                    f"{order.order_id}: {exc}",
+                    correlation_id,
+                )
+                return [], ()
         self._oms.submit(
             order.order_id,
             submitted_at=bar["timestamp"],
@@ -1503,6 +1630,13 @@ class TradingRuntime:
                     # already-filled part of a partial order stays;
                     # the remainder is cancelled) and ledger the
                     # incident with the governing-switch description.
+                    # With a venue attached the cancellation goes
+                    # THROUGH the venue boundary (journal-synced venue
+                    # truth; failures ledgered, never silenced).
+                    if self._venue is not None:
+                        self._venue.cancel_order(
+                            order.order_id, correlation_id, str(exc)
+                        )
                     self._oms.request_cancel(order.order_id)
                     self._oms.finalize_cancel(order.order_id)
                     self._pending_protection.pop(order.order_id, None)
@@ -1536,19 +1670,27 @@ class TradingRuntime:
                 continue  # latency window not reached yet
             ttl_window = order.ttl_bars or self._config.ttl_bars
             try:
-                new_fills = self._execution.execute(
-                    order_id=order.order_id,
-                    symbol=order.symbol,
-                    side=order.side,
-                    order_type=order.order_type,
-                    quantity=order.remaining_quantity,
-                    bars=self._bars,
-                    submitted_at=order.submitted_at,
-                    limit_price=order.limit_price,
-                    max_bars=ttl_window,
-                    from_bar=cursor,
-                    start_index=len(order.fills),
-                )
+                if self._venue is not None:
+                    # Batch 5 (Phase M2 completion): fills come
+                    # EXCLUSIVELY from venue polls (journal-synced
+                    # venue truth; exactly-once delta).
+                    new_fills = self._venue.poll_order(
+                        order, correlation_id
+                    )
+                else:
+                    new_fills = self._execution.execute(
+                        order_id=order.order_id,
+                        symbol=order.symbol,
+                        side=order.side,
+                        order_type=order.order_type,
+                        quantity=order.remaining_quantity,
+                        bars=self._bars,
+                        submitted_at=order.submitted_at,
+                        limit_price=order.limit_price,
+                        max_bars=ttl_window,
+                        from_bar=cursor,
+                        start_index=len(order.fills),
+                    )
             except Exception as exc:
                 # Execution failure: mark the order UNKNOWN and
                 # reconcile-before-retry (mandate §28) — never
@@ -1570,44 +1712,162 @@ class TradingRuntime:
                     },
                 )
                 continue
-            for fill in new_fills:
-                self._oms.apply_fill(order.order_id, fill)
-                self._apply_fill_to_position(fill, correlation_id)
-                fills.append(fill)
-                self._metrics.increment("fills")
-                if order.remaining_quantity > 0:
-                    self._metrics.increment("partial_fill_events")
-                self._memory.record(
-                    MemoryCategory.EXECUTION,
-                    {"order_id": order.order_id, "fill_id": fill.fill_id,
-                     "quantity": str(fill.quantity), "price": str(fill.price),
-                     "correlation_id": correlation_id},
-                    correlation_id=correlation_id,
-                    at=fill.filled_at,
-                )
-            if new_fills:
-                self._order_fill_cursor[order.order_id] = (
-                    new_fills[-1].bar_index + 1
-                )
-                # Attach protective levels after the first entry fill.
-                protection = self._pending_protection.get(order.order_id)
-                if protection is not None:
-                    sl, tp, prot_corr = protection
-                    fresh = self._positions.get(
-                        order.symbol, PositionState(symbol=order.symbol)
-                    )
-                    if not fresh.is_flat:
-                        if sl is not None:
-                            fresh, _ = self._exit_manager.set_stop_loss(
-                                fresh, sl, prot_corr, fill.filled_at
-                            )
-                        if tp is not None:
-                            fresh, _ = self._exit_manager.set_take_profit(
-                                fresh, tp, prot_corr, fill.filled_at
-                            )
-                        self._positions[order.symbol] = fresh
-                        self._pending_protection.pop(order.order_id, None)
+            self._apply_execution_fills(
+                order, new_fills, correlation_id, fills
+            )
         return fills
+
+    def _apply_execution_fills(
+        self, order, new_fills: list, correlation_id: str,
+        fills_sink: list,
+    ) -> None:
+        """Apply execution fills through the ONE authoritative path
+        (OMS -> position -> metrics -> memory -> protection attach).
+
+        Shared VERBATIM by the internal execution adapter path and the
+        Batch-5 authoritative venue path (venue polls) — identical
+        semantics, identical ledger/metrics events, so venue-mode runs
+        are bit-identical to internal-mode runs. ``order`` is the
+        caller's (possibly stale-within-the-batch) OMS order snapshot
+        — the historical partial-fill-event semantics are preserved
+        exactly."""
+        for fill in new_fills:
+            self._oms.apply_fill(order.order_id, fill)
+            self._apply_fill_to_position(fill, correlation_id)
+            fills_sink.append(fill)
+            self._metrics.increment("fills")
+            if order.remaining_quantity > 0:
+                self._metrics.increment("partial_fill_events")
+            self._memory.record(
+                MemoryCategory.EXECUTION,
+                {"order_id": order.order_id, "fill_id": fill.fill_id,
+                 "quantity": str(fill.quantity), "price": str(fill.price),
+                 "correlation_id": correlation_id},
+                correlation_id=correlation_id,
+                at=fill.filled_at,
+            )
+        if new_fills:
+            self._order_fill_cursor[order.order_id] = (
+                new_fills[-1].bar_index + 1
+            )
+            # Attach protective levels after the first entry fill.
+            protection = self._pending_protection.get(order.order_id)
+            if protection is not None:
+                sl, tp, prot_corr = protection
+                fresh = self._positions.get(
+                    order.symbol, PositionState(symbol=order.symbol)
+                )
+                if not fresh.is_flat:
+                    if sl is not None:
+                        fresh, _ = self._exit_manager.set_stop_loss(
+                            fresh, sl, prot_corr, fill.filled_at
+                        )
+                    if tp is not None:
+                        fresh, _ = self._exit_manager.set_take_profit(
+                            fresh, tp, prot_corr, fill.filled_at
+                        )
+                    self._positions[order.symbol] = fresh
+                    self._pending_protection.pop(order.order_id, None)
+
+    # ------------------------------------------------------------------
+    # Batch 5 (Phase M2 completion): authoritative-venue helpers
+    # ------------------------------------------------------------------
+    def _flag_execution_uncertain(self, reason: str,
+                                  correlation_id: str) -> None:
+        """Fail-closed transition into EXECUTION_UNCERTAIN with an
+        auditable incident record (used by the authoritative venue
+        seam for ambiguous submissions/recoveries)."""
+        self._state = RuntimeState.EXECUTION_UNCERTAIN
+        self._ledgers.record(
+            ledger="incident",
+            event_type="RUNTIME_EXECUTION_UNCERTAIN",
+            correlation_id=correlation_id,
+            actor="runtime.venue",
+            payload={
+                "reason": reason,
+                "action": (
+                    "bar processing + new submissions blocked until "
+                    "venue reconciliation resolves the ambiguity "
+                    "(fail closed; never an inferred failure)"
+                ),
+            },
+        )
+
+    def _resolve_venue_order(self, order_id: str, venue_status,
+                             correlation_id: str) -> None:
+        """Adopt the venue-truth resolution for ONE ambiguous
+        (UNKNOWN/RECONCILING) OMS order: apply any not-yet-applied
+        hosted fills EXACTLY ONCE (the shared authoritative path),
+        then resolve the lifecycle per the venue's status.
+
+        ``venue_status`` is the venue-neutral status enum VALUE (a
+        string) — the runtime never imports the brokers package (the
+        broker_execution seam is the only boundary)."""
+        from data_engine.runtime.contracts import OrderLifecycle as _LC
+        status_value = (
+            venue_status.value if hasattr(venue_status, "value")
+            else str(venue_status)
+        )
+        order = self._oms.order(order_id)
+        venue_fills = self._venue.adapter.runtime_fills(order_id)
+        applied = len(order.fills)
+        if applied > len(venue_fills):
+            raise RuntimeContractError(
+                f"venue resolution for {order_id!r}: the OMS holds "
+                f"{applied} fills but the venue hosts "
+                f"{len(venue_fills)} — books diverged (fail closed)"
+            )
+        delta = list(venue_fills[applied:])
+        if delta:
+            self._apply_execution_fills(order, delta, correlation_id, [])
+        order = self._oms.order(order_id)
+        if order.status in (_LC.UNKNOWN, _LC.RECONCILING):
+            resolved = {
+                "OPEN": _LC.SUBMITTED,
+                "PARTIALLY_FILLED": _LC.PARTIALLY_FILLED,
+                "FILLED": _LC.FILLED,
+                "CANCELLED": _LC.CANCELLED,
+                "REJECTED": _LC.FAILED,
+                "EXPIRED": _LC.FAILED,
+            }.get(status_value)
+            if resolved is None:
+                raise RuntimeContractError(
+                    f"venue resolution for {order_id!r}: unresolvable "
+                    f"venue status {status_value!r} (fail closed)"
+                )
+            self._oms.resolve_reconciling(order_id, resolved)
+        self._ledgers.record(
+            ledger="incident",
+            event_type="VENUE_ORDER_RESOLVED",
+            correlation_id=correlation_id,
+            actor="runtime.venue",
+            payload={
+                "order_id": order_id,
+                "venue_status": status_value,
+                "fills_adopted": len(delta),
+                "action": "venue truth adopted after reconciliation "
+                          "(exactly-once fill application)",
+            },
+        )
+
+    def _resume_after_venue_reconciliation(self,
+                                            correlation_id: str) -> None:
+        """Resume RUNNING after a CLEAN venue reconciliation resolved
+        every ambiguous order (recovery reconciles FIRST, then
+        resumes — the restart discipline, in-session)."""
+        if self._state is not RuntimeState.EXECUTION_UNCERTAIN:
+            return
+        self._state = RuntimeState.RUNNING
+        self._ledgers.record(
+            ledger="incident",
+            event_type="RUNTIME_RESUMED_AFTER_VENUE_RECONCILIATION",
+            correlation_id=correlation_id,
+            actor="runtime.venue",
+            payload={
+                "action": "clean reconciliation resolved all ambiguous "
+                          "orders; resuming (reconcile-then-resume)",
+            },
+        )
 
     def _record_completed_exits(self, bar: Mapping, correlation_id: str) -> list:
         """Record ExitRecords for exit orders that have now filled (§31)."""

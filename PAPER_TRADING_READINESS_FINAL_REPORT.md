@@ -1,6 +1,6 @@
 # PAPER TRADING READINESS FINAL REPORT
 
-**Document ID:** PPR-FR-002 · **Version:** 2.11.0 · **Date:** 2026-10-12
+**Document ID:** PPR-FR-002 · **Version:** 2.12.0 · **Date:** 2026-10-12
 **Prepared by:** ZAI implementation + verification agent (paper-readiness
 re-audit mandate: blocker closure + runtime-integration forensic re-audit;
 RL-governance cycle: RL runtime + observability metrics + 31st gate;
@@ -839,6 +839,102 @@ untouched; secret scan 0 hits on changed files.
 **PAPER_READY = FALSE.** The tenancy foundation is enforcement
 machinery, not a readiness dependency. Standing human blockers
 unchanged. LIVE NOT AUTHORIZED.
+
+---
+
+## 0K. AUTHORITATIVE BROKER-NEUTRAL RUNTIME INTEGRATION AMENDMENT — BATCH 5 (v2.12.0, 2026-10-12)
+
+The multi-broker architecture mandate Batch 5 completed Phase M2 as
+the AUTHORITATIVE integration (the prior §0I/Batch-3 delivery was an
+explicitly side-band bridge with the runtime order path untouched):
+`attach_authoritative_paper_venue(...)` binds a guarded
+`BrokerSession` ONTO the runtime's single order path. With a venue
+attached, EVERY runtime order (entries AND protective exits) flows
+gate -> OMS fingerprint-bound approval -> the session pipeline
+(isolation > health > reconciliation-gate > kill-switch > identity-
+binding risk verification > journal idempotency > capability +
+precision pre-checks > bounded retry) and fills EXCLUSIVELY from
+venue polls — there is NO hidden direct-execution fallback, and a
+runtime with live pre-venue internal orders REFUSES the attachment.
+
+### 0K.1 Properties proven by executable tests (26, RED-first)
+
+- **Single coherent risk decision**: the session's risk gate is
+  `RuntimeOrderPathRiskGate` — an identity-binding VERIFICATION that
+  the request maps 1:1 onto an OMS order in RISK_APPROVED state with
+  matching fingerprint fields (the RT-F1 approval of the runtime's
+  ONE authoritative 22-check assessment, incl. RUN-DD-1 drawdown).
+  The venue `client_order_id` IS the OMS order id — one identity from
+  decision to venue.
+- **Fill model unchanged**: the venue hosts the runtime's own
+  `PaperExecutionAdapter`; venue-mode runs are BIT-IDENTICAL to
+  internal-mode runs (same order ids, same fill ids, quantities,
+  prices, costs — the twin-run test) and the organic decision ->
+  plan -> order chain matches the internal control run exactly.
+- **Kill-switch/fill-time/exit semantics preserved**: new exposure
+  refused at the gate; in-flight remainders cancelled at BOTH the
+  OMS and the venue; organically triggered protective exits traverse
+  the SAME venue boundary under the risk-reduction carve-out (an
+  explicitly reduce-only order that verifiably reduces the live
+  position — the venue-side mirror of the runtime gate's documented
+  closing-order carve-out).
+- **Exactly-once accounting**: polls return only the RuntimeFill
+  delta beyond what the OMS holds; multi-bar partial fills update
+  OMS/position/metrics/ledger exactly once; a redundant poll is a
+  no-op.
+- **UNKNOWN ambiguity discipline**: a definitive venue refusal
+  REJECTS the OMS order (the venue never saw it); an ambiguous
+  submission (UNKNOWN ack / exhausted TIMEOUT retries) marks it
+  UNKNOWN + RECONCILING, sets EXECUTION_UNCERTAIN and blocks ALL new
+  submissions and bars; recovery adopts venue truth through the
+  LEDGERED reconciliation actions (`resolve_ambiguity`,
+  cross-checked phantom adoption via `BrokerSession.adopt_venue_order`)
+  — NEVER an inferred failure; a restart inside the ambiguity stays
+  fail-closed (unexplainable phantoms stay blocked).
+- **Restart idempotency**: the venue book is rebuilt from persisted
+  OMS + journal truth with deterministic-regeneration verification
+  (divergence refuses recovery); the split run equals the whole run;
+  key reuse with different details is refused (the binding gate is a
+  TIGHTER refusal point than the journal's IDEMPOTENCY_KEY_REUSE);
+  a recovered HALT never silently becomes RUNNING.
+- **Precision enforcement, price vs quantity distinguished**:
+  lot-misaligned quantities and tick-misaligned limit prices are
+  REFUSED pre-venue (PRECISION_INVALID, ledgered with the dimension
+  named) — never silently rounded; attach without an instrument spec
+  for the runtime's own symbol is refused.
+- **Account isolation**: the credential secret never reaches the
+  runtime ledgers, the persisted execution state, the OMS records or
+  the session journal (executable scan).
+- **RUN-DD-1 through the venue**: drawdown enforcement, ACCOUNT kill
+  switch trip and terminal HALT are unchanged with a venue attached.
+
+### 0K.2 Scope honesty (what this is NOT)
+
+This is the PAPER-MOCK venue integration only: the hosted venue is
+`MOCK_DETERMINISTIC` (REAL adapters refused by the session), the
+in-memory venue book is rebuilt deterministically from persisted
+state (real venues are durable — Phase M3+ tests against real venue
+truth), and executing runtime orders through a REAL venue (Binance
+testnet / Bybit demo / MT5-compatible demo) remains M3-M6 work,
+NOT STARTED. MT5/Exness/Binance/Bitget/XM remain UNSUPPORTED for
+real execution. The Batch-3 side-band surface is preserved and
+still passes its own 22 tests.
+
+### 0K.3 Verification
+
+Suite 2,107 + 1 skipped -> **2,133 + 1 skipped** (+26, zero
+regressions, ZERO existing tests modified) x3 consecutive runs
+(73.2s / 71.2s / 71.7s). Frozen Phase 3 blobs 11/11 byte-identical
+to 13fdc7e; secret scan 0 hits across ALL history.
+
+### 0K.4 Verdict (unchanged)
+
+**PAPER_READY = FALSE.** An attached paper-mock venue is a
+structural integration proof, not a readiness dependency; the
+readiness verdict requires the full independently-tested runtime
+chain on the operational feed. Standing human blockers unchanged
+(SRC-APPROVAL, operational feed provisioning, keyed-MAC key, PAT
+rotation confirmation, REAL_DATA_READY chain). LIVE NOT AUTHORIZED.
 
 ---
 

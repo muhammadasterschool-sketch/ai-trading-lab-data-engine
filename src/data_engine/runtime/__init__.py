@@ -211,6 +211,11 @@ from data_engine.runtime.broker_execution import (
     RuntimeRiskGateBridge,
     RuntimePaperExecutionAdapter,
     attach_runtime_paper_session,
+    VenueSubmissionRefused,
+    VenueSubmissionUncertain,
+    RuntimeOrderPathRiskGate,
+    RuntimeAuthoritativeVenue,
+    attach_authoritative_paper_venue,
 )
 
 __all__ = [
@@ -296,4 +301,9 @@ __all__ = [
     "BridgeContractError", "RuntimeKillSwitchGate",
     "RuntimeRiskGateBridge", "RuntimePaperExecutionAdapter",
     "attach_runtime_paper_session",
+    "VenueSubmissionRefused",
+    "VenueSubmissionUncertain",
+    "RuntimeOrderPathRiskGate",
+    "RuntimeAuthoritativeVenue",
+    "attach_authoritative_paper_venue",
 ]

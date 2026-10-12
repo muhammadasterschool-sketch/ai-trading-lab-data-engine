@@ -54,6 +54,14 @@ COUNTER_NAMES = (
     "rl_proposals",
     "rl_proposals_vetoed",
     "rl_proposals_ood",
+    # Batch 5 (Phase M2 authoritative venue integration): venue-path
+    # order observability. These counters exist ONLY on runtimes with
+    # an attached broker-neutral venue session; they never alter the
+    # snapshot hash contract for venue-less sessions beyond the shared
+    # vocabulary (the hash covers counters in sorted canonical order).
+    "orders_venue_submitted",
+    "orders_venue_refused",
+    "orders_venue_unknown",
 )
 
 #: The known gauge vocabulary (latency observability, unhashed).

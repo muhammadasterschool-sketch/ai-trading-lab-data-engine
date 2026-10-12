@@ -603,6 +603,43 @@ class BrokerSession:
         )
         return ack
 
+    def adopt_venue_order(self, request: OrderRequest) -> OrderAck:
+        """EXPLICIT lost-ack re-adoption (reconciliation recovery).
+
+        The journal adopts an order the venue verifiably holds after
+        the CALLER cross-checked it against its own authoritative
+        books (the runtime venue seam cross-checks the OMS order
+        parameters before calling this). Ledgered as ORDER_ACK — the
+        auditable accept-venue-truth action for a submission whose ack
+        was lost.
+
+        This is NOT a trading action: the order already exists at the
+        venue (the adapter's idempotent truth is read, never
+        re-submitted), no gate is bypassed (the original submission
+        passed them; the runtime's fill-time enforcement continues to
+        govern the order), and the account-isolation check applies.
+        The session itself never fabricates adoption."""
+        if request.account_id != self._account_id:
+            self._journal_refusal(request, "ACCOUNT_ISOLATION")
+            raise OrderRefusedError(
+                f"request names account {request.account_id!r} but this "
+                f"session serves {self._account_id!r}",
+                broker_id=self.broker_id,
+                reason_code="ACCOUNT_ISOLATION",
+            )
+        ack = self._adapter.order_status(request.client_order_id)
+        if ack.status is VenueOrderStatus.UNKNOWN:
+            self._journal_refusal(request, "ADOPTION_VENUE_TRUTH_UNKNOWN")
+            raise OrderRefusedError(
+                f"venue truth for {request.client_order_id!r} is UNKNOWN — "
+                "adoption refuses ambiguous truth (fail closed)",
+                broker_id=self.broker_id,
+                reason_code="ADOPTION_VENUE_TRUTH_UNKNOWN",
+            )
+        self._journal_ack(request, ack)
+        # Adopt the venue's fill truth as well (status + quantities).
+        return self.sync_order_state(request.client_order_id)
+
     def positions(self):
         return self._adapter.positions()
 

@@ -9,7 +9,7 @@ Document Type:  Master documentation index (SSOT)
 Phase:          Cross-phase (all phases)
 Authority:      A — AUTHORITATIVE (this index is the documentation map of record)
 Status:         CURRENT
-Version:        2.11.0
+Version:        2.12.0
 Last Updated:   2026-10-12 (runtime-risk-safety mandate cycle,
                  Batch 2 — RUN-DD-1 account-equity drawdown limit
                  CLOSED on continuous branch
@@ -69,7 +69,36 @@ Last Updated:   2026-10-12 (runtime-risk-safety mandate cycle,
                  v1.0.0 with threat model + explicit non-claims (no
                  production multi-tenancy, no public API, no real
                  infra, no mobile app); readiness report §0J
-                 v2.11.0; verdict UNCHANGED. Also this cycle:
+                 v2.11.0; verdict UNCHANGED. Batch 5 same
+                 mandate: Phase M2 COMPLETED as the AUTHORITATIVE
+                 broker-neutral runtime integration —
+                 attach_authoritative_paper_venue binds a guarded
+                 BrokerSession ONTO the runtime's single order path
+                 (entries AND protective exits; no hidden
+                 direct-execution fallback; live pre-venue internal
+                 orders refuse the attachment); the session's risk
+                 gate is the identity-binding verification of the
+                 OMS's RT-F1 fingerprint-bound approval (venue
+                 client_order_id == OMS order id); fills come
+                 exclusively from venue polls hosting the runtime's
+                 own PaperExecutionAdapter (venue-mode runs
+                 BIT-IDENTICAL to internal-mode runs); kill-switch
+                 fill-time enforcement and the exit risk-reduction
+                 carve-out traverse the same boundary; exactly-once
+                 fill accounting; UNKNOWN ambiguity blocks everything
+                 until ledgered reconciliation adopts venue truth
+                 (never an inferred failure; restart-in-ambiguity
+                 stays fail-closed); venue book rebuilt on restart
+                 with deterministic-regeneration verification (split
+                 run == whole run); precision enforcement
+                 distinguishes price vs quantity (refusals ledgered
+                 with the dimension named); new
+                 BrokerSession.adopt_venue_order is the explicit
+                 ledgered lost-ack recovery action; +26 RED-first
+                 tests; suite 2,133 + 1 skipped ×3 deterministic;
+                 frozen 11/11; secret scan 0; architecture doc §6b
+                 v1.2.0; readiness report §0K v2.12.0; verdict
+                 UNCHANGED. Also this cycle:
                  full-platform discovery mandate cycle:
                  Phase 1 audit delivered on branch
                  fix/ingestion-classification-fail-closed (from d945833):
