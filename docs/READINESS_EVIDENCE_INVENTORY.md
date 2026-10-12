@@ -2,7 +2,7 @@
 
 ```text
 Document ID:     GOV-REI-001
-Version:         1.0.0
+Version:         1.1.0
 Date:            2026-10-13 (Asia/Karachi)
 Document Type:   Documentation-only evidence inventory (no code path,
                  no gate logic, no verdict computation)
@@ -39,8 +39,8 @@ verdict is a consequence, and every consequence in this inventory
 traces back to named evidence items that either exist or do not.
 
 The three tracked gates and their gate-level verdicts as of this
-version (unchanged from Batch 8, re-verified first-hand in Batch 9 —
-see §9):
+version (unchanged from Batch 8, re-verified first-hand in Batches 9
+and 10 — see §9):
 
 - **REAL_DATA_READY — FAIL**
 - **OPERATIONAL_FEED_READY — FAIL**
@@ -173,16 +173,18 @@ decision IDs; open components stay FAIL/UNVERIFIED.
 | Item | Evidence required | Status | Evidence class | Evidence location / reference | Owner / approver role | Verified at | Expiry / revalidation | Unresolved reason | Next operator action |
 |---|---|---|---|---|---|---|---|---|---|
 | GOV-01 | H-1 hypothesis-framework ratification recorded | PASS | RECORDED_DECISION | H1_RATIFICATION_DECISION_RECORD.md (GOV-H1-002-RATIFY, Option A containment) | Repository operator (decision recorded) | Recorded 2026-10-10; re-verified 2026-10-13 (Batch 8 §7) | None — immutable historical decision | — (closed) | None — the decision is recorded and closed |
-| GOV-02 | CI and WP-12 authorization recorded and installed | PASS | RECORDED_DECISION | CI_WP12_GATE_DECISION_RECORD.md (WP-12-CI-ENABLE); MASTER_MARKET_DATA_IMPORT_RECORD.md §10.4 (platform CI run 38147316090 SUCCESS observed at 4e6dfc5) | Repository operator (decision recorded) | Decision recorded 2026-10-10; platform execution observed 2026-10-11 | CI status revalidates per push or PR (current advanced heads UNVERIFIED — see GOV-06) | — (closed: decision recorded, workflow installed, one platform run observed to conclusion) | None for the decision itself; see GOV-06 for current-head CI verification |
-| GOV-03 | Exposed-PAT revocation and rotation confirmed | FAIL | OPERATOR_ACTION_REQUIRED | PAPER_TRADING_READINESS_FINAL_REPORT.md §15.3a; docs/reports/BATCH_8_INDEPENDENT_RUNTIME_AUDIT.md §10.1 (exposure count 19) | Repository operator (token owner) | — | Immediate; re-opens on any future exposure | A fine-grained GitHub PAT was exposed in operator chat (exposure count 19, still present in conversation history); no revocation or rotation has been confirmed through any authorized secure channel, so authenticated repository operations remain prohibited for agents | Revoke the exposed token at GitHub Settings → Developer settings → Fine-grained tokens; establish a replacement credential OUTSIDE chat; confirm rotation through a secure channel |
+| GOV-02 | CI and WP-12 authorization recorded and installed | PASS | RECORDED_DECISION | CI_WP12_GATE_DECISION_RECORD.md (WP-12-CI-ENABLE); MASTER_MARKET_DATA_IMPORT_RECORD.md §10.4 (platform CI run 38147316090 SUCCESS observed at 4e6dfc5) | Repository operator (decision recorded) | Decision recorded 2026-10-10; platform execution observed 2026-10-11 | CI status revalidates per push or PR (current PR-head CI verified green 2026-10-13, Batch 10 — see GOV-06) | — (closed: decision recorded, workflow installed, one platform run observed to conclusion) | None for the decision itself; GOV-06 now tracks current-head CI verification |
+| GOV-03 | Exposed-PAT revocation and rotation confirmed | FAIL | OPERATOR_ACTION_REQUIRED | PAPER_TRADING_READINESS_FINAL_REPORT.md §15.3a; docs/reports/BATCH_8_INDEPENDENT_RUNTIME_AUDIT.md §10.1 (exposure count 19); docs/reports/BATCH_10_POST_ROTATION_REMOTE_RECONCILIATION.md §2 (first-hand credential-absence verification) | Repository operator (token owner) | — | Immediate; re-opens on any future exposure | A fine-grained GitHub PAT was exposed in operator chat (exposure count 19, still present in conversation history); no revocation or rotation has been confirmed through any authorized secure channel — and Batch 10 verified FIRST-HAND that no replacement credential exists in the agent environment (no credential helper, no stored credential file, no CLI token, no token environment variable, clean remote URL), so the mandated Batch 9 branch push remains BLOCKED and authenticated operations stay prohibited for agents | Revoke the exposed token at GitHub Settings → Developer settings → Fine-grained tokens; establish a replacement credential OUTSIDE chat; then EITHER push the Batch 9 and Batch 10 branches manually with the exact commands recorded in the Batch 9 report §9 and the Batch 10 report §10, OR provision the replacement credential to the agent environment through a secure out-of-chat mechanism and confirm rotation through a secure channel |
 | GOV-04 | Keyed-MAC custody operational (genuine key provisioned) | FAIL | OPERATOR_ACTION_REQUIRED | KEYED_MAC_CUSTODY_DECISION_RECORD.md §4–§6 (GOV-KMC-001); docs/PAPER_OPERATOR_RUNBOOK.md §5; tests/test_mac_custody.py (28 tests) | Operator-appointed key custodian | Decision and mechanism verified 2026-10-10; re-verified 2026-10-13 (in-suite) | Rotate on custodian or host change; append fingerprint-only log entry per provisioning | Custody status is IMPLEMENTED and NOT OPERATIONAL — the §6 provisioning log records none provisioned; no key was invented | Generate at least 32 random bytes on a trusted machine; provision RUNTIME_LEDGER_MAC_KEY or RUNTIME_LEDGER_MAC_KEY_FILE (absolute path outside the repository); record the FINGERPRINT only in §6 |
 | GOV-05 | Data-source approval decision recorded | FAIL | OPERATOR_ACTION_REQUIRED | docs/OPERATOR_SOURCE_APPROVAL_PACK.md §5–§6 (shared with RDR-01 and OFR-01) | Named human operator | — | Revalidate on licence or terms change | The decision template and the recording commands are ready; no decision has been recorded | Decide on the binance-public-spot candidate per the pack's evidence requirements (terms review, host availability, continuity observation) |
-| GOV-06 | CI check-runs verified for the current open PR heads (PR 1 at 7f384e6, PR 2 at d945833) | UNVERIFIED | UNVERIFIED_EXTERNAL | docs/reports/BATCH_8_INDEPENDENT_RUNTIME_AUDIT.md §1 (API 401); docs/reports/BATCH_9_RELEASE_READINESS_EVIDENCE_AUDIT.md Task 1 (API 403, rate-limited) | Repository operator | — | Revalidates per push or PR state change | Check-run state could not be retrieved — unauthenticated REST probes returned HTTP 403 (rate limit), the exposed PAT cannot be used because rotation is unconfirmed (GOV-03), and no replacement credential exists; the historical platform CI run 38147316090 SUCCESS was observed at 4e6dfc5, which is not either current head | Verify CI status via the GitHub interface or an authenticated API call with a valid rotated credential before any merge decision |
+| GOV-06 | CI check-runs verified for the current open PR heads (PR 1 at 7f384e6, PR 2 at d945833) | PASS | VERIFIED_EVIDENCE | GitHub public REST API (unauthenticated, read-only — no credential used), verified 2026-10-13 Batch 10: PR 1 head 7f384e6 = workflow run 38293840380 with check-runs test (3.11) and test (3.12) both completed conclusion success (started 2026-10-12T18:52:29Z); PR 2 head d945833 = workflow run 38242367378 with both matrix legs completed success (2026-10-12T11:23-11:25Z); main d49b822 = runs 38039475901 and 38039475525, all four legs success; all 6 workflow runs in repository history completed success; recorded in docs/reports/BATCH_10_POST_ROTATION_REMOTE_RECONCILIATION.md §4 | Repository operator (verification executed first-hand by the Batch 10 audit session through the public read-only API) | 2026-10-13 (Batch 10, unauthenticated public API probes) | Revalidates per push or PR state change | — (closed: both current PR heads carry green completed check-runs verified through the public read-only API; branch-protection rules themselves remain UNVERIFIED unauthenticated but do not gate this item) | None for the CI item itself; re-verify after any new push or PR state change before merge decisions |
 
 **Gate verdict: FAIL** — two of the governance components are closed
-with recorded decisions (GOV-01, GOV-02); the open components
-(GOV-03, GOV-04, GOV-05, GOV-06) are human or credential dependencies
-that no code may fabricate.
+with recorded decisions (GOV-01, GOV-02); CI visibility for the
+current PR heads is now verified green (GOV-06, closed Batch 10 — a
+visibility item, not a gate precondition per §5); the remaining open
+components (GOV-03, GOV-04, GOV-05) are human or credential
+dependencies that no code may fabricate.
 
 ## 5. What would and would not change the verdicts
 
@@ -238,9 +240,14 @@ suite.
 | 2026-10-13 (Batch 9, Task 1) | Repository truth: branch `audit/batch-8-independent-runtime-audit` at 30ff1ce, clean tree, in sync with origin; `main` at d49b822 locally and remotely (unauthenticated ls-remote — no stored credential exists, none was used); PR 1 head 7f384e6 and PR 2 head d945833 both open and unmerged (refs/pull/*/merge present); REST API probes returned HTTP 403 (rate limited) — CI check-runs UNVERIFIED |
 | 2026-10-13 (Batch 9, Task 4) | Baseline suite re-run on the clean tree BEFORE any change: 2,215 passed + 1 skipped (79.56 s) — exactly the reported baseline; full validation after the change is recorded in the Batch 9 report |
 | 2026-10-13 (Batch 9, Task 2) | Every evidence reference in §4 was checked against the cited document or module on this checkout before the inventory was written |
+| 2026-10-13 (Batch 10, Task 1) | Repository truth re-verified: branch audit/batch-9-release-readiness-evidence @ 7f76c0e (parent 30ff1ce), clean tree; unauthenticated ls-remote — remote unchanged: main d49b822, the Batch 9 branch NOT present remotely (push still blocked), PR heads 7f384e6/d945833 open and unmerged |
+| 2026-10-13 (Batch 10, Task 2) | Credential posture verified FIRST-HAND: no credential helper, no stored credential file, no CLI token, no token environment variable, clean remote URL — the replacement credential is NOT configured in the agent environment, so the Batch 9 push remains blocked (GOV-03) and no authenticated operation was attempted |
+| 2026-10-13 (Batch 10, Task 4) | CI verified through the UNAUTHENTICATED public REST API (no credential used, three capture rounds against a contended shared-IP quota): PR 1 head 7f384e6 = run 38293840380, test (3.11) and test (3.12) completed success; PR 2 head d945833 = run 38242367378, both legs completed success; main d49b822 = runs 38039475901/38039475525, all four legs success; all 6 workflow runs in repository history completed success; PR 1 and PR 2 both state=open, merged=false, mergeable=true, mergeable_state=clean |
+| 2026-10-13 (Batch 10, Task 9) | Full regression stack re-run on the clean Batch 9 tree: 2,233 passed + 1 skipped ×3 consecutive (79.64/80.07/80.00 s); focused 244 passed (8.56 s); frozen Phase 3 blobs 11/11; SUB-18 manifest 13/13; secret scan 0 across all 82 commits and 0 in the working tree |
 
 ## 10. Change log
 
 | Version | Date | Change |
 |---|---|---|
 | 1.0.0 | 2026-10-13 | Initial inventory (Batch 9): per-evidence-item tracking for REAL_DATA_READY (6 items), OPERATIONAL_FEED_READY (6 items), GOVERNANCE_READY (6 items); integrity rules; structural pinning tests; no gate status changed — all three gates remain FAIL |
+| 1.1.0 | 2026-10-13 | Batch 10 post-rotation reconciliation: GOV-06 UNVERIFIED → PASS (current PR-head CI verified green through the unauthenticated public REST API — runs 38293840380 and 38242367378); GOV-03 unresolved reason updated with the first-hand Batch 10 finding that no replacement credential exists in the agent environment (rotation still unconfirmed, Batch 9 push still blocked); GOV-02 expiry cross-reference updated; verification log extended. NO gate verdict changed — GOVERNANCE_READY remains FAIL (GOV-03, GOV-04, GOV-05 open) and PAPER_READY remains FALSE |

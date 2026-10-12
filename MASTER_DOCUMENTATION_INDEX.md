@@ -9,8 +9,39 @@ Document Type:  Master documentation index (SSOT)
 Phase:          Cross-phase (all phases)
 Authority:      A — AUTHORITATIVE (this index is the documentation map of record)
 Status:         CURRENT
-Version:        2.16.0
-Last Updated:   2026-10-13 (Batch 9 — release readiness, evidence
+Version:        2.17.0
+Last Updated:   2026-10-13 (Batch 10 — post-rotation remote
+                 reconciliation & release governance:
+                 docs/reports/BATCH_10_POST_ROTATION_REMOTE_
+                 RECONCILIATION.md created on dedicated branch
+                 audit/batch-10-post-rotation-reconciliation from
+                 7f76c0e; credential posture verified FIRST-HAND —
+                 no replacement credential exists in the agent
+                 environment (no helper, no stored file, no CLI, no
+                 env token, clean remote URL), so the Batch 9 push
+                 remains BLOCKED and NO authenticated operation was
+                 attempted (fail-closed); remote reconciled
+                 unauthenticated: main d49b822 unchanged, Batch 9
+                 branch NOT present remotely, PR heads 7f384e6/
+                 d945833 open and unmerged; CI verified GREEN through
+                 the public read-only REST API for ALL current heads
+                 — main d49b822 (runs 38039475901/38039475525, 4/4
+                 legs), PR #1 head 7f384e6 (run 38293840380, 2/2
+                 legs), PR #2 head d945833 (run 38242367378, 2/2
+                 legs); all 6 repository workflow runs success;
+                 both PRs mergeable=true mergeable_state=clean, PR #2
+                 strictly contains PR #1; evidence inventory
+                 GOV-REI-001 v1.0.0 → v1.1.0 — GOV-06 UNVERIFIED →
+                 PASS on verified API evidence, GOV-03 FAIL kept with
+                 the first-hand credential-absence finding, no
+                 fabrication; suite 2,233 + 1 skipped ×3
+                 deterministic (79.64/80.07/80.00s), 244 focused,
+                 frozen 11/11, manifest 13/13, secret scan 0 across
+                 all 82 commits; NO gate verdict changed — 29 PASS /
+                 3 FAIL unchanged, PAPER_READY = FALSE, LIVE NOT
+                 AUTHORIZED; recommended merge decisions recorded
+                 (advisory only — nothing merged);
+                 Prior 2.16.0 — Batch 9 — release readiness, evidence
                  tracking & safe integration audit:
                  docs/READINESS_EVIDENCE_INVENTORY.md (GOV-REI-001
                  v1.0.0) created on dedicated branch
@@ -521,6 +552,7 @@ The remaining §61 spec documents (`TRADING_RUNTIME_ARCHITECTURE.md`, `TRADING_E
 | `AUDIT_DOCUMENTATION_NORMALIZATION.md` | C | Current audit evidence | Documentation normalization final report (this cycle) | — |
 | `docs/reports/BATCH_8_INDEPENDENT_RUNTIME_AUDIT.md` | A | AUTHORITATIVE Batch 8 independent audit (v1.0.0, 2026-10-13): first-hand re-verification of Batches 5–7 — repository/remote evidence chain (commits resolved + remote heads == local tips, authenticated ls-remote), authoritative broker-neutral execution path (single submission path, identity-bound risk decision, deterministic fills, exactly-once accounting, UNKNOWN-reconciles-from-venue-truth, restart idempotency, precision fail-closed, mock-only enforcement), Batch 6 controls all VERIFIED (watchdog fail-closed incl. bridge honesty; audited operator cancel/close; partial-fill metric; exit-risk observability; dead-state removal; account-drawdown boundaries/trip/restart; snapshot config evolution fail-closed-by-default with no risk-policy override), Batch 7 discovery/catalog (registration ≠ eligibility, fail-closed discovery, Bitget = mock spot-v2 semantics ONLY), tenancy contract verification with infrastructure limitations stated, 2,215+1 ×3 deterministic, frozen 11/11, manifest 13/13, secret scan 0 across all history, zero reproducible defects (two suspicions refuted by byte-level evidence), 32-gate table with 3 honest FAILs (REAL_DATA/OPERATIONAL_FEED/GOVERNANCE — human/data dependencies), real-vs-mock broker matrix, ranked operator actions incl. PAT rotation (exposure #19); PAPER_READY = FALSE unchanged | Independent runtime audit + safety-gate verification + paper-readiness evidence (Batch 8) | — |
 | `docs/reports/BATCH_9_RELEASE_READINESS_EVIDENCE_AUDIT.md` | A | AUTHORITATIVE Batch 9 release-readiness audit (v1.0.0, 2026-10-13): repository truth established credential-free (unauthenticated ls-remote — no stored credential exists, none used; main d49b822 unchanged; PRs #1/#2 open unmerged; CI on current heads UNVERIFIED — REST 403 rate-limited twice); documentation-only evidence inventory delivered (GOV-REI-001) for the three unresolved gates with per-item status, evidence class, reference, owner, timestamp, expiry rule, unresolved reason and next operator action; 8 binding integrity rules; 18 RED-first pinning tests adversarially verified (a FAIL-to-PASS item flip caught; a PAPER_READY fabrication caught after guard strengthening — honest finding recorded); suite 2,233 + 1 skipped ×3 deterministic, 244 focused, frozen 11/11, manifest 13/13, secret scan 0 across all 81 commits (count-only output); NO gate changed (29 PASS / 3 FAIL); PAPER_READY = FALSE; multi-broker scope re-verified mock-only; remote push BLOCKED on PAT rotation confirmation — exact operator push/verify commands recorded in §9 | Release readiness + evidence tracking + safe integration audit (Batch 9) | — |
+| `docs/reports/BATCH_10_POST_ROTATION_REMOTE_RECONCILIATION.md` | A | AUTHORITATIVE Batch 10 post-rotation reconciliation audit (v1.0.0, 2026-10-13): starting state verified exactly (branch audit/batch-9-release-readiness-evidence @ 7f76c0e, clean tree, parent 30ff1ce); credential posture audited FIRST-HAND — replacement credential ABSENT from the agent environment (no credential helper, no stored credential file, no gh CLI, no token env vars, clean remote URL), revocation unverifiable without forbidden means, so per the mandate all authenticated operations were stopped and the blocker reported (Batch 9 AND Batch 10 pushes remain local-only; exact operator push/verify commands recorded §10); remote reconciled UNAUTHENTICATED: main d49b822 unchanged, Batch 9 branch absent remotely, PR heads unchanged; CI verified GREEN through the public read-only REST API (three quota-contention capture rounds, zero credentials used) for main d49b822 (runs 38039475901 + 38039475525, 4/4 legs success) and BOTH current PR heads — PR #1 7f384e6 (run 38293840380) and PR #2 d945833 (run 38242367378) — upgrading the historical record which previously covered only 4e6dfc5; all 6 repository workflow runs completed success; PR review: both open, unmerged, mergeable=true, mergeable_state=clean; PR #2 strictly contains PR #1 (merge-base 7f384e6); GitHub test-merge refs current against main; branch-protection rules UNVERIFIED (401 unauthenticated); evidence inventory GOV-REI-001 → v1.1.0: GOV-06 UNVERIFIED → PASS on verified API evidence (a visibility item, NOT a gate precondition), GOV-03 FAIL retained with the credential-absence finding, zero fabrication — GOVERNANCE_READY remains FAIL; suite 2,233 + 1 skipped ×3 deterministic, 244 focused, frozen 11/11, manifest 13/13, secret scan 0 across all 82 commits; multi-broker scope untouched mock-only; recommended merge decisions (PR #2 supersedes PR #1) recorded advisory-only — nothing merged, no main change; PAPER_READY = FALSE; LIVE NOT AUTHORIZED | Post-rotation remote reconciliation + release governance (Batch 10) | — |
 
 ## Cross-Phase Security
 
@@ -552,7 +584,7 @@ The remaining §61 spec documents (`TRADING_RUNTIME_ARCHITECTURE.md`, `TRADING_E
 | `docs/DECISION_LEDGER_SPEC.md` | A | AUTHORITATIVE decision-ledger spec (v1.0.0): decision records incl. NO_TRADE with blocked conditions | Runtime decision ledger | — |
 | `docs/DISASTER_RECOVERY_SPEC.md` | A | AUTHORITATIVE recovery spec (v2.0.0): runtime-integrated recovery (BLOCKER 4), restore→verify→reconcile→resume-or-halt, corruption detection, runbook | Runtime recovery | — |
 | `docs/PAPER_READINESS_GATE.md` | A | AUTHORITATIVE readiness spec (v2.0.0): 30 fail-closed gates (re-audit extension: REAL_DATA/TRADE_PLAN/PARTIAL_FILL/SLTP/AUDIT/REPLAY/BASELINE), runtime enforcement at startup, ephemeral-fixture governance, current FALSE verdict | Readiness gate | — |
-| `docs/READINESS_EVIDENCE_INVENTORY.md` | B | CURRENT SUPPORTING evidence inventory (GOV-REI-001 v1.0.0, 2026-10-13): per-evidence-item tracking for the three unresolved gates (REAL_DATA_READY 6 items, OPERATIONAL_FEED_READY 6 items, GOVERNANCE_READY 6 items) — closed status vocabulary (PASS/FAIL/UNVERIFIED), evidence classes separating verified evidence from operator assertions, references, owners, timestamps, expiry rules, explicit unresolved reasons, next operator actions; 8 binding integrity rules (missing evidence never converts to PASS; registration is not eligibility; REAL_UNVERIFIED is not REAL_VERIFIED; mock is not real broker; no secrets; frozen contracts preserved); pinned by 18 structural tests; the verdict authority remains readiness.py + the final report §15/§16 — this inventory records evidence, it never computes verdicts | Release-readiness evidence tracking (Batch 9) | — |
+| `docs/READINESS_EVIDENCE_INVENTORY.md` | B | CURRENT SUPPORTING evidence inventory (GOV-REI-001 v1.1.0, 2026-10-13): per-evidence-item tracking for the three unresolved gates (REAL_DATA_READY 6 items, OPERATIONAL_FEED_READY 6 items, GOVERNANCE_READY 6 items) — closed status vocabulary (PASS/FAIL/UNVERIFIED), evidence classes separating verified evidence from operator assertions, references, owners, timestamps, expiry rules, explicit unresolved reasons, next operator actions; 8 binding integrity rules (missing evidence never converts to PASS; registration is not eligibility; REAL_UNVERIFIED is not REAL_VERIFIED; mock is not real broker; no secrets; frozen contracts preserved); pinned by 18 structural tests; v1.1.0 (Batch 10): GOV-06 UNVERIFIED → PASS on verified unauthenticated-API CI evidence (runs 38293840380/38242367378 — a visibility item, not a gate precondition), GOV-03 FAIL retained with the first-hand credential-absence finding; the verdict authority remains readiness.py + the final report §15/§16 — this inventory records evidence, it never computes verdicts | Release-readiness evidence tracking (Batches 9–10) | — |
 | `FILESYSTEM_SECURITY_FORENSIC_AUDIT.md` | E | Historical audit evidence (pre-B8 remediation findings) | Filesystem security forensic audit | remediation recorded in 4A.1 closure; preserved as evidence |
 | `HASH_FORENSIC_AUDIT.md` | E | Historical audit evidence — pre-remediation verdicts (incl. Candle.to_hash CONTAMINATED); current interpretation: H-1 OPEN/CONTAINED | Hash forensic audit | interpretation superseded by `H1_FORMAL_DECISION_ANALYSIS.md`; evidence preserved |
 | `PHASE_OWNERSHIP_FORENSIC_AUDIT.md` | E | Historical audit evidence | Phase ownership forensics | superseded by construction records; preserved |
