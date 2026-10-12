@@ -273,10 +273,13 @@ class TestErrorTaxonomy:
 
 class TestCapabilityRegistry:
 
-    def test_default_registry_has_the_four_mocks(self):
+    def test_default_registry_has_the_five_mocks(self):
+        # Batch 7 added bitget-mock (the Phase-1 discovery audit's
+        # broker matrix had recorded Bitget as entirely unimplemented).
         registry = default_registry()
         assert registry.broker_ids() == (
-            "binance-mock", "bybit-mock", "mt5-mock", "paper-mock"
+            "binance-mock", "bitget-mock", "bybit-mock", "mt5-mock",
+            "paper-mock",
         )
 
     def test_unknown_broker_fails_closed(self):

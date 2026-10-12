@@ -1,6 +1,6 @@
 # PAPER TRADING READINESS FINAL REPORT
 
-**Document ID:** PPR-FR-002 · **Version:** 2.13.0 · **Date:** 2026-10-13
+**Document ID:** PPR-FR-002 · **Version:** 2.14.0 · **Date:** 2026-10-13
 **Prepared by:** ZAI implementation + verification agent (paper-readiness
 re-audit mandate: blocker closure + runtime-integration forensic re-audit;
 RL-governance cycle: RL runtime + observability metrics + 31st gate;
@@ -17,7 +17,7 @@ architecture mandate 2026-10-12: broker-neutral execution layer
 (Phase M1, mocks + guarded session + 236 tests) — see §0F;
 full-platform discovery mandate 2026-10-12: ingestion-classification
 fail-closed hardening (ING/VAL defect family, +20 tests) — see §0G
-and PHASE_1_DISCOVERY_AUDIT_REPORT.md v1.0.0; runtime-risk-safety mandate 2026-10-12 Batch 2: RUN-DD-1 account-equity drawdown limit (new mandatory check + enforcement, +14 tests) — see §0H; safety-residuals mandate 2026-10-13 Batch 6: RUN-ST-1 in-session feed watchdog + RUN-CA-1 operator cancel/manual-close + RUN-PM-1/DA-1/OBS-1 + snapshot config compatibility (+34 tests) — see §0L)
+and PHASE_1_DISCOVERY_AUDIT_REPORT.md v1.0.0; runtime-risk-safety mandate 2026-10-12 Batch 2: RUN-DD-1 account-equity drawdown limit (new mandatory check + enforcement, +14 tests) — see §0H; safety-residuals mandate 2026-10-13 Batch 6: RUN-ST-1 in-session feed watchdog + RUN-CA-1 operator cancel/manual-close + RUN-PM-1/DA-1/OBS-1 + snapshot config compatibility (+34 tests) — see §0L; instrument-discovery mandate 2026-10-13 Batch 7: Bitget mock venue + broker instrument discovery/catalog/platform-registry sync (+48 tests) — see §0M)
 **Repository:** muhammadasterschool-sketch/ai-trading-lab-data-engine
 **Branch:** phase-4a/4a1-architecture-correction (integration branch:
 feat/broker-neutral-execution-architecture, from 1c286d2 on
@@ -1078,6 +1078,74 @@ operation REQUIRES the explicit opt-in (runbook §7). Standing human
 blockers unchanged (SRC-APPROVAL, operational feed provisioning,
 keyed-MAC key, PAT rotation confirmation, REAL_DATA_READY chain).
 LIVE NOT AUTHORIZED.
+
+---
+
+## 0M. INSTRUMENT DISCOVERY / CATALOG / BITGET MOCK / REGISTRY-SYNC AMENDMENT — BATCH 7 (v2.14.0, 2026-10-13)
+
+The three-batch continuation mandate's Batch 7 delivered the
+instrument half of the multi-broker architecture (design authority:
+docs/MULTI_BROKER_EXECUTION_ARCHITECTURE.md §6c v1.3.0). Baseline
+re-verified FIRST-HAND at 39e7939 (Batch 6 head): tree clean, suite
+2,167 + 1 skipped. All work RED-first (21 new acceptance tests in
+`tests/test_broker_instrument_discovery.py`, verified failing
+pre-fix; plus the SHARED adapter contract suite newly parametrized
+over the fifth venue).
+
+### 0M.1 Bitget spot v2 mock venue (broker-matrix gap → CLOSED at mock level)
+
+`BitgetSpotMockAdapter` + `BITGET_MOCK_CAPABILITIES` (registered in
+`default_registry`) — the Phase-1 discovery audit's broker matrix
+recorded Bitget as "NOTHING — no adapter, no mock, no
+market-data provider". Semantics encoded: MARKET/LIMIT only; SL/TP
+as SEPARATE trigger (plan) orders; clientOrderId native idempotency;
+balances-only account; trade filters (tick/lot/minTradeUSDT-class
+minimum notional); request + order rate limits; representative v2
+native codes preserved for audit (40001/43007/43025/42911 —
+re-verified against the live docs when a real-adapter phase is
+operator-authorized). MOCK_DETERMINISTIC enforced; REAL execution
+modes structurally refused at descriptor registration.
+
+### 0M.2 Instrument discovery + catalog (fail-closed)
+
+`discover_instruments(adapter, at=..., registry=None)` → immutable
+`InstrumentCatalog` of `CatalogEntry` records (spec + the venue's
+capability descriptor SNAPSHOT at discovery time + provenance).
+Refusals: disconnected adapter (a fabricated catalog is worse than
+none); foreign-broker specs; duplicate venue symbols; capability
+DRIFT against the registry (changes are explicit versioned events);
+unknown-symbol lookups.
+
+### 0M.3 Platform-registry sync (registration ≠ eligibility)
+
+`sync_catalog_to_platform_registry(catalog, registry, at=...)` →
+registers canonical identities with `broker:<id>` provider-symbol
+mappings into the CENTRAL platform InstrumentRegistry, honoring its
+own contracts verbatim: a synced instrument lands DISCOVERED (the
+sync never touches data state/verification/eligibility); the same
+canonical instrument from a second venue is the registry's
+duplicate path with the mapping MERGED (one identity, many venue
+symbols — the canonical identity carries no exchange/venue so
+venues never fork identity); broker mappings start UNVERIFIED.
+
+### 0M.4 Verification
+
+Suite 2,167 + 1 skipped → **2,215 + 1 skipped** (+48: 21 new tests +
+27 shared-contract tests newly parametrized over bitget-mock; one
+existing inventory pin updated four→five mocks — documented
+strengthening, zero assertions weakened) x3 consecutive runs
+(80.3s / 81.0s / 80.4s). Frozen Phase 3 blobs 11/11 byte-identical
+to 13fdc7e; manifest pins 13/13; real-credential scan 0 hits on
+changed files. Changed surface: capabilities.py, adapters/__init__,
+brokers/__init__, bitget_mock.py (new), instruments.py (new), the
+two test files, three docs.
+
+### 0M.5 Verdict (unchanged)
+
+**PAPER_READY = FALSE.** The Bitget venue is a deterministic mock;
+discovery/sync grant NO trading permission (registration ≠
+eligibility; no market-data provider for Bitget exists). Standing
+human blockers unchanged. LIVE NOT AUTHORIZED.
 
 ---
 

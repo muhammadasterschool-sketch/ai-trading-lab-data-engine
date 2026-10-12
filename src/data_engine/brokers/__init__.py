@@ -23,12 +23,14 @@ Architecture (see docs/MULTI_BROKER_EXECUTION_ARCHITECTURE.md):
 
 from data_engine.brokers.adapters import (
     BinanceSpotMockAdapter,
+    BitgetSpotMockAdapter,
     BybitV5MockAdapter,
     MT5StyleMockAdapter,
     PaperBrokerAdapter,
 )
 from data_engine.brokers.capabilities import (
     BINANCE_MOCK_CAPABILITIES,
+    BITGET_MOCK_CAPABILITIES,
     BYBIT_MOCK_CAPABILITIES,
     BrokerCapabilities,
     CapabilityRegistry,
@@ -94,6 +96,13 @@ from data_engine.brokers.session import (
     RiskDecision,
     SessionJournalError,
 )
+from data_engine.brokers.instruments import (
+    CatalogEntry,
+    InstrumentCatalog,
+    RegistrySyncReport,
+    discover_instruments,
+    sync_catalog_to_platform_registry,
+)
 
 __all__ = [
     # contract + models
@@ -141,6 +150,7 @@ __all__ = [
     "MT5_MOCK_CAPABILITIES",
     "BINANCE_MOCK_CAPABILITIES",
     "BYBIT_MOCK_CAPABILITIES",
+    "BITGET_MOCK_CAPABILITIES",
     "default_registry",
     # redaction
     "BrokerCredential",
@@ -159,9 +169,16 @@ __all__ = [
     "JournalRecord",
     "SessionJournalError",
     "BROKER_SESSION_JOURNAL_SCHEMA",
-    # adapters (deterministic mocks — Phase M1)
+    # adapters (deterministic mocks — Phase M1 + Batch 7 Bitget)
     "PaperBrokerAdapter",
     "MT5StyleMockAdapter",
     "BinanceSpotMockAdapter",
     "BybitV5MockAdapter",
+    "BitgetSpotMockAdapter",
+    # instrument discovery / catalog / registry sync (Batch 7)
+    "CatalogEntry",
+    "InstrumentCatalog",
+    "RegistrySyncReport",
+    "discover_instruments",
+    "sync_catalog_to_platform_registry",
 ]

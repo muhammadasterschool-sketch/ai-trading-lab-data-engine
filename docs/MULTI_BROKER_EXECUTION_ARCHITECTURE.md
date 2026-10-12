@@ -7,11 +7,13 @@ Authority:      A — AUTHORITATIVE for the broker-neutral execution design
 Status:         CURRENT (Phase M1 implemented; Phase M2 implemented
                  TWICE-STAGED — Batch 3 side-band bridge §6a, then
                  Batch 5 AUTHORITATIVE runtime integration §6b which
-                 completes the phase; Phases M3–M6 planned, NOT
+                 completes the phase; Batch 7 §6c added the fifth mock
+                 venue (Bitget) + instrument discovery/catalog/
+                 platform-registry sync; Phases M3–M6 planned, NOT
                  started)
-Version:        1.2.0
-Last Updated:   2026-10-12 (Batch 5 — authoritative runtime
-                 integration, Phase M2 completion)
+Version:        1.3.0
+Last Updated:   2026-10-13 (Batch 7 — Bitget mock + instrument
+                 discovery/catalog/registry sync)
 ```
 
 ---
@@ -511,6 +513,75 @@ concern only for real venues with their own persistence);
 `BrokerSession.adopt_venue_order` is authoritative-path machinery
 (the side-band sessions never call it). Executing runtime orders
 through a REAL venue remains M3-M6 work, NOT STARTED.
+
+## 6c. Batch 7 delivery record — Bitget mock + instrument
+       discovery/catalog/registry sync (2026-10-13)
+
+**Branch:** `feat/runtime-risk-broker-neutral-tenancy` (continuing
+from the Batch-6 commit `39e7939`). **Modules:**
+`src/data_engine/brokers/adapters/bitget_mock.py` (new fifth mock
+venue), `src/data_engine/brokers/instruments.py` (new discovery /
+catalog / registry-sync layer), capability-registry extension.
+
+**What was built:**
+
+1. **Bitget spot v2 mock** (`BitgetSpotMockAdapter` +
+   `BITGET_MOCK_CAPABILITIES`, registered in `default_registry`) —
+   the Phase-1 discovery audit's broker matrix had recorded Bitget
+   as "NOTHING — no adapter, no mock, no market-data provider".
+   Semantics encoded: MARKET/LIMIT only; SL/TP as SEPARATE trigger
+   (plan) orders (`SEPARATE_ORDERS`); `clientOrderId` native
+   idempotency; balances-only account (spot has no position
+   object); trade filters (tick/lot/minimum notional with
+   `minTradeUSDT`-class minimum); request + order rate limits.
+   Representative v2 native codes preserved for audit (40001 param
+   error / 43007 filter violation / 43025 order-not-exist / 42911
+   frequency limit — re-verified against the live docs when the
+   real-adapter phase is authorized). The adapter joins the SHARED
+   parametrized contract suite, so the whole normalized surface is
+   proven against it like every other venue.
+
+2. **Instrument discovery + catalog** (`discover_instruments` →
+   immutable `InstrumentCatalog` of `CatalogEntry` records) —
+   fail-closed: discovery from a DISCONNECTED adapter refuses (a
+   fabricated catalog is worse than none); foreign-broker specs
+   refuse; duplicate venue symbols refuse; the adapter's LIVE
+   capability descriptor is cross-checked against the
+   `CapabilityRegistry` when supplied (DRIFT refuses — capability
+   changes are explicit versioned events, never silent); lookups
+   fail closed on unknown symbols; every entry snapshots the
+   venue's descriptor AT DISCOVERY TIME (provenance).
+
+3. **Platform-registry sync** (`sync_catalog_to_platform_registry`)
+   — registers every catalog entry into the CENTRAL platform
+   `InstrumentRegistry` as a canonical identity with
+   `broker:<id>` provider-symbol mappings, honoring the registry's
+   own contracts verbatim: registration ≠ eligibility (a synced
+   instrument lands DISCOVERED — the sync NEVER touches data state,
+   verification, monitoring or eligibility); the same canonical
+   instrument from a SECOND venue is the registry's flagged-duplicate
+   path with the provider mapping MERGED (one canonical identity,
+   many venue symbols — never two records; the canonical identity
+   deliberately carries no exchange/venue so venues never fork
+   identity); broker mappings start UNVERIFIED.
+
+**Verification:** suite 2,167 + 1 skipped → **2,215 + 1 skipped**
+(+48: 21 new discovery/sync/Bitget tests + 27 shared-contract tests
+newly parametrized over bitget-mock; one existing inventory pin
+updated four→five mocks — a documented strengthening, zero
+assertions weakened) x3 consecutive runs (80.3s / 81.0s / 80.4s);
+frozen Phase 3 blobs 11/11 byte-identical to `13fdc7e`; manifest
+pins 13/13; real-credential scan 0 hits on changed files.
+
+**Honest limitations (explicit):** the Bitget adapter is a
+DETERMINISTIC MOCK (MOCK_DETERMINISTIC; REAL execution modes
+structurally refused at descriptor registration — live trading NOT
+AUTHORIZED); its native error codes are representative and will be
+re-verified against the live Bitget v2 docs when a real-adapter
+phase is operator-authorized; discovery/sync grant NO trading
+permission of any kind (registration ≠ eligibility, broker
+mappings unverified); no market-data provider for Bitget exists
+(the Phase-1 audit's gap stands in that dimension).
 
 ## 5. Tests (the executable evidence)
 

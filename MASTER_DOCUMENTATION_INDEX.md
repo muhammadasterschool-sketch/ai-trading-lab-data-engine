@@ -9,14 +9,52 @@ Document Type:  Master documentation index (SSOT)
 Phase:          Cross-phase (all phases)
 Authority:      A — AUTHORITATIVE (this index is the documentation map of record)
 Status:         CURRENT
-Version:        2.13.0
-Last Updated:   2026-10-13 (safety-residuals mandate cycle,
-                 Batch 6 — ALL remaining OPEN paper-runtime
-                 safety residuals CLOSED on continuous branch
+Version:        2.14.0
+Last Updated:   2026-10-13 (instrument-discovery mandate cycle,
+                 Batch 7 — Bitget mock venue + broker instrument
+                 discovery/catalog/platform-registry sync on
+                 continuous branch
                  feat/runtime-risk-broker-neutral-tenancy (from
-                 7b532bb, tree clean, baseline re-verified
-                 first-hand: 2,133 + 1 skipped, 72.9s): RUN-ST-1
-                 in-session wall-clock feed watchdog
+                 39e7939, tree clean, baseline re-verified
+                 first-hand: 2,167 + 1 skipped): BitgetSpotMockAdapter
+                 + BITGET_MOCK_CAPABILITIES (the FIFTH deterministic
+                 mock venue — the Phase-1 discovery audit's broker
+                 matrix had recorded Bitget as entirely unimplemented;
+                 MARKET/LIMIT only; SL/TP as separate trigger/plan
+                 orders; clientOrderId native idempotency;
+                 balances-only spot account; trade filters with
+                 minTradeUSDT-class minimum notional; representative
+                 v2 native codes preserved for audit, re-verified
+                 when a real-adapter phase is authorized;
+                 MOCK_DETERMINISTIC enforced, REAL modes structurally
+                 refused; joins the SHARED parametrized contract
+                 suite); brokers/instruments.py — discover_instruments
+                 → immutable InstrumentCatalog (fail-closed:
+                 disconnected adapter refuses, foreign specs refuse,
+                 duplicate venue symbols refuse, capability DRIFT
+                 against the registry refuses, entries snapshot the
+                 venue descriptor at discovery time) +
+                 sync_catalog_to_platform_registry → canonical
+                 identities with broker:<id> provider-symbol mappings
+                 in the CENTRAL platform InstrumentRegistry
+                 (registration ≠ eligibility — synced instruments
+                 land DISCOVERED, the sync never touches data state/
+                 verification/eligibility; the same canonical
+                 instrument from a second venue merges provider
+                 mappings into ONE record; broker mappings start
+                 UNVERIFIED); +48 tests (21 new + 27 shared-contract
+                 newly parametrized over bitget-mock; one inventory
+                 pin updated four→five mocks — documented
+                 strengthening, zero assertions weakened); suite
+                 2,215 + 1 skipped ×3 deterministic (80.3/81.0/
+                 80.4s); frozen 11/11; manifest 13/13;
+                 real-credential scan 0 on changed files; architecture
+                 doc §6c v1.3.0; readiness report §0M v2.14.0;
+                 verdict UNCHANGED PAPER_READY = FALSE, LIVE NOT
+                 AUTHORIZED; no real Bitget adapter, no market-data
+                 provider, no trading permission claimed.
+                 Batch 6 — safety residuals (see readiness §0L):
+                 RUN-ST-1 in-session wall-clock feed watchdog
                  (RuntimeConfig.max_feed_staleness_seconds,
                  Optional[StrictInt], default None = disabled for
                  deterministic-replay compatibility — an operational

@@ -359,15 +359,49 @@ BYBIT_MOCK_CAPABILITIES = BrokerCapabilities(
     ),
 )
 
+#: Bitget spot v2 semantics (Batch 7 — the fifth deterministic mock
+#: venue; the Phase-1 discovery audit's broker matrix recorded Bitget
+#: as "NOTHING — no adapter, no mock, no market-data provider").
+BITGET_MOCK_CAPABILITIES = BrokerCapabilities(
+    broker_id="bitget-mock",
+    display_name="Bitget spot v2 — clientOrderId semantics (deterministic mock)",
+    execution_mode=ExecutionMode.MOCK_DETERMINISTIC,
+    order_kinds=(OrderKind.MARKET, OrderKind.LIMIT),
+    time_in_force=(TimeInForce.GTC, TimeInForce.IOC),
+    sl_tp=SlTpSemantics.SEPARATE_ORDERS,   # spot: stops are separate trigger/plan orders
+    position_mode=PositionMode.BALANCES_ONLY,  # spot has no position object
+    idempotency_key=IdempotencyKeyMechanism.NATIVE_CLIENT_ID,  # clientOrderId
+    supports_reduce_only=False,   # spot: reduce-only is a derivatives concept
+    account_modes=(AccountMode.DEMO,),
+    rate_limit=RateLimitPolicy(
+        max_orders_per_window=5,
+        max_requests_per_window=20,
+        window_seconds=60.0,
+        retry_after_seconds=1.0,
+    ),
+    reconciliation_style=ReconciliationStyle.BALANCE_SNAPSHOT,
+    provides_market_data=False,
+    venue_notes=(
+        "clientOrderId is the idempotency key. Spot filters: price/quantity "
+        "precision + minTradeUSDT minimum notional. No attached SL/TP on "
+        "spot — stops are separate trigger (plan) order submissions. "
+        "Representative v2 codes (re-verified against the live docs when "
+        "the real adapter phase is authorized): 40001 param error, 43007 "
+        "filter/amount violation, 42911 frequency limit."
+    ),
+)
+
 
 def default_registry() -> CapabilityRegistry:
-    """A fresh registry pre-loaded with the four Phase M1 descriptors."""
+    """A fresh registry pre-loaded with the five mock-venue
+    descriptors (Phase M1 four + Batch 7 Bitget)."""
     registry = CapabilityRegistry()
     for descriptor in (
         PAPER_MOCK_CAPABILITIES,
         MT5_MOCK_CAPABILITIES,
         BINANCE_MOCK_CAPABILITIES,
         BYBIT_MOCK_CAPABILITIES,
+        BITGET_MOCK_CAPABILITIES,
     ):
         registry.register(descriptor)
     return registry
@@ -386,5 +420,6 @@ __all__ = [
     "MT5_MOCK_CAPABILITIES",
     "BINANCE_MOCK_CAPABILITIES",
     "BYBIT_MOCK_CAPABILITIES",
+    "BITGET_MOCK_CAPABILITIES",
     "default_registry",
 ]

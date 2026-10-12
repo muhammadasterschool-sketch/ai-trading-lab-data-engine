@@ -1,11 +1,13 @@
-"""Broker-neutral adapter contract tests (multi-broker mandate, Phase M1).
+"""Broker-neutral adapter contract tests (multi-broker mandate,
+Phase M1 + Batch 7).
 
-The SAME contract suite runs against ALL four deterministic mock
-adapters (paper / MT5-style / Binance-style / Bybit-style): whatever
-the venue, the normalized surface behaves identically. Venue-specific
-semantics (hedging tickets, spot filters, attached-vs-separate stops,
-native error codes, rate-limit shapes) get dedicated tests — the
-capability matrix is executable, not documentation-only.
+The SAME contract suite runs against ALL five deterministic mock
+adapters (paper / MT5-style / Binance-style / Bybit-style /
+Bitget-style): whatever the venue, the normalized surface behaves
+identically. Venue-specific semantics (hedging tickets, spot
+filters, attached-vs-separate stops, native error codes, rate-limit
+shapes) get dedicated tests — the capability matrix is executable,
+not documentation-only.
 """
 
 from datetime import datetime, UTC
@@ -15,6 +17,7 @@ import pytest
 
 from data_engine.brokers import (
     BinanceSpotMockAdapter,
+    BitgetSpotMockAdapter,
     BrokerAdapter,
     BrokerCredential,
     BrokerErrorCategory,
@@ -41,6 +44,7 @@ BTC_SYMBOL = {
     "mt5-mock": "BTCUSD",
     "binance-mock": "BTCUSDT",
     "bybit-mock": "BTCUSDT",
+    "bitget-mock": "BTCUSDT",
 }
 
 #: A MARKET BUY quantity valid at EVERY venue (lot steps, minimums and
@@ -59,6 +63,7 @@ ADAPTER_FACTORIES = {
     "mt5-mock": MT5StyleMockAdapter,
     "binance-mock": BinanceSpotMockAdapter,
     "bybit-mock": BybitV5MockAdapter,
+    "bitget-mock": BitgetSpotMockAdapter,
 }
 
 
