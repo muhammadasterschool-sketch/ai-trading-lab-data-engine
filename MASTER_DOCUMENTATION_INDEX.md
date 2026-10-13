@@ -9,8 +9,50 @@ Document Type:  Master documentation index (SSOT)
 Phase:          Cross-phase (all phases)
 Authority:      A — AUTHORITATIVE (this index is the documentation map of record)
 Status:         CURRENT
-Version:        2.27.0
-Last Updated:   2026-10-13 (Batch 22 — end-to-end validation
+Version:        2.28.0
+Last Updated:   2026-10-13 (Batch 23 — independent
+                 release-readiness review + FINAL consolidated
+                 deliverable, READ-ONLY:
+                 docs/reports/BATCH_23_RELEASE_READINESS_REVIEW.md
+                 created on dedicated branch
+                 audit/batch-23-release-readiness-review from 766ed97;
+                 independent re-verification at HEAD — release-
+                 readiness matrix with closed status vocabulary
+                 (PASS/FAIL/BLOCKED/NOT VERIFIED/NOT APPLICABLE):
+                 all Batch 14-22 deliverables complete, no missing or
+                 duplicated changes, no leaked credentials (0 across
+                 ALL 93 commits re-run this review), no unreviewed
+                 generated files (byte-pinned + banner-marked), no
+                 unexplained regressions (2,233+1 → 2,343+1 all
+                 additive +110), no unverified production/real-data
+                 claims (every NOT-VERIFIED item carries its marker),
+                 no bypassed safety controls (frozen 11/11 + manifest
+                 13/13 re-run; fabrication structurally impossible);
+                 Windows-host smoke NOT VERIFIED (external), VPS
+                 deployment BLOCKED (operator authorization),
+                 dependency-scan execution NOT VERIFIED (external
+                 network), real brokers BLOCKED (separately-authorized
+                 phase), live trading NOT AUTHORIZED; complete batch
+                 ledger Batch 11→23 with commits/findings/tests/
+                 status; functional inventory (implemented+tested /
+                 mock-by-design 7 venues / externally blocked); final
+                 counts 2,343+1 (+110 vs baseline, zero failures,
+                 single benign skip); broker capability matrix +
+                 catalog referenced; market-data qualification FAIL
+                 external zero claims; outstanding operator actions
+                 (revoke PATs #19-#22 + out-of-chat replacement,
+                 27-commit push decision, PR merges, SRC-APPROVAL,
+                 feed, keyed-MAC + H-1, Windows smoke, dependency-scan
+                 trigger, VPS decision, B11-R-11/12, version
+                 alignment); final verdict explicitly distinguished —
+                 engineering completed YES / tested YES / external
+                 qualification NOT COMPLETED / paper readiness FALSE
+                 (29 PASS / 3 FAIL) / live NOT AUTHORIZED; final Git
+                 record (clean tree, 21 branches, mandate chain
+                 ancestry-verified, 27 local commits ahead of main —
+                 no push authorized or performed); NO gate verdict
+                 changed — PAPER_READY = FALSE, LIVE NOT AUTHORIZED;
+                 Prior 2.27.0 — Batch 22 — end-to-end validation
                  and release candidate, full validation
                  matrix: docs/reports/BATCH_22_E2E_VALIDATION_
                  RELEASE_CANDIDATE.md created on dedicated branch
@@ -900,6 +942,7 @@ The remaining §61 spec documents (`TRADING_RUNTIME_ARCHITECTURE.md`, `TRADING_E
 | `docs/reports/BATCH_20_MOBILE_DASHBOARD_VIEW.md` | A | AUTHORITATIVE Batch 20 mobile dashboard audit + RED-first gap closure (v1.0.0, 2026-10-13): two verified rendering gaps closed in platform/dashboard.py render_html — mobile viewport (meta viewport + @media 640px + overflow-x tablewrap, no JavaScript, script-absence tested) + three carried-but-unrendered snapshot sections now rendered (Open Positions with paper/demo/live mode labels, SL/TP, exposure, unrealized P&L; Trade History with mode/broker/order type/realized P&L/status; Strategy Performance with mode/paper status — previously /api/snapshot JSON-only); banner + per-row mode labels make simulation status unmistakable; UNCHANGED and re-pinned: GET-only 2-route surface, 405/404, JSON contract byte-identical, HTML escaping (malicious position ids render escaped), loopback default, no user input; tenancy TestMobileReadOnly (authenticated isolated read-only no order path) green; honest classification RESPONSIVE WEB INTERFACE not a mobile application; mandate §9 checklist coverage map (account-equity single-figure = runtime-level boundary documented); NEW tests/test_dashboard_mobile_view.py 10 tests RED-first (7/10 failed pre-implementation); dashboard suites 23 passed; full suite 2,333+1 → 2,343+1 (+10 ZERO regressions 80.64s); frozen 11/11, manifest 13/13, secret scan 0; NO gate verdict changed — 29 PASS / 3 FAIL; PAPER_READY = FALSE; LIVE NOT AUTHORIZED | Read-only mobile dashboard view (Batch 20) | — |
 | `docs/reports/BATCH_21_GOVERNANCE_OBSERVABILITY_RECOVERY_AUDIT.md` | A | AUTHORITATIVE Batch 21 governance, observability and recovery audit (v1.0.0, 2026-10-13): READ-ONLY — 10/10 mandate requirement areas verified first-hand ALL PASS: traceability chain (index SSOT authority/status/supersession + per-batch reports with file:line anchors + pinning tests + recorded commands), versioned readiness criteria (32 named gates with per-gate GateEvidence — no shortcut no override; PAPER_READINESS_GATE.md v2.0.0) + reproducible verification commands (batch9_gate_verify 11/11+13/13+0; artifact generator byte-identical regeneration; template validator 6/6; smoke 7/7 logic), automated-checks-vs-human-approval distinction (GOV-REI-001 evidence classes VERIFIED_EVIDENCE/RECORDED_DECISION/OPERATOR_ACTION_REQUIRED/UNVERIFIED_EXTERNAL; human-only submit_approval/MAC custody/H-1 — no code path fabricates a human decision), structured redacted logs (hash-chained StructuredLog, fail-closed counter/gauge vocabularies, redaction layer, 0 secrets all history), accurate health/liveness/readiness semantics (absent evidence = FALSE never neutral; fabrication structurally impossible + adversarially tested), incident classification + safe recovery (security/safety/reconciliation incident kinds; LOAD→VERIFY→RESTORE→RECONCILE→RESUME-or-HALT with corruption→HALT, tested), backup/restore contracts (9 hash-chained ledgers full-chain persistence + recovery; operational procedure honestly external), data-quality/feed qualification records (DataQualityReport, 13/13 pinned manifests, UNVETTED feed candidates, RDR/OFR inventory items), explicit unknown/unavailable/unverified states (closed vocabularies — UNVERIFIED first-class, Not Authorized, ConnectionState UNKNOWN→journal+reconcile); ZERO verified gaps → no invented work; suite 2,343+1 at base; frozen 11/11, manifest 13/13, secret scan 0; NO gate verdict changed — 29 PASS / 3 FAIL; PAPER_READY = FALSE; LIVE NOT AUTHORIZED | Governance, observability and recovery audit (Batch 21) | — |
 | `docs/reports/BATCH_22_E2E_VALIDATION_RELEASE_CANDIDATE.md` | A | AUTHORITATIVE Batch 22 end-to-end validation + release candidate record (v1.0.0, 2026-10-13): full validation matrix at RC HEAD da4fde0 — every mandate §11 item with exact command + environment + result + limitations: suite ×2 deterministic (2,343+1, 80.41/79.98s; baseline 2,233+1 → +110, zero failures, zero weakened tests); determinism/replay green (in-suite + CI ×3 last verified 2026-10-12/13, CI-today UNVERIFIED rate-limited); secret scan 0 across ALL 92 commits + tree; frozen 11/11 + manifest 13/13; API/schema compatibility — dashboard JSON contract byte-identical after the only mandate API change; 46/46 tenancy; 432 broker conformance (7 mock venues; real/sandbox EXTERNAL); 248 market-data fail-closed (real-data qualification EXTERNAL); persistence/recovery/reconciliation green; packaging — uv build succeeds (RC wheel SHA256 0a764cf4…895e2e, sdist bfc19f11…ea05a66; differs from Batch 18 legitimately: dashboard.py changed in Batch 20 + zip mtimes), smoke 7/7 logic, templates 6/6, Windows-host/deployment EXTERNAL NOT VERIFIED; docs consistency 8/8; git review CLEAN tree, 33 files +4,124/−40 over 8 commits e781a9b→da4fde0 every file batch-scoped; RC verdict: engineering completed+tested for all code-addressable work, external gates honestly blocked; PAPER_READY = FALSE; LIVE NOT AUTHORIZED | End-to-end validation + release candidate (Batch 22) | — |
+| `docs/reports/BATCH_23_RELEASE_READINESS_REVIEW.md` | A | AUTHORITATIVE Batch 23 independent release-readiness review + FINAL consolidated deliverable (v1.0.0, 2026-10-13): READ-ONLY independent review at HEAD 766ed97 — release-readiness matrix (closed vocabulary): all Batch 14-22 deliverables PASS (complete, no missing/duplicated changes, 0 credentials across ALL 93 commits re-run, no unreviewed generated files — byte-pinned artifacts, no unexplained regressions +110 additive, no unverified production/real-data claims, no bypassed safety controls — frozen 11/11 + manifest 13/13 re-run); Windows-host smoke NOT VERIFIED (external), VPS BLOCKED, dependency-scan execution NOT VERIFIED, real brokers BLOCKED, live NOT AUTHORIZED; complete batch ledger Batch 11→23 (commits, findings, tests, status, next dependency); functional inventory implemented+tested / 7 mock venues / externally blocked; final counts 2,343+1 (+110 vs 2,233+1 baseline, zero failures, single benign skip); market-data qualification FAIL external zero claims; outstanding operator actions register (PAT revocation + out-of-chat credential, 27-commit push decision, PR merges, SRC-APPROVAL, feed, keyed-MAC + H-1, Windows smoke, dependency-scan trigger, VPS, B11-R-11/12, version alignment); final verdict: engineering completed YES / tested YES / external qualification NOT COMPLETED / PAPER_READY = FALSE (29 PASS / 3 FAIL) / LIVE NOT AUTHORIZED; final Git record — clean tree, 21 local branches, mandate chain ancestry-verified, 27 commits ahead of main d49b822, no push authorized or performed, no successful-push claim | Independent release-readiness review + final consolidated deliverable (Batch 23; closes the Batch 14-23 completion mandate) | — |
 
 ## Cross-Phase Security
 
