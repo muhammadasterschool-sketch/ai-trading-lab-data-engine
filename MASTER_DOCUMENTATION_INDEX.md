@@ -9,8 +9,39 @@ Document Type:  Master documentation index (SSOT)
 Phase:          Cross-phase (all phases)
 Authority:      A — AUTHORITATIVE (this index is the documentation map of record)
 Status:         CURRENT
-Version:        2.17.0
-Last Updated:   2026-10-13 (Batch 10 — post-rotation remote
+Version:        2.18.0
+Last Updated:   2026-10-13 (Batch 11 — complete remaining-work
+                 audit, READ-ONLY:
+                 docs/reports/BATCH_11_COMPLETE_REMAINING_WORK_
+                 AUDIT.md created on dedicated branch
+                 audit/batch-11-remaining-work-audit from e0e0cee;
+                 repository truth verified first-hand (ancestry main
+                 d49b822 → 30ff1ce → 7f76c0e → e0e0cee exact, clean
+                 tree, Batch 9/10 deliverables present via ls-tree;
+                 remote unchanged unauthenticated — main d49b822,
+                 batch branches absent, pushes still blocked on
+                 credential rotation, exposures #19–#22 unrevoked);
+                 suite 2,233 + 1 skipped ×2 deterministic
+                 (79.57/81.65s); frozen 11/11, manifest 13/13,
+                 secret scan 0 across all 83 commits + working
+                 tree; 13-area runtime audit ALL PASS at honest
+                 classification — ZERO new code-addressable safety
+                 defects; platform requirements reviewed: Windows
+                 installer NOT IMPLEMENTED/NOT SPECIFIED, licensing
+                 PARTIAL (security-level gating only), per-user VPS
+                 deployment EXTERNAL, read-only dashboard core
+                 IMPLEMENTED (loopback, 13 tests) with mobile
+                 accessibility EXTERNAL; duplicate work NONE (plane
+                 separations intentional); 13-item remaining-issues
+                 register (B11-R-01..13) with severity/files/
+                 acceptance criteria/required tests; recommendation:
+                 re-scope Batch 12 (zero confirmed code-addressable
+                 safety gaps) toward Batch 13 venue/catalog work
+                 (Exness + XM adapters absent; instrument-catalog
+                 report + capability matrix artifacts missing); NO
+                 gate verdict changed — 29 PASS / 3 FAIL unchanged,
+                 PAPER_READY = FALSE, LIVE NOT AUTHORIZED;
+                 Prior 2.17.0 — Batch 10 — post-rotation remote
                  reconciliation & release governance:
                  docs/reports/BATCH_10_POST_ROTATION_REMOTE_
                  RECONCILIATION.md created on dedicated branch
@@ -553,6 +584,7 @@ The remaining §61 spec documents (`TRADING_RUNTIME_ARCHITECTURE.md`, `TRADING_E
 | `docs/reports/BATCH_8_INDEPENDENT_RUNTIME_AUDIT.md` | A | AUTHORITATIVE Batch 8 independent audit (v1.0.0, 2026-10-13): first-hand re-verification of Batches 5–7 — repository/remote evidence chain (commits resolved + remote heads == local tips, authenticated ls-remote), authoritative broker-neutral execution path (single submission path, identity-bound risk decision, deterministic fills, exactly-once accounting, UNKNOWN-reconciles-from-venue-truth, restart idempotency, precision fail-closed, mock-only enforcement), Batch 6 controls all VERIFIED (watchdog fail-closed incl. bridge honesty; audited operator cancel/close; partial-fill metric; exit-risk observability; dead-state removal; account-drawdown boundaries/trip/restart; snapshot config evolution fail-closed-by-default with no risk-policy override), Batch 7 discovery/catalog (registration ≠ eligibility, fail-closed discovery, Bitget = mock spot-v2 semantics ONLY), tenancy contract verification with infrastructure limitations stated, 2,215+1 ×3 deterministic, frozen 11/11, manifest 13/13, secret scan 0 across all history, zero reproducible defects (two suspicions refuted by byte-level evidence), 32-gate table with 3 honest FAILs (REAL_DATA/OPERATIONAL_FEED/GOVERNANCE — human/data dependencies), real-vs-mock broker matrix, ranked operator actions incl. PAT rotation (exposure #19); PAPER_READY = FALSE unchanged | Independent runtime audit + safety-gate verification + paper-readiness evidence (Batch 8) | — |
 | `docs/reports/BATCH_9_RELEASE_READINESS_EVIDENCE_AUDIT.md` | A | AUTHORITATIVE Batch 9 release-readiness audit (v1.0.0, 2026-10-13): repository truth established credential-free (unauthenticated ls-remote — no stored credential exists, none used; main d49b822 unchanged; PRs #1/#2 open unmerged; CI on current heads UNVERIFIED — REST 403 rate-limited twice); documentation-only evidence inventory delivered (GOV-REI-001) for the three unresolved gates with per-item status, evidence class, reference, owner, timestamp, expiry rule, unresolved reason and next operator action; 8 binding integrity rules; 18 RED-first pinning tests adversarially verified (a FAIL-to-PASS item flip caught; a PAPER_READY fabrication caught after guard strengthening — honest finding recorded); suite 2,233 + 1 skipped ×3 deterministic, 244 focused, frozen 11/11, manifest 13/13, secret scan 0 across all 81 commits (count-only output); NO gate changed (29 PASS / 3 FAIL); PAPER_READY = FALSE; multi-broker scope re-verified mock-only; remote push BLOCKED on PAT rotation confirmation — exact operator push/verify commands recorded in §9 | Release readiness + evidence tracking + safe integration audit (Batch 9) | — |
 | `docs/reports/BATCH_10_POST_ROTATION_REMOTE_RECONCILIATION.md` | A | AUTHORITATIVE Batch 10 post-rotation reconciliation audit (v1.0.0, 2026-10-13): starting state verified exactly (branch audit/batch-9-release-readiness-evidence @ 7f76c0e, clean tree, parent 30ff1ce); credential posture audited FIRST-HAND — replacement credential ABSENT from the agent environment (no credential helper, no stored credential file, no gh CLI, no token env vars, clean remote URL), revocation unverifiable without forbidden means, so per the mandate all authenticated operations were stopped and the blocker reported (Batch 9 AND Batch 10 pushes remain local-only; exact operator push/verify commands recorded §10); remote reconciled UNAUTHENTICATED: main d49b822 unchanged, Batch 9 branch absent remotely, PR heads unchanged; CI verified GREEN through the public read-only REST API (three quota-contention capture rounds, zero credentials used) for main d49b822 (runs 38039475901 + 38039475525, 4/4 legs success) and BOTH current PR heads — PR #1 7f384e6 (run 38293840380) and PR #2 d945833 (run 38242367378) — upgrading the historical record which previously covered only 4e6dfc5; all 6 repository workflow runs completed success; PR review: both open, unmerged, mergeable=true, mergeable_state=clean; PR #2 strictly contains PR #1 (merge-base 7f384e6); GitHub test-merge refs current against main; branch-protection rules UNVERIFIED (401 unauthenticated); evidence inventory GOV-REI-001 → v1.1.0: GOV-06 UNVERIFIED → PASS on verified API evidence (a visibility item, NOT a gate precondition), GOV-03 FAIL retained with the credential-absence finding, zero fabrication — GOVERNANCE_READY remains FAIL; suite 2,233 + 1 skipped ×3 deterministic, 244 focused, frozen 11/11, manifest 13/13, secret scan 0 across all 82 commits; multi-broker scope untouched mock-only; recommended merge decisions (PR #2 supersedes PR #1) recorded advisory-only — nothing merged, no main change; PAPER_READY = FALSE; LIVE NOT AUTHORIZED | Post-rotation remote reconciliation + release governance (Batch 10) | — |
+| `docs/reports/BATCH_11_COMPLETE_REMAINING_WORK_AUDIT.md` | A | AUTHORITATIVE Batch 11 complete remaining-work audit (v1.0.0, 2026-10-13): READ-ONLY mandate executed with zero source/test modifications — repository truth verified first-hand (branch audit/batch-10-post-rotation-reconciliation @ e0e0cee clean; Batch 9 @ 7f76c0e exact; ancestry main d49b822 → 30ff1ce → 7f76c0e → e0e0cee; deliverables confirmed via ls-tree; remote reconciled unauthenticated — main unchanged, batch branches absent, pushes blocked on credential rotation); suite 2,233 + 1 skipped ×2 deterministic (79.57/81.65s) — zero regressions; frozen 11/11, manifest 13/13, secret scan 0 across all 83 commits + working tree; 13-area runtime audit all PASS at honest classification — runtime execution, risk controls, kill switch, order lifecycle, recovery, reconciliation, ingestion, feeds (governed-synthetic), brokers (MOCK-ONLY, structurally enforced at session.py:309 + _mock_core.py:139), instrument registry, tenancy isolation, secrets, readiness gates (FORCE_PAPER_READY structurally impossible) — ZERO new code-addressable safety defects; platform requirements: Windows installer NOT IMPLEMENTED/NOT SPECIFIED (zero artifacts), private licensing PARTIAL (LicenseState security gating implemented; commercial entitlement absent), per-user VPS deployment EXTERNAL (operator infra), read-only mobile dashboard core IMPLEMENTED (loopback stdlib server, 2 GET routes, honesty contracts, 13 tests) with public/mobile accessibility EXTERNAL; duplicate work NONE (mt5/binance data-vs-execution plane separations intentional); missing tests NONE (injected-clock watchdog/feed-freshness tests already exist — RUN-ST-1); 13-item remaining-issues register B11-R-01..13 (severity, class, affected files, acceptance criteria, required tests); dependency-ordered roadmap + recommended next batch: re-scope Batch 12 (no confirmed code-addressable safety gaps — fabricating work forbidden) toward Batch 13 confirmed items (Exness/XM venue disposition, instrument-catalog report artifact, broker capability matrix artifact); NO gate verdict changed — 29 PASS / 3 FAIL; PAPER_READY = FALSE; LIVE NOT AUTHORIZED | Complete remaining-work audit + Batch 12+ roadmap (Batch 11) | — |
 
 ## Cross-Phase Security
 
