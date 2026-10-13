@@ -9,8 +9,37 @@ Document Type:  Master documentation index (SSOT)
 Phase:          Cross-phase (all phases)
 Authority:      A — AUTHORITATIVE (this index is the documentation map of record)
 Status:         CURRENT
-Version:        2.24.0
-Last Updated:   2026-10-13 (Batch 19 — per-user VPS and
+Version:        2.25.0
+Last Updated:   2026-10-13 (Batch 20 — read-only mobile
+                 dashboard and operations visibility,
+                 audit + RED-first verified-gap closure:
+                 docs/reports/BATCH_20_MOBILE_DASHBOARD_VIEW.md on
+                 dedicated branch feat/batch-20-mobile-dashboard-view
+                 from 292b30d; two verified rendering gaps CLOSED —
+                 (1) mobile viewport: <meta name="viewport"> +
+                 @media small-screen rules + overflow-x scroll-table
+                 wrappers, no JavaScript (script-absence tested);
+                 (2) carried-but-unrendered snapshot sections now
+                 rendered: Open Positions (mode label, SL/TP, exposure,
+                 unrealized P&L), Trade History (mode/broker/order
+                 type/realized P&L/status), Strategy Performance
+                 (mode/paper status) — previously JSON-only; banner +
+                 per-row paper/demo/live mode labels make simulation
+                 status unmistakable; UNCHANGED: GET-only 2-route
+                 surface, JSON contract byte-identical (pinned),
+                 escaping (malicious ids render escaped — tested),
+                 loopback default, no user input; honest
+                 classification: RESPONSIVE WEB INTERFACE, not a mobile
+                 application — no such claim made; NEW 10-test suite
+                 (RED verified 7/10 failed pre-implementation);
+                 dashboard suites 23 passed; full suite 2,333+1 →
+                 2,343+1 (+10, ZERO regressions, 80.64s); frozen
+                 11/11, manifest 13/13, secret scan 0; mandate §9
+                 checklist coverage map delivered (account-equity
+                 single-figure = runtime-level boundary documented);
+                 NO gate verdict changed — 29 PASS / 3 FAIL,
+                 PAPER_READY = FALSE, LIVE NOT AUTHORIZED;
+                 Prior 2.24.0 — Batch 19 — per-user VPS and
                  operational deployment, design + validated
                  templates: docs/PER_USER_VPS_DEPLOYMENT.md +
                  deploy/systemd/ai-trading-lab@.service +
@@ -797,6 +826,7 @@ The remaining §61 spec documents (`TRADING_RUNTIME_ARCHITECTURE.md`, `TRADING_E
 | `deploy/systemd/ai-trading-lab@.service` | A | Per-user templated systemd unit (Batch 19): 20 validator-pinned hardening keys — aitl-%i dedicated account, NoNewPrivileges/ProtectSystem=strict/ProtectHome/PrivateTmp/RestrictSUIDSGID/LockPersonality/RestrictRealtime, IPAddressDeny=any + IPAddressAllow=localhost, EnvironmentFile secret injection (names only), Type=exec, Restart=on-failure + RestartSec, SIGTERM safe stop, MemoryMax=512M/CPUQuota=50%/TasksMax=64, journald output; committed WITHOUT any secret value (0-secret gate + validator enforce) | Per-user deployment unit template (Batch 19) | — |
 | `deploy/config/secrets.env.example` | A | Per-user secrets environment TEMPLATE (Batch 19): placeholder NAMES ONLY — every secret-named entry empty (ATL_PROVIDER_API_KEY=, ATL_KEYED_MAC_KEY=); non-secret config values allowed (ATL_DASHBOARD_HOST=127.0.0.1 loopback-only default, ATL_DASHBOARD_PORT); deploy instructions (copy to /var/lib/ai-trading-lab/<user>/secrets.env, root:aitl-user 0600, set values out-of-band); committed with NO secret values | Deployment secrets template (Batch 19) | — |
 | `scripts/validate_deployment_templates.py` | A | Deployment-template validator (Batch 19): fail-closed validation runnable anywhere — 20/20 mandated unit hardening keys, no credential-shaped values in ANY committed template, secret-named entries empty, 6/6 mandated spec sections, simulated/locally-tested/externally-verified separation; VERIFIED in the agent environment 6/6 PASS; proves templates well-formed — NOT a deployment and proves nothing about any running host | Deployment template validation (Batch 19) | — |
+| `docs/reports/BATCH_20_MOBILE_DASHBOARD_VIEW.md` | A | AUTHORITATIVE Batch 20 mobile dashboard audit + RED-first gap closure (v1.0.0, 2026-10-13): two verified rendering gaps closed in platform/dashboard.py render_html — mobile viewport (meta viewport + @media 640px + overflow-x tablewrap, no JavaScript, script-absence tested) + three carried-but-unrendered snapshot sections now rendered (Open Positions with paper/demo/live mode labels, SL/TP, exposure, unrealized P&L; Trade History with mode/broker/order type/realized P&L/status; Strategy Performance with mode/paper status — previously /api/snapshot JSON-only); banner + per-row mode labels make simulation status unmistakable; UNCHANGED and re-pinned: GET-only 2-route surface, 405/404, JSON contract byte-identical, HTML escaping (malicious position ids render escaped), loopback default, no user input; tenancy TestMobileReadOnly (authenticated isolated read-only no order path) green; honest classification RESPONSIVE WEB INTERFACE not a mobile application; mandate §9 checklist coverage map (account-equity single-figure = runtime-level boundary documented); NEW tests/test_dashboard_mobile_view.py 10 tests RED-first (7/10 failed pre-implementation); dashboard suites 23 passed; full suite 2,333+1 → 2,343+1 (+10 ZERO regressions 80.64s); frozen 11/11, manifest 13/13, secret scan 0; NO gate verdict changed — 29 PASS / 3 FAIL; PAPER_READY = FALSE; LIVE NOT AUTHORIZED | Read-only mobile dashboard view (Batch 20) | — |
 
 ## Cross-Phase Security
 
