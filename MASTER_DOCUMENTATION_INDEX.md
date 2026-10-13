@@ -9,8 +9,39 @@ Document Type:  Master documentation index (SSOT)
 Phase:          Cross-phase (all phases)
 Authority:      A — AUTHORITATIVE (this index is the documentation map of record)
 Status:         CURRENT
-Version:        2.20.0
-Last Updated:   2026-10-13 (Batch 15 — broker adapter &
+Version:        2.21.0
+Last Updated:   2026-10-13 (Batch 16 — paper-execution & risk
+                 assurance audit, READ-ONLY:
+                 docs/reports/BATCH_16_PAPER_EXECUTION_RISK_
+                 ASSURANCE_AUDIT.md created on dedicated branch
+                 audit/batch-16-paper-execution-risk-assurance from
+                 c9c722d; authoritative paper-runtime order path
+                 audited against the mandate's 10 requirement areas —
+                 ALL PASS first-hand: risk-budget position sizing
+                 (quantity = risk_budget/stop_distance, zero-qty
+                 refusal, max units cap), true account equity
+                 (RUN-EQ-1 double-count guard at runtime.py:2276/:2985),
+                 RUN-RL-1 true daily-loss limit with fail-closed anchor
+                 establishment, RUN-DD-1 account-equity drawdown,
+                 identity-bound risk decision + limit gauntlet, kill
+                 switch FILL-time enforcement + terminal HALT + restart
+                 survival, deterministic SL/TP over bars (exits.py),
+                 partial-fill accounting + exactly-once shared fill
+                 path + PARTIALLY_FILLED→EXPIRED, terminal states with
+                 loud refusals + idempotency, recovery verdicts + 9
+                 hash-chained ledgers + deterministic replay, cost
+                 model (half-spread adverse fills + per-unit commission
+                 + slippage/spread cost fields + max_spread_fraction
+                 guard; financing NOT modeled and NOT required by the
+                 frozen spec — documented boundary), one-account session
+                 binding + deny-default tenancy, signal→execution
+                 ledgered traceability incl. NO_TRADE; ZERO verified
+                 gaps → no invented tests (existing negative suites
+                 enumerated); suite 2,333+1 (79.14s at base), frozen
+                 11/11, manifest 13/13, secret scan 0 across 86
+                 commits; NO gate verdict changed — 29 PASS / 3 FAIL,
+                 PAPER_READY = FALSE, LIVE NOT AUTHORIZED;
+                 Prior 2.20.0 — Batch 15 — broker adapter &
                  execution contract audit + venue/catalog
                  completion, audit + verified-gap
                  implementation: docs/reports/BATCH_15_BROKER_
@@ -655,6 +686,7 @@ The remaining §61 spec documents (`TRADING_RUNTIME_ARCHITECTURE.md`, `TRADING_E
 | `docs/reports/BATCH_15_BROKER_ADAPTER_EXECUTION_CONTRACT_AUDIT.md` | A | AUTHORITATIVE Batch 15 broker adapter & execution contract audit + venue/catalog completion (v1.0.0, 2026-10-13): audit + verified-gap implementation closing Batch 11 §9 items C-1/C-2/C-3 — per-venue status matrix (7 mock venues: paper/mt5/exness/xm/binance/bybit/bitget ALL MOCK-ONLY with first-hand anchors: BrokerCredential one-account binding + redaction enforcement, fail-closed discovery, session-boundary capability validation, idempotent order lifecycle with venue-native rejection codes, deterministic rate limits + typed error mapping + same-credential reconnect + per-venue reconciliation styles + fail-closed journal recovery; data-plane venues platform/mt5.py read-only + providers/binance_public.py public documented as non-execution); C-1 CLOSED: ExnessMT5MockAdapter + XMMT5MockAdapter inherit MT5 class verbatim via smallest-safe-change subclass seams (defaults preserve mt5-mock behavior exactly), own descriptors exness-mock/xm-mock (registry 5→7 venues), Standard-account instruments EURUSD/XAUUSD/BTCUSD, per-account operator verification boundary documented, NO real connectivity claimed; C-2 CLOSED: deterministic instrument-catalog report (brokers/catalog_report.py + generated artifact — 5 canonical identities BTC/USDT×4 BTC/USD×3 ETH/USDT×3 EUR/USD×4 XAU/USD×3 merged venue mappings ALL UNVERIFIED, eligibility never granted, fail-closed behaviors referenced, known limitations honest incl. canonical asset-class simplification); C-3 CLOSED: broker capability matrix artifact (all descriptor dimensions + unsupported-order-kinds-per-venue + honesty banners); generator script with fixed timestamp (byte-identical regeneration); tests: 33 RED-first venue tests (import-RED verified) + 13 artifact byte-pin tests + contract suite strengthened 5→7 venues + registry pin 5→7 — full suite 2,233+1 → 2,333+1 (+100 tests, ZERO regressions, 79.44s), frozen 11/11, manifest 13/13, secret scan 0 across 85 commits, diff 14 files +1,754/−34 exactly scoped; NO gate verdict changed — 29 PASS / 3 FAIL; PAPER_READY = FALSE; LIVE NOT AUTHORIZED | Broker adapter audit + Exness/XM venue disposition + catalog & capability-matrix artifacts (Batch 15) | — |
 | `docs/reports/BROKER_CAPABILITY_MATRIX.md` | A | GENERATED, DETERMINISTIC artifact (Batch 15, item C-3) — rendered by data_engine.brokers.catalog_report.build_capability_matrix over the governed CapabilityRegistry; byte-pinned to regeneration by tests/test_broker_catalog_artifacts.py; 7 mock venues, all MOCK_DETERMINISTIC (REAL refused at registration + session), per-venue order kinds/TIF/SLTP/position-mode/idempotency/reduce-only/account-modes/rate-limit/reconciliation + venue notes + unsupported-order-kinds-per-venue (session refuses BEFORE the venue); LIVE TRADING NOT AUTHORIZED banner | Broker capability matrix (generated reference artifact) | regenerated by scripts/generate_broker_catalog_artifacts.py |
 | `docs/reports/INSTRUMENT_CATALOG_REPORT.md` | A | GENERATED, DETERMINISTIC artifact (Batch 15, item C-2) — rendered by data_engine.brokers.catalog_report.build_catalog_report from the 7 discovered venue catalogs + synced platform InstrumentRegistry; byte-pinned to regeneration; 7 venue sections (served instruments, venue symbol mappings, filters) + 5 canonical identities with merged multi-venue mappings (ALL UNVERIFIED — registration ≠ eligibility, LIVE Not Authorized everywhere) + fail-closed discovery behaviors referenced to tests + known limitations (canonical asset-class simplification documented); discovery timestamp = fixed audit-provenance constant (INV-01) | Instrument catalog report (generated reference artifact) | regenerated by scripts/generate_broker_catalog_artifacts.py |
+| `docs/reports/BATCH_16_PAPER_EXECUTION_RISK_ASSURANCE_AUDIT.md` | A | AUTHORITATIVE Batch 16 paper-execution & risk assurance audit (v1.0.0, 2026-10-13): READ-ONLY — authoritative paper-runtime order path audited against the mandate's 10 requirement areas, ALL PASS first-hand — risk-budget position sizing (trade_plan.py quantity = risk_budget/stop_distance, zero-qty PlanError, max_position_units cap, notional per plan), true account equity RUN-EQ-1 (double-count guard runtime.py:2276/:2985 — commission/slippage/spread subtracted exactly once), RUN-RL-1 true daily-loss limit (fail-closed anchor establishment runtime.py:2893), RUN-DD-1 account-equity drawdown (high-water mark, restart survival, 14 tests), identity-bound single risk decision + RiskEngine limit gauntlet (breach raises + records, hash-chained log), kill switch FILL-time enforcement RUN-KS-1/2 + terminal HALT + restart survival + ARCH-F1 unprivileged reset refused, deterministic SL/TP over bars (exits.py §31, SLTP_READY gate, exit-risk observability), partial-fill accounting (OMS TRANSITIONS PARTIALLY_FILLED→EXPIRED, RT-F1 fingerprint binding, exactly-once shared _apply_execution_fills, RUN-PM-1 metric), terminal states with loud cancel/close refusals RUN-CA-1 + definitive venue-coded rejections + client_order_id idempotency, recovery verdicts RESUME/HALT/RECONCILIATION_REQUIRED + LOAD→VERIFY→RESTORE→RECONCILE→RESUME + 9 hash-chained ledgers + REPLAY_READY + deterministic suite ×2, cost model (half_spread=0.02 adverse-side deterministic MARKET fills runtime.py:1105-1109, commission_per_unit=0.001, slippage_cost/spread_cost fill fields, max_spread_fraction=0.01 guard — financing NOT modeled and NOT required by the frozen spec, documented boundary), one-account BrokerSession binding + deny-default tenancy (46 tests), signal→execution ledgered traceability incl. NO_TRADE decision records; ZERO verified gaps → zero invented tests (no-invented-work rule; existing negative suites enumerated: killswitch fill enforcement, runtime_rl, account drawdown, pnl correctness incl. double-count negative, recovery integration, safety + residuals incl. injected-clock watchdog, OMS, tenancy, authoritative venue); suite 2,333+1 at base (79.14s); frozen 11/11, manifest 13/13, secret scan 0 across 86 commits; NO gate verdict changed — 29 PASS / 3 FAIL; PAPER_READY = FALSE; LIVE NOT AUTHORIZED | Paper-execution & risk assurance audit (Batch 16) | — |
 
 ## Cross-Phase Security
 
