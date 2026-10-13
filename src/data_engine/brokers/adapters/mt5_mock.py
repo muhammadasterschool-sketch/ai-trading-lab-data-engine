@@ -111,15 +111,31 @@ class MT5StyleMockAdapter(DeterministicMockVenue):
         clock: Callable[[], datetime],
         initial_balance: Optional[Decimal] = None,
         account_mode: Optional[object] = None,
+        *,
+        capabilities: Optional[object] = None,
+        instruments: Optional[Tuple[InstrumentSpec, ...]] = None,
     ) -> None:
+        """Construct the MT5-class mock venue.
+
+        ``capabilities`` / ``instruments`` are Batch 15 subclass seams:
+        dedicated MT5-brokerage mocks (Exness, XM) inject their OWN
+        descriptor and instrument set while inheriting the terminal
+        semantics verbatim. The defaults preserve the original
+        ``mt5-mock`` behavior exactly — no existing caller changes.
+        """
         from data_engine.brokers.models import AccountMode
         if account_mode is None:
             account_mode = AccountMode.DEMO
         if not isinstance(account_mode, AccountMode):
             raise MockVenueError("account_mode must be an AccountMode value")
+        if capabilities is None:
+            from data_engine.brokers.capabilities import MT5_MOCK_CAPABILITIES
+            capabilities = MT5_MOCK_CAPABILITIES
+        if instruments is None:
+            instruments = _mt5_instruments()
         super().__init__(
-            capabilities=MT5_MOCK_CAPABILITIES,
-            instruments=_mt5_instruments(),
+            capabilities=capabilities,
+            instruments=instruments,
             initial_balances={"USD": initial_balance or Decimal("10000")},
             currency="USD",
             clock=clock,

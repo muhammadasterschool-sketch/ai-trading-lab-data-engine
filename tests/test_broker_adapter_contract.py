@@ -1,13 +1,13 @@
 """Broker-neutral adapter contract tests (multi-broker mandate,
-Phase M1 + Batch 7).
+Phase M1 + Batch 7 + Batch 15).
 
-The SAME contract suite runs against ALL five deterministic mock
-adapters (paper / MT5-style / Binance-style / Bybit-style /
-Bitget-style): whatever the venue, the normalized surface behaves
-identically. Venue-specific semantics (hedging tickets, spot
-filters, attached-vs-separate stops, native error codes, rate-limit
-shapes) get dedicated tests — the capability matrix is executable,
-not documentation-only.
+The SAME contract suite runs against ALL SEVEN deterministic mock
+adapters (paper / MT5-style / Exness / XM / Binance-style /
+Bybit-style / Bitget-style): whatever the venue, the normalized
+surface behaves identically. Venue-specific semantics (hedging
+tickets, spot filters, attached-vs-separate stops, native error
+codes, rate-limit shapes) get dedicated tests — the capability matrix
+is executable, not documentation-only.
 """
 
 from datetime import datetime, UTC
@@ -24,6 +24,7 @@ from data_engine.brokers import (
     BrokerExecutionError,
     BybitV5MockAdapter,
     ExpectedOrderState,
+    ExnessMT5MockAdapter,
     MT5StyleMockAdapter,
     OrderKind,
     OrderRequest,
@@ -31,6 +32,7 @@ from data_engine.brokers import (
     Side,
     TimeInForce,
     VenueOrderStatus,
+    XMMT5MockAdapter,
 )
 from data_engine.brokers.adapters._mock_core import MockVenueError
 from data_engine.brokers.models import AccountMode, ConnectionState
@@ -42,9 +44,11 @@ SECRET = "mock-secret-material-DO-NOT-PRINT"
 BTC_SYMBOL = {
     "paper-mock": "BTCUSDT",
     "mt5-mock": "BTCUSD",
+    "exness-mock": "BTCUSD",
     "binance-mock": "BTCUSDT",
     "bybit-mock": "BTCUSDT",
     "bitget-mock": "BTCUSDT",
+    "xm-mock": "BTCUSD",
 }
 
 #: A MARKET BUY quantity valid at EVERY venue (lot steps, minimums and
@@ -61,6 +65,8 @@ def fixed_clock() -> datetime:
 ADAPTER_FACTORIES = {
     "paper-mock": PaperBrokerAdapter,
     "mt5-mock": MT5StyleMockAdapter,
+    "exness-mock": ExnessMT5MockAdapter,
+    "xm-mock": XMMT5MockAdapter,
     "binance-mock": BinanceSpotMockAdapter,
     "bybit-mock": BybitV5MockAdapter,
     "bitget-mock": BitgetSpotMockAdapter,

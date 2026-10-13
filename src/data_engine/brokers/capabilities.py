@@ -8,15 +8,18 @@ frozen :class:`BrokerCapabilities` descriptor registered in the
 call, so an unsupported request fails closed at the boundary — the
 venue never sees it.
 
-The four descriptors shipped here describe the four DETERMINISTIC MOCK
-adapters in :mod:`data_engine.brokers.adapters` (Phase M1). They encode
-REAL venue semantics (as documented by each venue's public API) so the
-matrix is the design contract for the future real adapters:
+The descriptors shipped here describe the SEVEN DETERMINISTIC MOCK
+adapters in :mod:`data_engine.brokers.adapters` (Phase M1 + Batch 7
+Bitget + Batch 15 Exness/XM). They encode REAL venue semantics (as
+documented by each venue's public API) so the matrix is the design
+contract for the future real adapters:
 
 - ``paper-mock``     — paper/simulation venue (all features, DEMO only)
-- ``mt5-mock``       — MT5-compatible broker class (Exness/XM-class
-                       retail semantics: hedging, attached SL/TP,
-                       volume-step lots, comment-field idempotency)
+- ``mt5-mock``       — MT5-compatible broker class (generic terminal
+                       semantics: hedging, attached SL/TP, volume-step
+                       lots, comment-field idempotency)
+- ``exness-mock``   — Exness, MT5 terminal class (Batch 15)
+- ``xm-mock``       — XM, MT5 terminal class (Batch 15)
 - ``binance-mock``   — Binance spot REST semantics (filters, weights,
                        newClientOrderId, balances-only, separate SL/TP)
 - ``bybit-mock``     — Bybit v5 spot/linear semantics (lotSizeFilter,
@@ -391,14 +394,91 @@ BITGET_MOCK_CAPABILITIES = BrokerCapabilities(
     ),
 )
 
+#: Exness — MT5 terminal class (Batch 15, item C-1). Exness is an
+#: MT5/MT4 brokerage: the terminal semantics are the MT5 class above;
+#: this descriptor gives the venue its OWN identity so discovery,
+#: catalog and capability checks never conflate brokers.
+EXNESS_MOCK_CAPABILITIES = BrokerCapabilities(
+    broker_id="exness-mock",
+    display_name="Exness — MT5 terminal class (deterministic mock)",
+    execution_mode=ExecutionMode.MOCK_DETERMINISTIC,
+    order_kinds=(OrderKind.MARKET, OrderKind.LIMIT, OrderKind.STOP, OrderKind.STOP_LIMIT),
+    time_in_force=(TimeInForce.GTC, TimeInForce.IOC),
+    sl_tp=SlTpSemantics.ATTACHED,
+    position_mode=PositionMode.HEDGING,
+    idempotency_key=IdempotencyKeyMechanism.COMMENT_FIELD,
+    supports_reduce_only=False,   # MT5 closes tickets; no native reduce-only flag
+    account_modes=(AccountMode.DEMO,),
+    rate_limit=RateLimitPolicy(
+        max_orders_per_window=5,
+        max_requests_per_window=0,
+        window_seconds=60.0,
+        retry_after_seconds=1.0,
+    ),
+    reconciliation_style=ReconciliationStyle.ORDER_FILL_POLL,
+    provides_market_data=False,   # market data is a separately-governed surface
+    venue_notes=(
+        "Exness is an MT5 brokerage (Standard/Pro/Raw Spread/Zero account "
+        "classes trading FX, metals and crypto CFDs). Terminal semantics "
+        "are the MT5 class: hedging position tickets, attached SL/TP, "
+        "volume_min/step lots, order-comment idempotency, MT5 "
+        "TRADE_RETCODEs. Symbol suffixes and server names are ACCOUNT-TYPE "
+        "facts verified per-account by the operator BEFORE any real "
+        "adapter activation — UNVERIFIED brokers are not connectable by "
+        "design. This mock encodes Standard-account plain symbols "
+        "(EURUSD, XAUUSD, BTCUSD); NO network, NO credentials, NO real "
+        "orders. LIVE TRADING IS NOT AUTHORIZED."
+    ),
+)
+
+#: XM — MT5 terminal class (Batch 15, item C-1). Same MT5 class
+#: semantics; own venue identity for discovery/catalog isolation.
+XM_MOCK_CAPABILITIES = BrokerCapabilities(
+    broker_id="xm-mock",
+    display_name="XM — MT5 terminal class (deterministic mock)",
+    execution_mode=ExecutionMode.MOCK_DETERMINISTIC,
+    order_kinds=(OrderKind.MARKET, OrderKind.LIMIT, OrderKind.STOP, OrderKind.STOP_LIMIT),
+    time_in_force=(TimeInForce.GTC, TimeInForce.IOC),
+    sl_tp=SlTpSemantics.ATTACHED,
+    position_mode=PositionMode.HEDGING,
+    idempotency_key=IdempotencyKeyMechanism.COMMENT_FIELD,
+    supports_reduce_only=False,   # MT5 closes tickets; no native reduce-only flag
+    account_modes=(AccountMode.DEMO,),
+    rate_limit=RateLimitPolicy(
+        max_orders_per_window=5,
+        max_requests_per_window=0,
+        window_seconds=60.0,
+        retry_after_seconds=1.0,
+    ),
+    reconciliation_style=ReconciliationStyle.ORDER_FILL_POLL,
+    provides_market_data=False,   # market data is a separately-governed surface
+    venue_notes=(
+        "XM is an MT5/MT4 brokerage (Micro/Standard/ULTRA LOW account "
+        "classes trading FX, metals and crypto CFDs). Terminal semantics "
+        "are the MT5 class: hedging position tickets, attached SL/TP, "
+        "volume_min/step lots, order-comment idempotency, MT5 "
+        "TRADE_RETCODEs. XM account types carry symbol-suffix "
+        "conventions (e.g. micro accounts quote EURUSDmicro) — suffixes "
+        "and server names are ACCOUNT-TYPE facts verified per-account by "
+        "the operator BEFORE any real adapter activation; UNVERIFIED "
+        "brokers are not connectable by design. This mock encodes "
+        "Standard-account plain symbols (EURUSD, XAUUSD, BTCUSD); NO "
+        "network, NO credentials, NO real orders. LIVE TRADING IS NOT "
+        "AUTHORIZED."
+    ),
+)
+
 
 def default_registry() -> CapabilityRegistry:
-    """A fresh registry pre-loaded with the five mock-venue
-    descriptors (Phase M1 four + Batch 7 Bitget)."""
+    """A fresh registry pre-loaded with the seven mock-venue
+    descriptors (Phase M1 four + Batch 7 Bitget + Batch 15
+    Exness/XM)."""
     registry = CapabilityRegistry()
     for descriptor in (
         PAPER_MOCK_CAPABILITIES,
         MT5_MOCK_CAPABILITIES,
+        EXNESS_MOCK_CAPABILITIES,
+        XM_MOCK_CAPABILITIES,
         BINANCE_MOCK_CAPABILITIES,
         BYBIT_MOCK_CAPABILITIES,
         BITGET_MOCK_CAPABILITIES,
@@ -418,6 +498,8 @@ __all__ = [
     "CapabilityRegistryError",
     "PAPER_MOCK_CAPABILITIES",
     "MT5_MOCK_CAPABILITIES",
+    "EXNESS_MOCK_CAPABILITIES",
+    "XM_MOCK_CAPABILITIES",
     "BINANCE_MOCK_CAPABILITIES",
     "BYBIT_MOCK_CAPABILITIES",
     "BITGET_MOCK_CAPABILITIES",
