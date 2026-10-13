@@ -9,8 +9,40 @@ Document Type:  Master documentation index (SSOT)
 Phase:          Cross-phase (all phases)
 Authority:      A — AUTHORITATIVE (this index is the documentation map of record)
 Status:         CURRENT
-Version:        2.23.0
-Last Updated:   2026-10-13 (Batch 18 — Windows installer and
+Version:        2.24.0
+Last Updated:   2026-10-13 (Batch 19 — per-user VPS and
+                 operational deployment, design + validated
+                 templates: docs/PER_USER_VPS_DEPLOYMENT.md +
+                 deploy/systemd/ai-trading-lab@.service +
+                 deploy/config/secrets.env.example +
+                 scripts/validate_deployment_templates.py +
+                 docs/reports/BATCH_19_VPS_DEPLOYMENT.md on dedicated
+                 branch feat/batch-19-vps-deployment from af3e303;
+                 NO deployment performed (no VPS provisioned, no
+                 billable infrastructure, no public exposure, no
+                 production credentials — externally-verified outcomes
+                 = NONE, honestly separated from simulated design and
+                 locally-tested validation); per-user VPS model (one
+                 unprivileged instance per user — logical tenancy +
+                 physical isolation); 20 validator-pinned hardening
+                 keys (aitl-%i no-shell account, NoNewPrivileges,
+                 ProtectSystem=strict, IPAddressDeny=any +
+                 IPAddressAllow=localhost, MemoryMax/CPUQuota/TasksMax,
+                 Restart=on-failure, SIGTERM safe stop); secrets via
+                 root-owned 0600 EnvironmentFile names-only (never
+                 values/command-history/logs); honest 32-gate
+                 readiness + Type=exec + fail-closed startup; backup/
+                 restore via tested runtime recovery protocol; NTP
+                 prerequisite + RUN-ST-1 feed watchdog; loopback-only
+                 default network posture (public exposure = explicit
+                 operator TLS/proxy decision); git-versioned templates
+                 + SHA-pinned rollback; validator VERIFIED in agent
+                 environment 6/6 PASS (20/20 unit keys, no
+                 credential-shaped values, secret-named entries empty,
+                 6/6 spec sections, simulated/local/external
+                 separation); NO gate verdict changed — 29 PASS / 3
+                 FAIL, PAPER_READY = FALSE, LIVE NOT AUTHORIZED;
+                 Prior 2.23.0 — Batch 18 — Windows installer and
                  application packaging, scaffold with honest
                  verification markers: docs/WINDOWS_INSTALLER_AND_
                  PACKAGING.md + scripts/windows_smoke_test.py +
@@ -761,6 +793,10 @@ The remaining §61 spec documents (`TRADING_RUNTIME_ARCHITECTURE.md`, `TRADING_E
 | `docs/LICENSING_PRIVATE_DISTRIBUTION_BOUNDARY.md` | B | CURRENT SUPPORTING licensing & private-distribution boundary definition (v1.0.0, Batch 17 item C-5): IMPLEMENTED surface = license-STATE access gating (ACTIVE/SUSPENDED/REVOKED/EXPIRED; inactive denies everything, revocation immediate, DENY with recorded closed-vocabulary reason — never silent, never degrades); explicitly NOT implemented = commercial entitlement issuance/billing/license-key generation (operator product decision), DRM (none created), user-data collection (no path exists), legal-compliance claims (require external review); required external inputs table (entitlement design, signing keys, production credentials, IdP config, legal review — secure processes only, never in-repo); verification commands (46 tenancy tests + 0-secret forensic gate) | Private-distribution licensing boundary (Batch 17) | — |
 | `docs/WINDOWS_INSTALLER_AND_PACKAGING.md` | A | AUTHORITATIVE Windows installer & application packaging spec (v1.0.0, Batch 18 item C-4): scope finding (platform-independent Python engine, wheel py3-none-any, MT5 data-plane the only Windows element, signed installer exe = operator product decision); reproducible build VERIFIED (uv build — wheel 689,373B SHA256 93cd883a…95ea7c0, sdist 569,496B SHA256 284e2a9b…f95eebe; dist/ gitignored, binaries never committed); Windows install procedure (fresh per-user venv %LOCALAPPDATA%, wheel install, optional MT5 extra, smoke validation); data dirs FS-01..06 fail-closed containment; secrets never packaged (env-var-only + redaction); startup errors/safe shutdown/diagnostics; upgrade (fresh-venv) / rollback (SHA-recorded) / backup / uninstall (plain directory delete); version+build provenance incl. honest LOW finding pyproject 0.1.0 vs __version__ 0.3.0 mismatch (lock-frozen, deferred to operator review); per-item verification-status table — clean-install-on-Windows NOT VERIFIED (external Windows host, operator records) | Windows packaging spec (Batch 18) | — |
 | `scripts/windows_smoke_test.py` | A | Windows packaging smoke test (Batch 18): 7 fail-closed checks runnable on any installed environment — import+version provenance, readiness fail-closed contract (PAPER_READY=TRUE with failing gates structurally refused), REAL execution-mode descriptor refused, all venues MOCK_DETERMINISTIC, dashboard default loopback bind, ephemeral bind, safe shutdown; script logic VERIFIED in the agent environment (7/7 PASS); Windows-host execution NOT VERIFIED (operator runs post-install and records output); never places orders, never contacts brokers | Windows installation validation (Batch 18) | — |
+| `docs/PER_USER_VPS_DEPLOYMENT.md` | A | AUTHORITATIVE per-user VPS & operational deployment design (v1.0.0, Batch 19 item C-6): per-user VPS model (one unprivileged engine instance per user — logical tenancy + physical host isolation per PLATFORM_EXPANSION_SPEC §5); least-privilege OS account + systemd sandboxing; secret injection via root-owned 0600 EnvironmentFile (names only — never values, never command history; journald sees names only); health/readiness/safe-shutdown semantics (honest 32-gate verdict + Type=exec + fail-closed startup + dashboard shutdown); persistent storage + backup/restore via runtime LOAD→VERIFY→RESTORE→RECONCILE→RESUME-or-HALT; restart recovery + NTP prerequisite + RUN-ST-1 feed watchdog; resource limits + redacted journald + incident vocabulary; loopback-only network posture (public exposure = explicit operator TLS/proxy decision); git-versioned templates + SHA-pinned rollback; honest verification-status table — SIMULATED / LOCALLY TESTED / EXTERNALLY VERIFIED (NONE); NO deployment performed | Per-user VPS deployment design (Batch 19) | — |
+| `deploy/systemd/ai-trading-lab@.service` | A | Per-user templated systemd unit (Batch 19): 20 validator-pinned hardening keys — aitl-%i dedicated account, NoNewPrivileges/ProtectSystem=strict/ProtectHome/PrivateTmp/RestrictSUIDSGID/LockPersonality/RestrictRealtime, IPAddressDeny=any + IPAddressAllow=localhost, EnvironmentFile secret injection (names only), Type=exec, Restart=on-failure + RestartSec, SIGTERM safe stop, MemoryMax=512M/CPUQuota=50%/TasksMax=64, journald output; committed WITHOUT any secret value (0-secret gate + validator enforce) | Per-user deployment unit template (Batch 19) | — |
+| `deploy/config/secrets.env.example` | A | Per-user secrets environment TEMPLATE (Batch 19): placeholder NAMES ONLY — every secret-named entry empty (ATL_PROVIDER_API_KEY=, ATL_KEYED_MAC_KEY=); non-secret config values allowed (ATL_DASHBOARD_HOST=127.0.0.1 loopback-only default, ATL_DASHBOARD_PORT); deploy instructions (copy to /var/lib/ai-trading-lab/<user>/secrets.env, root:aitl-user 0600, set values out-of-band); committed with NO secret values | Deployment secrets template (Batch 19) | — |
+| `scripts/validate_deployment_templates.py` | A | Deployment-template validator (Batch 19): fail-closed validation runnable anywhere — 20/20 mandated unit hardening keys, no credential-shaped values in ANY committed template, secret-named entries empty, 6/6 mandated spec sections, simulated/locally-tested/externally-verified separation; VERIFIED in the agent environment 6/6 PASS; proves templates well-formed — NOT a deployment and proves nothing about any running host | Deployment template validation (Batch 19) | — |
 
 ## Cross-Phase Security
 

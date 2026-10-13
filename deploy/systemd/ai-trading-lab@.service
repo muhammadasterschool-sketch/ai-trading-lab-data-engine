@@ -1,0 +1,66 @@
+# Per-user AI Trading Lab engine service (Batch 19 template).
+#
+# Deployed per user:  systemctl enable --now ai-trading-lab@alice
+# The %i instance identifier IS the user name.
+#
+# Security posture (fail-closed):
+#   - dedicated least-privilege OS account (create WITHOUT a shell)
+#   - systemd sandboxing (NoNewPrivileges, ProtectSystem=strict, ...)
+#   - secrets injected via root-owned 0600 EnvironmentFile — NEVER
+#     values inside this file (this template is committed to git)
+#   - dashboard binds loopback ONLY (public exposure is a separate,
+#     explicit operator infrastructure decision)
+#   - resource limits + restart-on-failure (the engine is fail-closed:
+#     it refuses work rather than half-running)
+#
+# PAPER_READY = FALSE. LIVE TRADING NOT AUTHORIZED.
+
+[Unit]
+Description=AI Trading Lab data engine (per-user instance %i) — READ-ONLY posture, paper simulation only
+Documentation=file:/opt/ai-trading-lab/shared/docs/PER_USER_VPS_DEPLOYMENT.md
+After=network-online.target time-sync.target
+Wants=time-sync.target
+
+[Service]
+Type=exec
+# -- least privilege ----------------------------------------------------
+User=aitl-%i
+Group=aitl-%i
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictRealtime=yes
+# loopback + outbound only; no inbound exposure from this unit
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+
+# -- secret injection (names only here; values live in the 0600 file) ---
+EnvironmentFile=/var/lib/ai-trading-lab/%i/secrets.env
+
+# -- runtime layout ------------------------------------------------------
+WorkingDirectory=/var/lib/ai-trading-lab/%i
+ExecStart=/opt/ai-trading-lab/%i/venv/bin/python -m data_engine.cli
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
+
+# -- resource limits (operator-tunable) ----------------------------------
+MemoryMax=512M
+CPUQuota=50%
+TasksMax=64
+
+# -- output ---------------------------------------------------------------
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ai-trading-lab-%i
+
+[Install]
+WantedBy=multi-user.target
