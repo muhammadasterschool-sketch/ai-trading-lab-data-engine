@@ -9,8 +9,40 @@ Document Type:  Master documentation index (SSOT)
 Phase:          Cross-phase (all phases)
 Authority:      A — AUTHORITATIVE (this index is the documentation map of record)
 Status:         CURRENT
-Version:        2.22.0
-Last Updated:   2026-10-13 (Batch 17 — security, multi-tenancy and
+Version:        2.23.0
+Last Updated:   2026-10-13 (Batch 18 — Windows installer and
+                 application packaging, scaffold with honest
+                 verification markers: docs/WINDOWS_INSTALLER_AND_
+                 PACKAGING.md + scripts/windows_smoke_test.py +
+                 docs/reports/BATCH_18_WINDOWS_PACKAGING.md on
+                 dedicated branch feat/batch-18-windows-packaging from
+                 40bde4b; scope determined honestly — platform-
+                 independent Python engine (wheel py3-none-any), MT5
+                 data-plane the only Windows element, signed installer
+                 exe = operator product decision (signing keys via
+                 secure external processes); reproducible build
+                 VERIFIED (uv build: wheel 689,373B SHA256
+                 93cd883a…95ea7c0 + sdist 569,496B SHA256
+                 284e2a9b…f95eebe; dist/ gitignored — binaries never
+                 committed); packaging spec delivered (per-user venv
+                 procedure, FS-01..06-contained data dirs, secrets
+                 never packaged env-var-only + redaction, fail-closed
+                 startup errors + dashboard safe shutdown,
+                 upgrade/rollback/backup/uninstall, per-item honest
+                 verification-status table); smoke test 7 fail-closed
+                 checks (import/version, PAPER_READY fabrication
+                 structurally refused, REAL execution mode refused,
+                 7 venues MOCK_DETERMINISTIC, dashboard loopback
+                 default + ephemeral bind + safe shutdown) — logic
+                 VERIFIED in agent env 7/7 PASS, Windows-host execution
+                 NOT VERIFIED (operator runs and records — no
+                 Windows-host claim anywhere); honest LOW finding:
+                 pyproject/lock 0.1.0 vs data_engine.__version__ 0.3.0
+                 build-provenance mismatch (lock-frozen + test-pinned,
+                 deferred to operator review); NO gate verdict changed
+                 — 29 PASS / 3 FAIL, PAPER_READY = FALSE, LIVE NOT
+                 AUTHORIZED;
+                 Prior 2.22.0 — Batch 17 — security, multi-tenancy and
                  private access, audit + two verified-gap
                  closures: docs/reports/BATCH_17_SECURITY_TENANCY_
                  PRIVATE_ACCESS_AUDIT.md + NEW docs/LICENSING_PRIVATE_
@@ -727,6 +759,8 @@ The remaining §61 spec documents (`TRADING_RUNTIME_ARCHITECTURE.md`, `TRADING_E
 | `docs/reports/BATCH_16_PAPER_EXECUTION_RISK_ASSURANCE_AUDIT.md` | A | AUTHORITATIVE Batch 16 paper-execution & risk assurance audit (v1.0.0, 2026-10-13): READ-ONLY — authoritative paper-runtime order path audited against the mandate's 10 requirement areas, ALL PASS first-hand — risk-budget position sizing (trade_plan.py quantity = risk_budget/stop_distance, zero-qty PlanError, max_position_units cap, notional per plan), true account equity RUN-EQ-1 (double-count guard runtime.py:2276/:2985 — commission/slippage/spread subtracted exactly once), RUN-RL-1 true daily-loss limit (fail-closed anchor establishment runtime.py:2893), RUN-DD-1 account-equity drawdown (high-water mark, restart survival, 14 tests), identity-bound single risk decision + RiskEngine limit gauntlet (breach raises + records, hash-chained log), kill switch FILL-time enforcement RUN-KS-1/2 + terminal HALT + restart survival + ARCH-F1 unprivileged reset refused, deterministic SL/TP over bars (exits.py §31, SLTP_READY gate, exit-risk observability), partial-fill accounting (OMS TRANSITIONS PARTIALLY_FILLED→EXPIRED, RT-F1 fingerprint binding, exactly-once shared _apply_execution_fills, RUN-PM-1 metric), terminal states with loud cancel/close refusals RUN-CA-1 + definitive venue-coded rejections + client_order_id idempotency, recovery verdicts RESUME/HALT/RECONCILIATION_REQUIRED + LOAD→VERIFY→RESTORE→RECONCILE→RESUME + 9 hash-chained ledgers + REPLAY_READY + deterministic suite ×2, cost model (half_spread=0.02 adverse-side deterministic MARKET fills runtime.py:1105-1109, commission_per_unit=0.001, slippage_cost/spread_cost fill fields, max_spread_fraction=0.01 guard — financing NOT modeled and NOT required by the frozen spec, documented boundary), one-account BrokerSession binding + deny-default tenancy (46 tests), signal→execution ledgered traceability incl. NO_TRADE decision records; ZERO verified gaps → zero invented tests (no-invented-work rule; existing negative suites enumerated: killswitch fill enforcement, runtime_rl, account drawdown, pnl correctness incl. double-count negative, recovery integration, safety + residuals incl. injected-clock watchdog, OMS, tenancy, authoritative venue); suite 2,333+1 at base (79.14s); frozen 11/11, manifest 13/13, secret scan 0 across 86 commits; NO gate verdict changed — 29 PASS / 3 FAIL; PAPER_READY = FALSE; LIVE NOT AUTHORIZED | Paper-execution & risk assurance audit (Batch 16) | — |
 | `docs/reports/BATCH_17_SECURITY_TENANCY_PRIVATE_ACCESS_AUDIT.md` | A | AUTHORITATIVE Batch 17 security, multi-tenancy and private access audit (v1.0.0, 2026-10-13): audit + two verified-gap closures — 12 mandate areas audited first-hand ALL PASS at honest classification (auth: tenant binding at authentication time inside server-side AuthenticatedPrincipal, client tenant IDs never trusted, mismatch = DENY + TENANT_ID_MANIPULATION incident; ownership: control-plane boundary, tenant reads own license only; cross-user mutual invisibility both directions + positive control; secrets: SecretVault SHA-256 fingerprints/REDACTED-never-storable/redacted repr/duplicate refusal/reveal-needs-allowing-decision/cross-tenant-reveal-refused, env-var-only provider boundary, 0 credential-shaped strings across all history — rotation honestly classified as documented operator procedure without dedicated API, LOW advisory; sessions: short-lived, expired denied everywhere, loopback read-only dashboard 2 GET routes 405/404, mobile no-write/no-secret-store/no-order-path; audit integrity: append-only decisions with security_incident flags, values never in audit, 9 hash-chained ledgers; config: frozen extra=forbid FS-17, fail-closed defaults, secret-free CI contents:read no pull_request_target; admin restrictions: control-plane boundary + ARCH-F1 + authorize_live structural refusal; 46 negative tests green); GAP CLOSED: audit-dependencies CI job appended to .github/workflows/ci.yml (workflow_dispatch ONLY — existing push/PR CI bit-for-bit unchanged, zero test references to ci.yml verified; pip-audit --strict --disable-pip over the full uv export, fail-closed on ANY known vulnerability; honestly NOT VERIFIED locally — offline environment, operator triggers post-push); C-5 CLOSED: docs/LICENSING_PRIVATE_DISTRIBUTION_BOUNDARY.md (security-level license gating implemented + test-pinned, explicit DENY-never-silent semantics, commercial entitlement deliberately unbuilt, NO DRM, NO data collection, NO legal claim, keys/credentials/IdP external-only); NO gate verdict changed — 29 PASS / 3 FAIL; PAPER_READY = FALSE; LIVE NOT AUTHORIZED | Security, multi-tenancy and private access audit + gap closures (Batch 17) | — |
 | `docs/LICENSING_PRIVATE_DISTRIBUTION_BOUNDARY.md` | B | CURRENT SUPPORTING licensing & private-distribution boundary definition (v1.0.0, Batch 17 item C-5): IMPLEMENTED surface = license-STATE access gating (ACTIVE/SUSPENDED/REVOKED/EXPIRED; inactive denies everything, revocation immediate, DENY with recorded closed-vocabulary reason — never silent, never degrades); explicitly NOT implemented = commercial entitlement issuance/billing/license-key generation (operator product decision), DRM (none created), user-data collection (no path exists), legal-compliance claims (require external review); required external inputs table (entitlement design, signing keys, production credentials, IdP config, legal review — secure processes only, never in-repo); verification commands (46 tenancy tests + 0-secret forensic gate) | Private-distribution licensing boundary (Batch 17) | — |
+| `docs/WINDOWS_INSTALLER_AND_PACKAGING.md` | A | AUTHORITATIVE Windows installer & application packaging spec (v1.0.0, Batch 18 item C-4): scope finding (platform-independent Python engine, wheel py3-none-any, MT5 data-plane the only Windows element, signed installer exe = operator product decision); reproducible build VERIFIED (uv build — wheel 689,373B SHA256 93cd883a…95ea7c0, sdist 569,496B SHA256 284e2a9b…f95eebe; dist/ gitignored, binaries never committed); Windows install procedure (fresh per-user venv %LOCALAPPDATA%, wheel install, optional MT5 extra, smoke validation); data dirs FS-01..06 fail-closed containment; secrets never packaged (env-var-only + redaction); startup errors/safe shutdown/diagnostics; upgrade (fresh-venv) / rollback (SHA-recorded) / backup / uninstall (plain directory delete); version+build provenance incl. honest LOW finding pyproject 0.1.0 vs __version__ 0.3.0 mismatch (lock-frozen, deferred to operator review); per-item verification-status table — clean-install-on-Windows NOT VERIFIED (external Windows host, operator records) | Windows packaging spec (Batch 18) | — |
+| `scripts/windows_smoke_test.py` | A | Windows packaging smoke test (Batch 18): 7 fail-closed checks runnable on any installed environment — import+version provenance, readiness fail-closed contract (PAPER_READY=TRUE with failing gates structurally refused), REAL execution-mode descriptor refused, all venues MOCK_DETERMINISTIC, dashboard default loopback bind, ephemeral bind, safe shutdown; script logic VERIFIED in the agent environment (7/7 PASS); Windows-host execution NOT VERIFIED (operator runs post-install and records output); never places orders, never contacts brokers | Windows installation validation (Batch 18) | — |
 
 ## Cross-Phase Security
 
