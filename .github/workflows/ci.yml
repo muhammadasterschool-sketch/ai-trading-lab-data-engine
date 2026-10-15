@@ -80,3 +80,38 @@ jobs:
           ! git grep -nE "github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{30,}|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9]{20,}" $(git rev-list --all)
       - name: Prediction acceptance tests (T-PRED + red-team matrix)
         run: uv run pytest tests/test_prediction_redteam_matrix.py -q
+
+  # Batch 17 (security, multi-tenancy and private access): OPT-IN
+  # dependency vulnerability audit. workflow_dispatch ONLY — this job
+  # never runs on push/PR, so the existing CI gate is unchanged until
+  # an operator explicitly triggers it. Requires network access to
+  # query advisory databases (that is why it cannot be verified in the
+  # offline agent environment — the workflow syntax is standard and
+  # the job is fail-closed by design: pip-audit exits non-zero on any
+  # known vulnerability in the locked dependency set).
+  audit-dependencies:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install locked environment
+        run: |
+          python -m pip install --upgrade pip
+          pip install uv
+          uv sync --frozen --extra dev
+      - name: Dependency vulnerability audit (pip-audit over the lock)
+        run: |
+          pip install pip-audit
+          # Export ALL locked pins (runtime + dev) — auditing dev deps
+          # too is the conservative, fail-closed posture.
+          uv export --frozen --no-header -o requirements-audit.txt
+          # --strict: fail on ANY known vulnerability.
+          # --disable-pip: audit the exported locked pins only, not the
+          # ambient pip tooling itself.
+          pip-audit --strict --disable-pip -r requirements-audit.txt
+          rm -f requirements-audit.txt
