@@ -222,6 +222,14 @@ class CsvDatasetAudit(BaseModel):
     non_chronological_rows: int
     ohlc_violation_rows: int
     non_positive_price_rows: int
+    # ING-NAT-1 / ING-VOL-1 (2026-10-12 fail-closed hardening): the
+    # platform CSV audit previously coerced unparseable dates to NaT and
+    # discovered the volume column without ever checking it — neither
+    # produced a counter, an integrity finding, or a classification
+    # impact. Both now fail closed, matching the master-path audit which
+    # has counted both since its introduction.
+    invalid_timestamp_rows: int = 0
+    negative_volume_rows: int = 0
     holiday_rows_with_ohlc: int
     venue_anachronism_rows: int
     uniform_generation_grid: bool
@@ -276,6 +284,25 @@ class CsvDatasetAudit(BaseModel):
             out.append(f"OHLC relationship violations: {self.ohlc_violation_rows}")
         if self.non_positive_price_rows:
             out.append(f"non-positive prices: {self.non_positive_price_rows}")
+        # ING-NAT-1: unparseable/missing timestamps are an integrity
+        # violation — a row that cannot be placed on the timeline must
+        # never let a dataset classify as usable.
+        if self.invalid_timestamp_rows:
+            out.append(
+                f"unparseable/missing timestamps: {self.invalid_timestamp_rows}"
+            )
+        # ING-VOL-1: negative volume is an integrity violation (the core
+        # Candle validator and the master-path audit both reject it).
+        if self.negative_volume_rows:
+            out.append(f"negative volume rows: {self.negative_volume_rows}")
+        # ING-COL-1: a schema mismatch must be consulted by the
+        # classification, not merely recorded on the audit object.
+        if not self.expected_columns_match:
+            out.append(
+                f"schema mismatch: file columns {list(self.columns)} do not "
+                f"match the expected {self.kind.value} schema "
+                f"{list(_KIND_COLUMNS[self.kind])}"
+            )
         return tuple(out)
 
     @property
@@ -300,7 +327,11 @@ class CsvDatasetAudit(BaseModel):
         if self.integrity_findings:
             notes.extend(f"INTEGRITY: {f}" for f in self.integrity_findings)
         else:
-            notes.append("integrity: duplicates=0, chronology OK, OHLC relations OK, prices positive")
+            notes.append(
+                "integrity: duplicates=0, chronology OK, OHLC relations OK, "
+                "prices positive, timestamps parseable, volumes non-negative, "
+                "schema match"
+            )
         if self.anchors_checked:
             notes.append(
                 f"2006 calibration anchors: {self.anchors_within_tolerance}/{self.anchors_checked} "
@@ -436,6 +467,30 @@ def audit_csv_file(path: Path, kind: CsvKind) -> CsvDatasetAudit:
     df.columns = [str(c) for c in df.columns]
     expected = _KIND_COLUMNS[kind]
     columns_match = tuple(df.columns) == expected
+    # capture the FILE's own columns BEFORE the audit mutates the
+    # working frame with helper columns (_date/_sym/_Open...): the
+    # recorded evidence must describe the input file, and a columns
+    # list containing audit helpers is self-contradictory next to
+    # expected_columns_match (observed in the committed manifests).
+    original_columns = tuple(str(c) for c in df.columns)
+
+    # ING-COL-1 (2026-10-12): missing CRITICAL columns previously crashed
+    # deep inside the audit with a raw KeyError; a file whose schema
+    # cannot even be interpreted must instead fail closed with an
+    # explicit contract error naming what is missing.
+    missing_critical = [
+        c for c in ("Date", "Open", "High", "Low", "Close")
+        if c not in df.columns
+    ]
+    if not ({"Symbol_Standard", "Symbol"} & set(df.columns)):
+        missing_critical.append("Symbol|Symbol_Standard")
+    if missing_critical:
+        raise ValueError(
+            f"audit_csv_file contract (ING-COL-1): {path.name} is missing "
+            f"critical column(s) {missing_critical} for kind {kind.value} — "
+            f"refusing to audit a file whose schema cannot be interpreted "
+            f"(fail closed; expected {list(expected)})"
+        )
 
     sym_col = "Symbol_Standard" if "Symbol_Standard" in df.columns else "Symbol"
     date_col = "Date"
@@ -444,6 +499,12 @@ def audit_csv_file(path: Path, kind: CsvKind) -> CsvDatasetAudit:
     ohlc = ["Open", "High", "Low", "Close"]
     for c in ohlc:
         df[f"_{c}"] = pd.to_numeric(df[c], errors="coerce")
+
+    # ING-NAT-1: unparseable/missing timestamps are counted and fail the
+    # classification (previously they silently became NaT — the row was
+    # still counted inside valid_ohlc_rows and coverage silently shrank
+    # via dropna with no finding emitted).
+    invalid_timestamp_rows = int(df["_date"].isna().sum())
 
     duplicate_symbol_date = int(df.duplicated([sym_col, date_col]).sum())
 
@@ -464,16 +525,37 @@ def audit_csv_file(path: Path, kind: CsvKind) -> CsvDatasetAudit:
         (c for c in ("Volume_Base", "Volume", "Volume_Ticks") if c in df.columns), None
     )
 
+    # ING-VOL-1: the volume column was previously discovered and then
+    # never consulted — negative volume now counts as an integrity
+    # violation (missing volume columns remain tolerated: volume is
+    # optional in several supplied schemas).
+    negative_volume_rows = 0
+    if volume_col is not None:
+        _vol = pd.to_numeric(df[volume_col], errors="coerce")
+        negative_volume_rows = int((_vol < 0).sum())
+
     for symbol, g in df.groupby("_sym", sort=True):
+        # non-chronology is measured on the FILE's original row order —
+        # computing it after the sort below would be vacuous (always 0).
+        # (Correction 2026-10-11, master-import cycle: the check was
+        # previously post-sort and therefore could never fire; it is
+        # now pre-sort. All four committed raw CSVs are chronological
+        # in file order, so committed manifests are unchanged by this
+        # fix — verified byte-identical before committing.)
+        non_chrono = int((g["_date"].diff().dt.total_seconds() < 0).sum())
+        total_non_chrono += non_chrono
         g = g.sort_values("_date")
         row_counts[symbol] = len(g)
         dates = g["_date"]
         coverage_dates.extend(dates.dropna().tolist())
 
-        non_chrono = int((dates.diff().dt.total_seconds() < 0).sum())
-        total_non_chrono += non_chrono
-
-        has_ohlc = g[["_Open", "_High", "_Low", "_Close"]].notna().all(axis=1)
+        # ING-NAT-1: a row without a placeable timestamp is not a usable
+        # candle — NaT-dated rows are excluded from the valid-OHLC count
+        # (they are counted in invalid_timestamp_rows instead).
+        has_ohlc = (
+            g[["_Open", "_High", "_Low", "_Close"]].notna().all(axis=1)
+            & g["_date"].notna()
+        )
         valid = g[has_ohlc]
         ohlc_viol = int(
             (
@@ -619,13 +701,15 @@ def audit_csv_file(path: Path, kind: CsvKind) -> CsvDatasetAudit:
         sha256=_sha256_file(path),
         kind=kind,
         row_count=len(df),
-        columns=tuple(str(c) for c in df.columns),
+        columns=original_columns,
         expected_columns_match=columns_match,
         instruments=tuple(inst_audits),
         duplicate_symbol_date_rows=duplicate_symbol_date,
         non_chronological_rows=total_non_chrono,
         ohlc_violation_rows=total_ohlc_viol,
         non_positive_price_rows=total_nonpos,
+        invalid_timestamp_rows=invalid_timestamp_rows,
+        negative_volume_rows=negative_volume_rows,
         holiday_rows_with_ohlc=holiday_ohlc_rows,
         venue_anachronism_rows=venue_anachronism_rows,
         uniform_generation_grid=uniform_grid,

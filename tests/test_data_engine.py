@@ -707,14 +707,21 @@ class TestQualityReport:
     def test_report_generation(self):
         """Quality reports must be generated correctly."""
         now = datetime.now(UTC)
-        candles = [make_candle(now - timedelta(days=i)) for i in range(5)]
+        # VAL-ORDER-1 companion (2026-10-12): this fixture was previously
+        # built in DESCENDING date order (newest first) — incidentally
+        # out-of-order, which the validator now classifies INVALID. The
+        # test's purpose is report GENERATION, not chronology semantics,
+        # so the fixture is chronological (oldest first, matching its
+        # sibling test_report_is_usable_for_valid) and the status
+        # assertion is tightened accordingly.
+        candles = [make_candle(now - timedelta(days=4 - i)) for i in range(5)]
         ds = make_dataset(candles)
         validator = DataValidator()
         results = validator.validate_dataset(ds)
         report = DataQualityReport.from_dataset_and_results(ds, results)
         assert report.dataset_id == "test_dataset"
         assert report.total_rows == 5
-        assert report.validation_status in ("VALID", "WARNING")
+        assert report.validation_status == "VALID"
         assert report.health_score >= 0
         assert report.health_score <= 100
 

@@ -263,6 +263,12 @@ def build_snapshot(
 
 
 def _html_table(headers: list[str], rows: list[list[str]]) -> str:
+    """Escaped HTML table inside a horizontal-scroll wrapper.
+
+    The wrapper (Batch 20 mobile view) keeps wide tables readable on
+    narrow screens without JavaScript: the table scrolls within its
+    container instead of overflowing the viewport.
+    """
     if not rows:
         return "<p class='empty'>no records</p>"
     head = "".join(f"<th>{html.escape(h)}</th>" for h in headers)
@@ -270,11 +276,21 @@ def _html_table(headers: list[str], rows: list[list[str]]) -> str:
         "<tr>" + "".join(f"<td>{html.escape(str(c))}</td>" for c in r) + "</tr>"
         for r in rows
     )
-    return f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
+    table = f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
+    return f"<div class='tablewrap'>{table}</div>"
 
 
 def render_html(snapshot: PlatformSnapshot) -> str:
-    """Server-side rendered overview page (plain HTML, no JS, no user input)."""
+    """Server-side rendered overview page (plain HTML, no JS, no user input).
+
+    Batch 20 (mobile view): renders a RESPONSIVE WEB INTERFACE — viewport
+    meta + small-screen media query + horizontally scrollable tables — and
+    renders the snapshot's ``open_positions`` / ``trade_history`` /
+    ``strategy_performance`` sections (previously JSON-only). This is NOT a
+    mobile application. Every value stays HTML-escaped; every position and
+    trade row carries its mode label so the paper/simulation status is
+    unmistakable; LIVE trading remains NOT AUTHORIZED.
+    """
     h = snapshot.system_health
     health_rows = [
         ["Paper trading ready", "YES" if h.paper_ready else "NO"],
@@ -314,6 +330,56 @@ def render_html(snapshot: PlatformSnapshot) -> str:
     ]
     audit_rows = [list(r) for r in snapshot.audit_events[-50:]]
 
+    position_rows = [
+        [
+            p["position_id"],
+            p["mode"],
+            p["instrument_id"],
+            p["strategy_id"],
+            p["direction"],
+            p["entry_price"],
+            p["current_price"],
+            p["position_size"],
+            p["unrealized_pl"],
+            p["stop_loss"] if p.get("stop_loss") is not None else "—",
+            p["take_profit"] if p.get("take_profit") is not None else "—",
+            p["exposure"],
+        ]
+        for p in snapshot.open_positions
+    ]
+    trade_rows = [
+        [
+            t["trade_id"],
+            t["trade_mode"],
+            t["instrument_id"],
+            t["strategy_id"],
+            t["broker"],
+            t["direction"],
+            t["order_type"],
+            t["entry_price"],
+            t["exit_price"] if t.get("exit_price") is not None else "—",
+            t["position_size"],
+            t["realized_pl"],
+            t["status"],
+        ]
+        for t in snapshot.trade_history
+    ]
+    perf_rows = [
+        [
+            p["strategy_id"],
+            p["strategy_version"],
+            p["instrument_id"],
+            p["trade_count"],
+            p["net_pl"],
+            p["win_rate"],
+            p["profit_factor"] if p.get("profit_factor") is not None else "—",
+            p["max_drawdown"],
+            p["current_mode"],
+            p["paper_status"],
+        ]
+        for p in snapshot.strategy_performance
+    ]
+
     alerts = (
         "".join(f"<li>{html.escape(a)}</li>" for a in snapshot.risk_alerts)
         or "<li class='empty'>no active risk alerts</li>"
@@ -323,22 +389,32 @@ def render_html(snapshot: PlatformSnapshot) -> str:
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AI Trading Lab — Platform Dashboard (READ-ONLY)</title>
 <style>
   body {{ font-family: system-ui, sans-serif; margin: 2rem; color: #1a1a2e; background: #f7f8fa; }}
   h1 {{ font-size: 1.4rem; }} h2 {{ font-size: 1.05rem; margin-top: 2rem; border-bottom: 2px solid #1f4e78; padding-bottom: .2rem; }}
+  .tablewrap {{ overflow-x: auto; -webkit-overflow-scrolling: touch; }}
   table {{ border-collapse: collapse; width: 100%; background: white; font-size: .85rem; }}
   th {{ background: #1f4e78; color: white; text-align: left; padding: .35rem .5rem; }}
   td {{ border-bottom: 1px solid #e3e6ea; padding: .3rem .5rem; }}
   .empty {{ color: #7a7f87; font-style: italic; }}
   .banner {{ background: #fff3cd; border: 1px solid #d4a017; padding: .6rem 1rem; border-radius: 4px; }}
   .sync {{ color: #555; font-size: .8rem; }}
+  .mode {{ font-weight: 600; }}
+  @media (max-width: 640px) {{
+    body {{ margin: .75rem; }}
+    h1 {{ font-size: 1.15rem; }}
+    h2 {{ font-size: 1rem; margin-top: 1.25rem; }}
+    table {{ font-size: .78rem; }}
+    .banner {{ padding: .5rem .65rem; }}
+  }}
 </style>
 </head>
 <body>
 <h1>AI Trading Lab — Platform Dashboard</h1>
 <p class="sync">Synchronized at {html.escape(snapshot.synchronized_at)} &middot; read-only projection &middot; contract v{snapshot.contract_version}</p>
-<div class="banner"><strong>LIVE TRADING: NOT AUTHORIZED.</strong> This dashboard is a reporting projection; it holds no execution surface. Market-watch rows without provider data render <em>no_data</em> — never a fabricated price.</div>
+<div class="banner"><strong>LIVE TRADING: NOT AUTHORIZED.</strong> This dashboard is a reporting projection; it holds no execution surface. Every position/trade row is labelled with its <span class="mode">mode</span> (paper/demo/live) — simulation status is unmistakable. Market-watch rows without provider data render <em>no_data</em> — never a fabricated price.</div>
 <h2>System Health</h2>
 {_html_table(["Property", "Value"], health_rows)}
 <h2>Historical Datasets</h2>
@@ -356,6 +432,21 @@ def render_html(snapshot: PlatformSnapshot) -> str:
 {_html_table(["Published", "Source", "Headline", "Verification"], news_rows)}
 <h2>Risk Alerts</h2>
 <ul>{alerts}</ul>
+<h2>Open Positions ({len(snapshot.open_positions)})</h2>
+{_html_table(
+    ["Position", "Mode", "Instrument", "Strategy", "Direction", "Entry", "Current", "Size", "Unrealized P&L", "Stop", "Take Profit", "Exposure"],
+    position_rows,
+)}
+<h2>Trade History ({len(snapshot.trade_history)})</h2>
+{_html_table(
+    ["Trade", "Mode", "Instrument", "Strategy", "Broker", "Direction", "Type", "Entry", "Exit", "Size", "Realized P&L", "Status"],
+    trade_rows,
+)}
+<h2>Strategy Performance ({len(snapshot.strategy_performance)})</h2>
+{_html_table(
+    ["Strategy", "Version", "Instrument", "Trades", "Net P&L", "Win Rate", "Profit Factor", "Max Drawdown", "Mode", "Paper Status"],
+    perf_rows,
+)}
 <h2>Audit Log (latest 50)</h2>
 {_html_table(["Timestamp", "Component", "Event", "Detail"], audit_rows)}
 </body>

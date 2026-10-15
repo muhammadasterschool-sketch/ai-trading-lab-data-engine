@@ -41,9 +41,11 @@ COUNTER_NAMES = (
     "no_trade_total",
     "orders_created",
     "orders_risk_rejected",
+    "orders_killswitch_cancelled",
     "fills",
     "partial_fill_events",
     "kill_switch_trips",
+    "drawdown_limit_breaches",
     "halts",
     "reconciliation_mismatches",
     "recovery_events",
@@ -52,6 +54,20 @@ COUNTER_NAMES = (
     "rl_proposals",
     "rl_proposals_vetoed",
     "rl_proposals_ood",
+    # Batch 5 (Phase M2 authoritative venue integration): venue-path
+    # order observability. These counters exist ONLY on runtimes with
+    # an attached broker-neutral venue session; they never alter the
+    # snapshot hash contract for venue-less sessions beyond the shared
+    # vocabulary (the hash covers counters in sorted canonical order).
+    "orders_venue_submitted",
+    "orders_venue_refused",
+    "orders_venue_unknown",
+    # Batch 6 (runtime safety residuals): in-session feed-watchdog
+    # blocks (RUN-ST-1) + operator action observability (RUN-CA-1).
+    "feed_stale_bars",
+    "orders_operator_cancelled",
+    "orders_operator_close_submitted",
+    "orders_operator_closed",
 )
 
 #: The known gauge vocabulary (latency observability, unhashed).

@@ -9,9 +9,12 @@ The ONE orchestration path (mandate §24):
     KillSwitch → OMS → PaperExecutionGateway → Fill →
     PositionState → Reconciliation → Ledgers → Memory → Monitoring
 
-PAPER MODE ONLY. No broker integration, no live execution, no
-production credentials, no autonomous capital allocation (mandate
-§58/§59/§61). This package implements PAPER readiness machinery;
+PAPER MODE ONLY. No live execution, no production credentials, no
+autonomous capital allocation (mandate §58/§59/§61). Broker
+integration exists ONLY as the paper-mock Phase M2 bridge
+(``runtime/broker_execution.py`` — MOCK_DETERMINISTIC venues gated
+by the runtime's own RiskGate/KillSwitchManager; REAL adapters are
+refused). This package implements PAPER readiness machinery;
 declaring PAPER_READY remains the exclusive verdict of
 :class:`PaperReadinessGate` from objective evidence.
 """
@@ -154,6 +157,14 @@ from data_engine.runtime.feed_gate import (
     RESEARCH_HISTORY_STATUS,
     evaluate_operational_feed,
 )
+from data_engine.runtime.feed_composition import (
+    FeedCompositionError,
+    build_paper_feed_evidence,
+    evaluate_paper_feed,
+    fetch_feed_window,
+    operational_feed_evidence,
+    resolve_canonical_instrument,
+)
 from data_engine.runtime.mac_custody import (
     ENV_KEY_FILE_VAR,
     ENV_KEY_VAR,
@@ -191,6 +202,20 @@ from data_engine.runtime.metrics import (
     GAUGE_NAMES,
     MetricsError,
     RuntimeMetrics,
+)
+from data_engine.runtime.broker_execution import (
+    RUNTIME_PAPER_VENUE_ID,
+    RUNTIME_PAPER_VENUE_CAPABILITIES,
+    BridgeContractError,
+    RuntimeKillSwitchGate,
+    RuntimeRiskGateBridge,
+    RuntimePaperExecutionAdapter,
+    attach_runtime_paper_session,
+    VenueSubmissionRefused,
+    VenueSubmissionUncertain,
+    RuntimeOrderPathRiskGate,
+    RuntimeAuthoritativeVenue,
+    attach_authoritative_paper_venue,
 )
 
 __all__ = [
@@ -253,6 +278,12 @@ __all__ = [
     "FeedGateError", "OperationalFeedReport",
     "RESEARCH_HISTORY_DECISION_ID", "RESEARCH_HISTORY_STATUS",
     "evaluate_operational_feed",
+    "FeedCompositionError",
+    "build_paper_feed_evidence",
+    "evaluate_paper_feed",
+    "fetch_feed_window",
+    "operational_feed_evidence",
+    "resolve_canonical_instrument",
     # keyed-MAC ledger custody (operator mandate 2026-10-10 §1.5)
     "ENV_KEY_FILE_VAR", "ENV_KEY_VAR", "MAC_HEX_LEN", "MacCustody",
     "MacCustodyError", "keyed_event_mac",
@@ -265,4 +296,14 @@ __all__ = [
     "RLObservation", "RLPolicyConfig", "propose_rl_action",
     # runtime observability (mandate §26)
     "COUNTER_NAMES", "GAUGE_NAMES", "MetricsError", "RuntimeMetrics",
+    # Phase M2 broker-neutral integration seam (paper-mock only)
+    "RUNTIME_PAPER_VENUE_ID", "RUNTIME_PAPER_VENUE_CAPABILITIES",
+    "BridgeContractError", "RuntimeKillSwitchGate",
+    "RuntimeRiskGateBridge", "RuntimePaperExecutionAdapter",
+    "attach_runtime_paper_session",
+    "VenueSubmissionRefused",
+    "VenueSubmissionUncertain",
+    "RuntimeOrderPathRiskGate",
+    "RuntimeAuthoritativeVenue",
+    "attach_authoritative_paper_venue",
 ]

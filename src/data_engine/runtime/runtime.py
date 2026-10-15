@@ -36,7 +36,7 @@ from datetime import datetime, timedelta, UTC
 from decimal import Decimal
 from typing import Any, Mapping, Optional, Sequence
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, StrictBool, StrictInt, field_validator
 
 from data_engine.paper.simulator import ExecutionRealism
 from data_engine.prediction.regimes import RegimeEngine, RegimeFeatures
@@ -67,6 +67,7 @@ from data_engine.runtime.identity import (
     prefixed_hash,
 )
 from data_engine.runtime.kill_switch import (
+    KillSwitchActive,
     KillSwitchManager,
     KillSwitchScope,
 )
@@ -121,6 +122,17 @@ class RuntimeConfig(BaseModel):
     crash_exit_probability: float = 0.40
     max_position_units: Decimal = Decimal("100")
     risk_fraction: Decimal = Decimal("0.01")
+    #: RUN-DD-1: ACCOUNT-equity drawdown limit — the maximum
+    #: tolerated decline of mark-to-market account equity from the
+    #: session high-water mark (default 20%). A STRICT breach
+    #: trips the ACCOUNT kill switch (terminal HALT, auditable
+    #: source ``runtime.risk.drawdown``, persists immediately per
+    #: BLOCKER 12) and the mandatory ``account_drawdown`` risk-gate
+    #: check refuses new entry orders; closing/reducing orders stay
+    #: permitted (the limit blocks new exposure, not risk
+    #: reduction). Equality is IN limit: only a strict breach
+    #: trips (consistent with the drawdown/loss_limit checks).
+    max_account_drawdown_fraction: float = 0.20
     #: BLOCKER 1: explicit non-operational marking. When True the
     #: runtime is a UNIT-TEST FIXTURE — persistence and the paper
     #: readiness gate are skipped and every start is ledgered as
@@ -132,6 +144,30 @@ class RuntimeConfig(BaseModel):
     #: a swapped/tampered model is refused at startup (never silently
     #: loaded).
     pinned_model_hashes: tuple = ()
+    #: RUN-ST-1: in-session wall-clock feed watchdog limit. When
+    #: None (the DEFAULT) the watchdog is DISABLED — the runtime's
+    #: documented default posture is deterministic bar replay, where
+    #: historical bar timestamps are legitimately far behind the
+    #: wall clock. An operational live-clock paper session opts IN
+    #: with an explicit positive limit (seconds): a bar whose
+    #: wall-clock age STRICTLY exceeds the limit is still admitted
+    #: (fills/TTL/drawdown/protection/persistence continue) but the
+    #: prediction/decision/entry chain is SKIPPED — new exposure is
+    #: refused, fail closed, until the feed catches up.
+    #: ``StrictInt`` (a bool limit is a configuration bug, never a
+    #: legitimate 1-second watchdog).
+    max_feed_staleness_seconds: Optional[StrictInt] = None
+    #: Snapshot config compatibility (§0H limitation): config-schema
+    #: evolution changes the identity digest of an UNCHANGED session
+    #: (the digest covers the full config dump). A snapshot whose
+    #: digest decomposes EXACTLY into the documented evolution
+    #: (see ``SNAPSHOT_CONFIG_EVOLUTION``) refuses restart by
+    #: DEFAULT with a precise message; setting this flag True is the
+    #: explicit operator opt-in that resumes the session and ledgers
+    #: ``SNAPSHOT_CONFIG_EVOLVED`` loudly. Any SHARED-field value
+    #: change still refuses regardless of this flag.
+    #: ``StrictBool`` (a coerced "yes"/1.5 is never an opt-in).
+    allow_snapshot_config_evolution: StrictBool = False
 
     @field_validator("symbol", "timeframe", "session_id",
                      "feature_version", "dataset_version")
@@ -147,6 +183,21 @@ class RuntimeConfig(BaseModel):
         if v is None or not v.is_finite() or v <= 0:
             raise RuntimeContractError("initial equity must be positive")
         return v
+
+    @field_validator("max_account_drawdown_fraction")
+    @classmethod
+    def _validate_drawdown_limit(cls, v: float) -> float:
+        if (
+            not isinstance(v, (int, float))
+            or isinstance(v, bool)
+            or not math.isfinite(v)
+            or not (0 < v <= 1)
+        ):
+            raise RuntimeContractError(
+                "max_account_drawdown_fraction must be a finite "
+                "fraction in (0, 1] (fail closed)"
+            )
+        return float(v)
 
     @field_validator("lookback", "horizon", "stride", "ttl_bars")
     @classmethod
@@ -167,6 +218,19 @@ class RuntimeConfig(BaseModel):
                 )
         return v
 
+    @field_validator("max_feed_staleness_seconds")
+    @classmethod
+    def _validate_feed_staleness(cls, v):
+        if v is None:
+            return None
+        if v < 1:
+            raise RuntimeContractError(
+                "max_feed_staleness_seconds must be None (watchdog "
+                "disabled — deterministic replay) or an int >= 1 "
+                "second (fail closed)"
+            )
+        return int(v)
+
 
 #: Regime vocabulary mapping (prediction RegimeEngine → mandate §19
 #: governed states). Documented, deterministic, total.
@@ -183,6 +247,45 @@ _REGIME_MAP = {
     "NORMAL": "RANGING",
     "UNKNOWN": "UNKNOWN",
 }
+
+
+#: Snapshot config-schema evolution registry (Batch 6, snapshot
+#: compatibility). ORDERED — each entry is one RuntimeConfig field
+#: added AFTER the config-digest formula went live, with the
+#: documentation section that introduced it. The runtime's identity
+#: digest covers the FULL config dump, so a schema addition changes
+#: the digest of an otherwise-unchanged session; this registry lets
+#: recovery distinguish "known additive evolution" (exact legacy
+#: digest recomputation / persisted config view — resumable under
+#: the explicit operator opt-in, ledgered loudly) from a true
+#: identity change (any SHARED-field value difference — always
+#: refused). FUTURE config additions MUST be appended here with
+#: their section marker, or restarts of pre-addition snapshots will
+#: correctly-but-opaquely refuse.
+SNAPSHOT_CONFIG_EVOLUTION = (
+    ("0H", "max_account_drawdown_fraction"),
+    ("0L", "max_feed_staleness_seconds"),
+    ("0L", "allow_snapshot_config_evolution"),
+)
+
+#: Field names of :data:`SNAPSHOT_CONFIG_EVOLUTION` (order-aware).
+_EVOLUTION_FIELDS = tuple(f for _, f in SNAPSHOT_CONFIG_EVOLUTION)
+
+
+def _config_digest(config_view: Mapping) -> str:
+    """The identity digest of a config view (BLOCKER 21).
+
+    Pure function of the declared config fields — the SAME formula
+    since the digest went live (never changed, so digests computed
+    by any historical code version remain reproducible).
+    """
+    return prefixed_hash(
+        "rtcfg.",
+        {
+            "kind": "runtime_config_identity",
+            "config": dict(config_view),
+        },
+    )
 
 
 class BarOutcome(BaseModel):
@@ -222,6 +325,7 @@ class TradingRuntime:
         readiness_gate: Optional[PaperReadinessGate] = None,
         rl_policy: Optional[GovernedRLPolicy] = None,
         mac_custody=None,
+        wall_clock=None,
     ) -> None:
         if config is None or ensemble is None:
             raise RuntimeContractError(
@@ -306,8 +410,20 @@ class TradingRuntime:
         self._consecutive_bad_bars = 0
         self._session_start_equity = config.initial_equity
         self._equity_realized = Decimal("0")
-        self._entry_orders_by_symbol: dict = {}
         self._started_at: Optional[datetime] = None
+        # RUN-ST-1: injectable wall-clock seam for the in-session feed
+        # watchdog. The DEFAULT is the real wall clock; tests (and only
+        # tests) inject a deterministic clock. Wall-clock values are
+        # OBSERVABILITY/gating inputs ONLY (INV-01 discipline): they
+        # never enter identity hashes, ledger payloads or persisted
+        # state — the watchdog's LEDGER payload carries only the
+        # deterministic bar timestamp + configured limit.
+        if wall_clock is not None and not callable(wall_clock):
+            raise RuntimeContractError(
+                "wall_clock must be a callable returning a timezone-aware "
+                "datetime (watchdog seam, RUN-ST-1)"
+            )
+        self._wall_clock = wall_clock or (lambda: datetime.now(UTC))
         # Latency-aware pending-order bookkeeping: fills for orders
         # submitted on bar N happen on bars N+lag.. (never same-bar).
         self._order_fill_cursor: dict = {}   # order_id -> next bar index
@@ -315,6 +431,32 @@ class TradingRuntime:
         self._pending_exits: dict = {}       # symbol -> (order_id, reason, snapshot)
         self._restarted = False              # True after state restoration
         self._restored_runtime_state = None  # persisted operating state
+        # Batch 6 (snapshot compat): pending evolution incident — set
+        # during identity verification when the operator opted into an
+        # evolved-config snapshot; recorded after ledger restoration.
+        self._snapshot_config_evolved = None
+        # PAPER-RUN-PNL-1: in-memory day-anchor memo (UTC date ->
+        # day-start account equity). This is a PURE DETERMINISM CACHE —
+        # the anchor is a pure function of persisted state (bars +
+        # OMS fills) and is recomputed identically after restart; it
+        # is therefore deliberately NOT part of the persisted
+        # execution-state schema.
+        self._day_anchor_cache = None
+        # RUN-DD-1: in-memory high-water-mark memo —
+        # (admitted-bar count, OMS-fill count) -> peak equity. PURE
+        # DETERMINISM CACHE: the peak is a pure function of persisted
+        # state (bars + OMS fills) and is replayed identically after a
+        # restart; it is therefore deliberately NOT part of the
+        # persisted execution-state schema (same discipline as the
+        # day-anchor memo above).
+        self._dd_peak_cache = None
+        # Batch 5 (Phase M2 completion): the broker-neutral execution
+        # venue bound to the AUTHORITATIVE order path. None = the
+        # runtime's internal paper execution path (the default; zero
+        # behavioural change). Bound ONLY via
+        # ``attach_authoritative_paper_venue`` (the runtime-package
+        # seam) — never directly.
+        self._venue = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -334,6 +476,13 @@ class TradingRuntime:
     @property
     def kill_switch(self) -> KillSwitchManager:
         return self._kill_switch
+
+    @property
+    def risk_gate(self) -> RiskGate:
+        """The authoritative 22-check risk gate (Phase M2 integration
+        seam — the broker-neutral session's injectable central risk
+        gate binds to THIS instance, never a copy)."""
+        return self._risk_gate
 
     @property
     def memory(self) -> TradingMemory:
@@ -356,6 +505,27 @@ class TradingRuntime:
     @property
     def config(self) -> RuntimeConfig:
         return self._config
+
+    @property
+    def venue(self):
+        """The broker-neutral execution venue bound to the
+        authoritative order path (None = the runtime's internal paper
+        execution path — the default)."""
+        return self._venue
+
+    def _bind_authoritative_venue(self, venue) -> None:
+        """Runtime-package seam: bind the authoritative venue (called
+        ONLY by ``attach_authoritative_paper_venue`` after its
+        fail-closed construction checks)."""
+        if self._venue is not None:
+            raise RuntimeContractError(
+                "an authoritative venue is already bound to this runtime"
+            )
+        if venue is None:
+            raise RuntimeContractError(
+                "the authoritative venue seam cannot be None"
+            )
+        self._venue = venue
 
     def start(self) -> None:
         """INIT → RUNNING through the AUTHORITATIVE fail-closed chain.
@@ -499,6 +669,29 @@ class TradingRuntime:
                 "(BLOCKER 12)"
             )
 
+        # -- 5b. persisted HALTED is TERMINAL (RUN-HALT-1) ---------------
+        # HALT is the terminal safe stop (operator action or
+        # persistence failure). A restart must NEVER silently resume
+        # a halted session into RUNNING: the terminal state is
+        # restored, bars are refused, and trading requires a NEW
+        # session. (Placed AFTER the critical-switch check so a
+        # critical switch still raises the LOUD refusal.)
+        if self._restored_runtime_state == "HALTED":
+            self._state = RuntimeState.HALTED
+            self._ledgers.record(
+                ledger="incident",
+                event_type="RUNTIME_RESUMED_HALTED",
+                correlation_id=f"session:{self._config.session_id}",
+                actor="runtime",
+                payload={
+                    "reason": "persisted runtime state was HALTED — "
+                              "restart never resumes a terminal safe stop",
+                    "action": "restored as HALTED (bars refused); begin "
+                              "a new session to trade again",
+                },
+            )
+            return
+
         self._state = RuntimeState.RUNNING
         self._started_at = datetime.now(UTC)
         self._ledgers.record(
@@ -555,6 +748,477 @@ class TradingRuntime:
             self._persist_safe(f"kill-switch:{scope.value}:{target or '*'}")
 
     # ------------------------------------------------------------------
+    # RUN-CA-1: operator cancel / manual close (audited, fail-closed)
+    # ------------------------------------------------------------------
+    #: States in which operator cancellation is permitted: cancelling
+    #: a pending order REMOVES exposure risk, so it stays available
+    #: under HALT (the terminal safe stop) and DEGRADED. The §28
+    #: ambiguous/unknown states (EXECUTION_UNCERTAIN, RECOVERY_
+    #: REQUIRED, RECONCILIATION_REQUIRED) refuse — reconcile FIRST;
+    #: INIT refuses (runtime not started).
+    _OPERATOR_CANCEL_STATES = (
+        RuntimeState.RUNNING,
+        RuntimeState.DEGRADED,
+        RuntimeState.HALTED,
+    )
+
+    def operator_cancel_order(
+        self, order_id: str, *, reason: str,
+        correlation_id: Optional[str] = None,
+    ) -> dict:
+        """Cancel ONE live order as an explicit operator action.
+
+        Fail-closed contract (RUN-CA-1):
+
+        - the order must EXIST (unknown id ⇒ loud refusal, never a
+          silent no-op);
+        - the order must be LIVE (SUBMITTED/ACKNOWLEDGED/
+          PARTIALLY_FILLED — a terminal order has nothing to cancel);
+        - the runtime must be in an operator-cancel-permitted state
+          (§28 ambiguity states refuse: reconcile first);
+        - the cancellation goes through the REAL OMS transition pair
+          (request_cancel → finalize_cancel; a partially-filled
+          order keeps its filled part, only the remainder cancels)
+          and, with a venue attached, through the venue boundary
+          (journal-synced venue truth) — exactly the kill-switch
+          fill-time cancellation discipline;
+        - the incident is ledgered (``ORDER_CANCELLED_OPERATOR``),
+          counted (``orders_operator_cancelled``) and persisted
+          immediately (BLOCKER 12).
+
+        Returns a summary mapping (order id, status, filled and
+        cancelled quantities).
+        """
+        if not isinstance(order_id, str) or not order_id.strip():
+            raise RuntimeContractError(
+                "operator cancel requires a non-empty order id"
+            )
+        if not isinstance(reason, str) or not reason.strip():
+            raise RuntimeContractError(
+                "operator cancel requires a non-empty reason "
+                "(audited operator action)"
+            )
+        corr = correlation_id or f"operator-cancel:{order_id}"
+        if self._state not in self._OPERATOR_CANCEL_STATES:
+            raise RuntimeContractError(
+                f"operator cancel refused in state {self._state.value} "
+                "— reconcile/recover the runtime first (§28: an "
+                "ambiguous execution state is resolved from venue "
+                "truth, never by cancelling into the ambiguity; fail "
+                "closed)"
+            )
+        try:
+            order = self._oms.order(order_id)
+        except Exception as exc:
+            raise RuntimeContractError(
+                f"operator cancel refused: unknown order {order_id!r} "
+                f"(the OMS never held it)"
+            ) from exc
+        if order.status not in (
+            OrderLifecycle.SUBMITTED, OrderLifecycle.ACKNOWLEDGED,
+            OrderLifecycle.PARTIALLY_FILLED,
+        ):
+            raise RuntimeContractError(
+                f"operator cancel refused: order {order_id} is "
+                f"terminal ({order.status.value}) — nothing to cancel"
+            )
+        if self._venue is not None:
+            self._venue.cancel_order(order_id, corr, f"operator: {reason}")
+        self._oms.request_cancel(order_id)
+        cancelled = self._oms.finalize_cancel(order_id)
+        self._pending_protection.pop(order_id, None)
+        for symbol, (oid, _, _) in list(self._pending_exits.items()):
+            if oid == order_id:
+                # the cancelled order WAS the in-flight exit — the
+                # protection loop may re-evaluate on the next bar.
+                self._pending_exits.pop(symbol, None)
+        self._metrics.increment("orders_operator_cancelled")
+        self._ledgers.record(
+            ledger="incident",
+            event_type="ORDER_CANCELLED_OPERATOR",
+            correlation_id=corr,
+            actor="runtime.operator",
+            payload={
+                "order_id": order_id,
+                "symbol": order.symbol,
+                "reason": reason.strip(),
+                "filled_quantity": str(cancelled.filled_quantity),
+                "cancelled_quantity": str(cancelled.remaining_quantity),
+                "action": (
+                    "operator cancellation through the real OMS "
+                    "transition pair (+ venue boundary when attached); "
+                    "the filled part of a partially-filled order stays"
+                ),
+            },
+        )
+        self._persist_safe(corr)
+        return {
+            "order_id": order_id,
+            "status": cancelled.status.value,
+            "filled_quantity": str(cancelled.filled_quantity),
+            "cancelled_quantity": str(cancelled.remaining_quantity),
+        }
+
+    def operator_close_position(
+        self, symbol: Optional[str] = None, *, reason: str,
+        correlation_id: Optional[str] = None,
+    ) -> dict:
+        """Close (liquidate) the live position as an explicit
+        operator action (RUN-CA-1).
+
+        Fail-closed contract:
+
+        - the position must exist and be NON-FLAT (a flat/missing
+          position is a loud refusal, never a silent no-op);
+        - RUNNING: a MANUAL_CLOSE order is built and submitted through
+          the AUTHORITATIVE gate→OMS path (the risk gate's closing
+          carve-outs apply — kill switch / account drawdown do not
+          block risk REDUCTION); it settles on LATER bars through the
+          normal latency/fill model (identical paper semantics to a
+          protective exit);
+        - HALTED: bars are refused, so a submitted order could never
+          fill — instead the close settles IMMEDIATELY at the latest
+          admitted bar (open ± half spread, commission per unit),
+          through the ONE authoritative fill-application path, with
+          every live order for the symbol cancelled first (frozen
+          protection included). This is the operator escape hatch
+          for the post-HALT frozen-exits condition;
+        - every other non-trading state (INIT/DEGRADED/
+          RECONCILIATION_REQUIRED/RECOVERY_REQUIRED/EXECUTION_
+          UNCERTAIN) refuses — reconcile/recover first (fail closed);
+        - both modes ledger their incidents and persist immediately
+          (BLOCKER 12); neither can ADD exposure (closing-only).
+
+        Returns a summary mapping (mode, order id, quantities).
+        """
+        sym = symbol if symbol is not None else self._config.symbol
+        if not isinstance(sym, str) or not sym.strip():
+            raise RuntimeContractError(
+                "manual close requires a non-empty symbol"
+            )
+        if not isinstance(reason, str) or not reason.strip():
+            raise RuntimeContractError(
+                "manual close requires a non-empty reason "
+                "(audited operator action)"
+            )
+        corr = correlation_id or f"operator-close:{sym}"
+        position = self._positions.get(sym)
+        if position is None or position.is_flat:
+            raise RuntimeContractError(
+                f"manual close refused: no live position for {sym!r} "
+                "(flat or never opened — nothing to close)"
+            )
+        if not self._bars:
+            raise RuntimeContractError(
+                "manual close refused: no admitted bars — no reference "
+                "mark exists (fail closed)"
+            )
+        latest_bar = self._bars[-1]
+        reference = Decimal(str(latest_bar["close"]))
+        if self._state is RuntimeState.RUNNING:
+            return self._operator_close_submitted(
+                sym, position, latest_bar, reference, reason, corr,
+            )
+        if self._state is RuntimeState.HALTED:
+            return self._operator_close_settled(
+                sym, position, latest_bar, reference, reason, corr,
+            )
+        raise RuntimeContractError(
+            f"manual close refused in state {self._state.value} — "
+            "reconcile/recover the runtime first (fail closed; only "
+            "RUNNING (normal submission) and HALTED (immediate "
+            "operator settlement) permit manual close)"
+        )
+
+    def _operator_close_submitted(
+        self, symbol, position, latest_bar, reference, reason, corr,
+    ) -> dict:
+        """RUNNING manual close: authoritative submission, normal
+        bar-path settlement (latency model, exactly the protective-
+        exit semantics — just operator-initiated)."""
+        plan = self._build_close_plan(
+            position, ExitReason.MANUAL_CLOSE, latest_bar, corr,
+            detail=f"operator manual close: {reason.strip()}",
+        )
+        if plan is None:
+            raise RuntimeContractError(
+                "manual close refused: the plan builder declined the "
+                "closing plan (position geometry unverifiable — fail "
+                "closed)"
+            )
+        created, failed = self._execute_plan(
+            plan, latest_bar, self._bar_index, corr,
+            reference, self._current_equity(reference),
+        )
+        if not created:
+            raise RuntimeContractError(
+                "manual close refused by the risk gate: "
+                + ", ".join(sorted(set(failed)))
+                + " (fail closed — no override path exists)"
+            )
+        order = created[0]
+        self._metrics.increment("orders_operator_close_submitted")
+        self._ledgers.record(
+            ledger="incident",
+            event_type="ORDER_MANUAL_CLOSE_SUBMITTED",
+            correlation_id=corr,
+            actor="runtime.operator",
+            payload={
+                "order_id": order.order_id,
+                "symbol": symbol,
+                "quantity": str(order.quantity),
+                "reason": reason.strip(),
+                "action": (
+                    "operator manual close submitted through the "
+                    "authoritative gate→OMS path; settles on later "
+                    "bars through the normal latency/fill model"
+                ),
+            },
+        )
+        self._persist_safe(corr)
+        return {
+            "mode": "submitted",
+            "order_id": order.order_id,
+            "quantity": str(order.quantity),
+            "status": order.status.value,
+        }
+
+    def _operator_close_settled(
+        self, symbol, position, latest_bar, reference, reason, corr,
+    ) -> dict:
+        """HALTED manual close: IMMEDIATE settlement at the latest
+        admitted bar (the operator escape hatch — bars are refused
+        under HALT, so a submitted order could never fill).
+
+        The settlement is loud and exactly-once: every LIVE order for
+        the symbol is cancelled first (frozen protection included),
+        the closing order is created through the real OMS chain
+        (create → validate → risk_approve → submit → acknowledge —
+        the gate runs with the closing carve-outs), and ONE full
+        MARKET fill at ``open ± half_spread`` (adverse side) applies
+        through ``_apply_execution_fills`` — the same authoritative
+        OMS → position → P&L path every fill uses. With a venue
+        attached the order is deliberately NOT submitted to the venue
+        (the venue refuses non-RUNNING runtimes by design); the
+        incident records that venue truth was not consulted and the
+        venue book is not updated — an explicitly operator-owned
+        out-of-band settlement, never a hidden direct-execution
+        fallback in the NORMAL path.
+        """
+        # 1. cancel every live order for the symbol (frozen
+        #    protection, stale entries — all purposeless post-close).
+        for live in list(self._oms.live_orders()):
+            if live.symbol != symbol:
+                continue
+            if self._venue is not None:
+                self._venue.cancel_order(
+                    live.order_id, corr,
+                    f"operator manual close of {symbol}",
+                )
+            self._oms.request_cancel(live.order_id)
+            self._oms.finalize_cancel(live.order_id)
+            self._pending_protection.pop(live.order_id, None)
+        self._pending_exits.pop(symbol, None)
+
+        # 2. build + risk-gate the closing plan (closing carve-outs
+        #    apply; a failure is a loud refusal, never a bypass).
+        plan = self._build_close_plan(
+            position, ExitReason.MANUAL_CLOSE, latest_bar, corr,
+            detail=f"operator manual close (HALT settlement): "
+                   f"{reason.strip()}",
+        )
+        if plan is None:
+            raise RuntimeContractError(
+                "manual close refused: the plan builder declined the "
+                "closing plan (position geometry unverifiable — fail "
+                "closed)"
+            )
+        context = RiskContext(
+            equity=self._current_equity(reference),
+            current_units=position.quantity,
+            reference_price=reference,
+            bar_volume=Decimal(str(latest_bar.get("volume") or 0)),
+            last_bar_age_bars=0,
+            market_open=True,
+            paper_mode=True,
+            model_valid=True,
+            uncertainty=plan.uncertainty,
+            crash_probability=0.0,
+            max_drawdown_fraction=self._window_drawdown(),
+            account_drawdown_fraction=self._account_drawdown(),
+            account_drawdown_limit_fraction=(
+                self._config.max_account_drawdown_fraction
+            ),
+            volatility=self._window_volatility(),
+            max_volatility=0.10,
+            daily_realized_return=self._daily_realized_return(),
+            half_spread=self._realism.half_spread,
+        )
+        assessment = self._risk_gate.evaluate(
+            plan, context, corr, ledger=self._ledgers,
+            assessed_at=latest_bar.get("timestamp"),
+        )
+        if not assessment.passed:
+            raise RuntimeContractError(
+                "manual close refused by the risk gate: "
+                + ", ".join(
+                    sorted({c.check for c in assessment.failed_checks})
+                )
+                + " (fail closed — no override path exists)"
+            )
+
+        # 3. create the order through the real OMS chain.
+        order, created = self._oms.create_order(
+            plan=plan,
+            session_id=self._config.session_id,
+            created_at=latest_bar.get("timestamp") or datetime.now(UTC),
+            ttl_bars=plan.entry.ttl_bars,
+        )
+        if not created:
+            raise RuntimeContractError(
+                "manual close refused: duplicate order intent "
+                "(a live manual-close order already exists — fail "
+                "closed)"
+            )
+        self._metrics.increment("orders_created")
+        self._oms.validate_order(order.order_id)
+        self._oms.risk_approve(order.order_id, assessment)
+        self._oms.submit(
+            order.order_id,
+            submitted_at=latest_bar.get("timestamp"),
+            bar_index=self._bar_index,
+        )
+        self._oms.acknowledge(order.order_id)
+
+        # 4. ONE immediate full MARKET fill at the latest admitted
+        #    bar's open, adverse half spread applied (deterministic:
+        #    bar-derived, never wall-clock — restart-stable).
+        bar_ts = latest_bar.get("timestamp")
+        if bar_ts is None or getattr(bar_ts, "tzinfo", None) is None:
+            raise RuntimeContractError(
+                "manual close refused: the latest admitted bar lacks "
+                "a timezone-aware timestamp — no provable settlement "
+                "mark (fail closed)"
+            )
+        open_ = Decimal(str(latest_bar["open"]))
+        if order.side == "SELL":
+            price = open_ - self._realism.half_spread
+        else:
+            price = open_ + self._realism.half_spread
+        qty = order.quantity
+        commission = self._realism.commission_per_unit * qty
+        fill = RuntimeFill(
+            fill_id="pending",
+            order_id=order.order_id,
+            symbol=order.symbol,
+            side=order.side,
+            quantity=qty,
+            price=price,
+            commission=commission,
+            slippage_cost=Decimal("0"),
+            spread_cost=self._realism.half_spread,
+            filled_at=bar_ts,
+            fill_index=0,
+            bar_index=self._bar_index,
+        )
+        fill = fill.model_copy(update={"fill_id": fill.fill_hash})
+        self._apply_execution_fills(order, [fill], corr, [])
+        self._reconcile_after_fills(corr)
+
+        self._metrics.increment("orders_operator_closed")
+        self._ledgers.record(
+            ledger="incident",
+            event_type="OPERATOR_MANUAL_CLOSE",
+            correlation_id=corr,
+            actor="runtime.operator",
+            payload={
+                "order_id": order.order_id,
+                "symbol": symbol,
+                "quantity": str(qty),
+                "price": str(price),
+                "reason": reason.strip(),
+                "venue": (
+                    "not-consulted (venue refuses non-RUNNING runtimes "
+                    "by design; operator-owned out-of-band settlement "
+                    "— venue book NOT updated)"
+                    if self._venue is not None else "none-attached"
+                ),
+                "action": (
+                    "immediate settlement at the latest admitted bar "
+                    "(terminal HALT — bars are refused, so normal "
+                    "latency settlement is impossible); one full "
+                    "MARKET fill through the authoritative "
+                    "OMS→position→P&L path"
+                ),
+            },
+        )
+        self._persist_safe(corr)
+        return {
+            "mode": "settled",
+            "order_id": order.order_id,
+            "quantity": str(qty),
+            "price": str(price),
+            "status": self._oms.order(order.order_id).status.value,
+        }
+
+    def _build_close_plan(
+        self, position, reason: ExitReason, bar: Mapping,
+        correlation_id: str, detail: str,
+    ):
+        """Build the MANUAL_CLOSE plan (the _build_exit_plan geometry
+        with an operator-authored reason detail)."""
+        decision = Decision(
+            decision_id=prefixed_hash(
+                "rtdec.",
+                {"kind": "manual_close", "reason": reason.value,
+                 "position": position.position_id,
+                 "detail": detail},
+            ),
+            action=DecisionAction.CLOSE,
+            symbol=position.symbol,
+            timestamp=bar["timestamp"],
+            prediction_ids=("operator-manual-close",),
+            model_versions=("runtime.operator",),
+            uncertainty=UncertaintyReport(
+                confidence=1.0, entropy=0.0, ensemble_disagreement=0.0
+            ),
+            regime="EXIT",
+            crash_risk={"probability": 0.0},
+            portfolio_state={"position_quantity": str(position.quantity)},
+            reason=detail,
+            rejected_alternatives=(),
+            correlation_id=correlation_id,
+        )
+        reference = Decimal(str(bar["close"]))
+        artifact = PredictionArtifact(
+            prediction_id=f"manual-close-{reason.value.lower()}",
+            symbol=position.symbol,
+            horizon=1,
+            timestamp=bar["timestamp"],
+            prediction="EXIT",
+            probability=1.0,
+            expected_return=0.0,
+            volatility=0.01,
+            uncertainty=UncertaintyReport(
+                confidence=1.0, entropy=0.0, ensemble_disagreement=0.0
+            ),
+            model_versions=("runtime.operator",),
+            feature_version=self._config.feature_version,
+            dataset_version=self._config.dataset_version,
+            regime="EXIT",
+            crash_risk={"probability": 0.0},
+            provenance={"origin": "operator_manual_close"},
+            correlation_id=correlation_id,
+        )
+        return self._plan_builder.build(
+            decision=decision,
+            artifact=artifact,
+            reference_price=reference,
+            equity=self._current_equity(reference),
+            position_quantity=position.quantity,
+        )
+
+    # ------------------------------------------------------------------
     # Recovery (BLOCKER 4/5/6/9/12/13/20 — integrated, not standalone)
     # ------------------------------------------------------------------
     def _identity_block(self) -> dict:
@@ -577,12 +1241,8 @@ class TradingRuntime:
                 "seed": art.seed,
                 "weight": round(float(weight), 12),
             })
-        config_digest = prefixed_hash(
-            "rtcfg.",
-            {
-                "kind": "runtime_config_identity",
-                "config": self._config.model_dump(mode="json"),
-            },
+        config_digest = _config_digest(
+            self._config.model_dump(mode="json")
         )
         return {
             "contract_version": RUNTIME_CONTRACT_VERSION,
@@ -590,6 +1250,14 @@ class TradingRuntime:
             "symbol": self._config.symbol,
             "timeframe": self._config.timeframe,
             "config_digest": config_digest,
+            # Batch 6 (snapshot compat): the EXACT config view the
+            # digest was computed over — persisted so that FUTURE
+            # schema evolution can decompose a digest mismatch
+            # field-by-field (shared-field change vs additive
+            # evolution) instead of the legacy suffix-recomputation.
+            # Opaque to the execution-state schema (identity is a
+            # validated mapping; version 1.1.0 unchanged).
+            "config": self._config.model_dump(mode="json"),
             "ensemble_members": members,
             "calibrator": (
                 {
@@ -601,6 +1269,73 @@ class TradingRuntime:
                 if self._calibrator is not None else None
             ),
         }
+
+    def _config_evolution_match(
+        self, persisted_identity: Mapping
+    ) -> Optional[tuple]:
+        """Decompose a config-digest mismatch into KNOWN additive
+        schema evolution (Batch 6, snapshot compat).
+
+        Returns the tuple of evolution field names the snapshot is
+        BEHIND (a non-empty suffix of ``SNAPSHOT_CONFIG_EVOLUTION``)
+        when the persisted identity is EXACTLY the current config
+        minus those additions; ``None`` for any true identity change
+        (shared-field value difference, removed field, foreign or
+        tampered identity — fail closed, never guessed).
+
+        Two decomposition paths, most-exact first:
+
+        1. The snapshot persists its config view (Batch 6+): compare
+           field-by-field — every shared field must be EQUAL, nothing
+           may be removed, and the missing fields must be exactly
+           known evolution additions. The persisted digest itself is
+           re-verified against the persisted view (tamper evidence).
+        2. Legacy snapshots (no config view): recompute the digest of
+           the current config minus each trailing k evolution fields;
+           an exact match proves the snapshot's config equals the
+           current config minus those k additions.
+        """
+        persisted_digest = persisted_identity.get("config_digest")
+        if not isinstance(persisted_digest, str) or not persisted_digest:
+            return None
+        current = self._config.model_dump(mode="json")
+        persisted_cfg = persisted_identity.get("config")
+
+        if isinstance(persisted_cfg, dict) and persisted_cfg:
+            # Path 1 — exact field-wise decomposition.
+            if _config_digest(persisted_cfg) != persisted_digest:
+                return None  # digest/view inconsistency — tampered
+            shared_diff = sorted(
+                k for k, v in persisted_cfg.items()
+                if k in current and current[k] != v
+            )
+            removed = sorted(
+                k for k in persisted_cfg if k not in current
+            )
+            if shared_diff or removed:
+                return None  # a real identity change, not evolution
+            added = tuple(
+                f for f in _EVOLUTION_FIELDS
+                if f not in persisted_cfg and f in current
+            )
+            missing_unknown = sorted(
+                k for k, v in current.items()
+                if k not in persisted_cfg and k not in _EVOLUTION_FIELDS
+            )
+            if missing_unknown:
+                return None  # undeclared schema drift — refuse
+            return added if added else None
+
+        # Path 2 — legacy suffix-strip recomputation (pre-Batch-6
+        # snapshots: identity holds only the digest).
+        for k in range(len(_EVOLUTION_FIELDS), 0, -1):
+            legacy_view = {
+                f: v for f, v in current.items()
+                if f not in set(_EVOLUTION_FIELDS[len(_EVOLUTION_FIELDS) - k:])
+            }
+            if _config_digest(legacy_view) == persisted_digest:
+                return _EVOLUTION_FIELDS[len(_EVOLUTION_FIELDS) - k:]
+        return None
 
     def _recover_existing_state(self) -> None:
         """BLOCKER 4: the ACTUAL runtime recovery path.
@@ -650,13 +1385,42 @@ class TradingRuntime:
         current_identity = self._identity_block()
         if persisted_identity.get("config_digest") != \
                 current_identity["config_digest"]:
-            self._state = RuntimeState.RECOVERY_REQUIRED
-            raise RuntimeContractError(
-                "START REFUSED — persisted state belongs to a DIFFERENT "
-                "config/session/model identity (config_digest mismatch); "
-                "the runtime never silently continues under another "
-                "identity (BLOCKER 21)"
-            )
+            # Batch 6 (snapshot compat): distinguish KNOWN additive
+            # config-schema evolution from a true identity change
+            # before refusing. A mismatch that decomposes EXACTLY
+            # into the documented evolution (SNAPSHOT_CONFIG_
+            # EVOLUTION) is resumable ONLY under the explicit
+            # operator opt-in — and is ledgered loudly on resume;
+            # everything else (any shared-field value difference)
+            # remains the hard BLOCKER 21 refusal.
+            evolved = self._config_evolution_match(persisted_identity)
+            if evolved is not None:
+                if not self._config.allow_snapshot_config_evolution:
+                    self._state = RuntimeState.RECOVERY_REQUIRED
+                    raise RuntimeContractError(
+                        "START REFUSED — config schema evolved since "
+                        "this snapshot was persisted (added fields: "
+                        + ", ".join(evolved)
+                        + "); the snapshot is otherwise THIS session's "
+                        "identity. Resume requires the explicit "
+                        "operator opt-in "
+                        "(RuntimeConfig.allow_snapshot_config_evolution="
+                        "True); the runtime never silently continues "
+                        "under evolved risk semantics (fail closed)"
+                    )
+                # Deferred: the incident is recorded AFTER the ledger
+                # chains are restored (recording now would write into
+                # the fresh in-memory ledger that restore_state is
+                # about to replace — the event would be lost).
+                self._snapshot_config_evolved = evolved
+            else:
+                self._state = RuntimeState.RECOVERY_REQUIRED
+                raise RuntimeContractError(
+                    "START REFUSED — persisted state belongs to a DIFFERENT "
+                    "config/session/model identity (config_digest mismatch); "
+                    "the runtime never silently continues under another "
+                    "identity (BLOCKER 21)"
+                )
         if persisted_identity.get("session_id") != self._config.session_id:
             self._state = RuntimeState.RECOVERY_REQUIRED
             raise RuntimeContractError(
@@ -698,6 +1462,34 @@ class TradingRuntime:
                 "START REFUSED — RECOVERY_REQUIRED: restored ledger heads "
                 "differ from the persisted heads (chain reconstruction "
                 "failed)"
+            )
+
+        # -- SNAPSHOT CONFIG EVOLUTION (Batch 6): the operator opted in
+        # to resuming an evolved-config snapshot — ledger it LOUDLY now
+        # that the authoritative ledger chains are restored (the
+        # incident joins the session's permanent audit trail).
+        if self._snapshot_config_evolved:
+            evolved = self._snapshot_config_evolved
+            self._snapshot_config_evolved = None
+            self._ledgers.record(
+                ledger="incident",
+                event_type="SNAPSHOT_CONFIG_EVOLVED",
+                correlation_id=(
+                    f"session:{self._config.session_id}"
+                ),
+                actor="runtime.recovery",
+                payload={
+                    "added_fields": {
+                        f: self._config.model_dump(mode="json")[f]
+                        for f in evolved
+                    },
+                    "action": (
+                        "operator-authorized resume under an evolved "
+                        "config schema; the new fields' limits apply "
+                        "prospectively from this restart (ledgered, "
+                        "never silent)"
+                    ),
+                },
             )
 
         # -- RESTORE memory -------------------------------------------------
@@ -875,12 +1667,40 @@ class TradingRuntime:
         orders_created: list = []
         risk_failed: tuple = ()
 
+        # -- 2b. ACCOUNT-equity drawdown enforcement (RUN-DD-1) ------------
+        # Evaluated AFTER this bar's fills and BEFORE any new decision:
+        # both fill-driven and price-driven breaches are caught at the
+        # first bar where they exist. A strict breach trips the ACCOUNT
+        # kill switch and HALTS the session terminally; closing orders
+        # submitted later in THIS bar remain permitted (risk-reduction
+        # carve-out) and every FOLLOWING bar is refused (HALTED).
+        self._enforce_account_drawdown(idx, correlation_id)
+
         # -- 3. TTL expiry for live orders (§39) ----------------------------
         for order in list(self._oms.live_orders()):
-            self._oms.expire_if_elapsed(order.order_id, idx)
+            expired = self._oms.expire_if_elapsed(order.order_id, idx)
+            if expired is not None and self._venue is not None:
+                # Batch 5: keep venue truth consistent with the OMS
+                # expiry (journal-synced cancellation; failures are
+                # ledgered and surface at the next reconciliation).
+                self._venue.cancel_order(
+                    order.order_id, correlation_id, "ttl expiry"
+                )
 
         # -- 4. record exits for completed exit orders (§31) -----------------
         exits = self._record_completed_exits(bar, correlation_id)
+
+        # -- 4b. in-session wall-clock feed watchdog (RUN-ST-1) --------------
+        # Everything above (fills, drawdown enforcement, TTL expiry,
+        # completed exits) ran UNCONDITIONALLY: the watchdog blocks
+        # NEW EXPOSURE, never in-flight settlement, protective
+        # action or accounting. A stale bar is admitted and persisted
+        # like any accepted bar; only the prediction/decision/entry
+        # chain is skipped until the feed catches up (fail closed).
+        if self._feed_is_stale(bar):
+            return self._stale_bar(
+                idx, correlation_id, ts, bar, bar_fills, exits
+            )
 
         # -- 5. PIT sequence construction ----------------------------------
         cutoff = ts
@@ -1101,10 +1921,12 @@ class TradingRuntime:
         # -- 9. protective exits for positions from EARLIER bars (§31) -------
         # Positions entered on THIS bar evaluate protection from the
         # next bar onward (never intra-entry-bar lookahead).
-        exit_orders = self._submit_protection_exits(
+        # RUN-OBS-1: exit-path risk failures surface in the outcome.
+        exit_orders, exit_failed = self._submit_protection_exits(
             bar, idx, correlation_id, crash
         )
         orders_created.extend(exit_orders)
+        risk_failed = risk_failed + exit_failed
 
         # -- 10. reconciliation after any fills (RT-F2) ------------------------
         if bar_fills:
@@ -1292,6 +2114,10 @@ class TradingRuntime:
             crash_probability=float(plan.crash_risk.get("probability", 1.0)),
             max_acceptable_crash_probability=self._config.max_crash_probability,
             max_drawdown_fraction=self._window_drawdown(),
+            account_drawdown_fraction=self._account_drawdown(),
+            account_drawdown_limit_fraction=(
+                self._config.max_account_drawdown_fraction
+            ),
             volatility=self._window_volatility(),
             max_volatility=0.10,
             daily_realized_return=self._daily_realized_return(),
@@ -1321,6 +2147,98 @@ class TradingRuntime:
         self._metrics.increment("orders_created")
         self._oms.validate_order(order.order_id)
         self._oms.risk_approve(order.order_id, assessment)
+        # -- Batch 5 (Phase M2 completion): the AUTHORITATIVE venue
+        # boundary. With a venue attached, the risk-approved order is
+        # submitted through the guarded BrokerSession pipeline (ONE
+        # submission path — no hidden direct-execution fallback) and
+        # fills EXCLUSIVELY from venue polls in
+        # ``_process_pending_orders``. Sequenced BETWEEN risk approval
+        # and OMS submission so a definitive venue refusal REJECTS the
+        # order (RISK_APPROVED -> REJECTED, ledgered) and an ambiguous
+        # outcome marks it UNKNOWN + RECONCILING (§28 — never an
+        # inferred failure).
+        if self._venue is not None:
+            from data_engine.runtime.broker_execution import (
+                VenueSubmissionRefused as _Refused,
+                VenueSubmissionUncertain as _Uncertain,
+            )
+            block_reason = self._venue.submission_block_reason()
+            if block_reason is not None:
+                self._oms.reject_order(
+                    order.order_id,
+                    f"venue submission blocked: {block_reason}",
+                )
+                self._metrics.increment("orders_venue_refused")
+                self._ledgers.record(
+                    ledger="incident",
+                    event_type="VENUE_SUBMISSION_BLOCKED",
+                    correlation_id=correlation_id,
+                    actor="runtime.execution",
+                    payload={
+                        "order_id": order.order_id,
+                        "reason": block_reason,
+                        "action": (
+                            "order rejected — the venue refuses new "
+                            "submissions while degraded/unhealthy "
+                            "(fail closed)"
+                        ),
+                    },
+                )
+                return [], (block_reason,)
+            signed_units = plan.quantity if plan.side.value == "BUY" \
+                else -plan.quantity
+            reduce_only = position.quantity != 0 and (
+                (position.quantity > 0) != (signed_units > 0)
+            ) and abs(signed_units) <= abs(position.quantity)
+            try:
+                self._venue.submit_order(
+                    order, reduce_only=reduce_only,
+                    correlation_id=correlation_id,
+                )
+                self._metrics.increment("orders_venue_submitted")
+            except _Refused as exc:
+                self._oms.reject_order(
+                    order.order_id,
+                    f"venue refused ({exc.reason_code}): {exc}",
+                )
+                self._metrics.increment("orders_venue_refused")
+                self._ledgers.record(
+                    ledger="incident",
+                    event_type="VENUE_SUBMISSION_REFUSED",
+                    correlation_id=correlation_id,
+                    actor="runtime.execution",
+                    payload={
+                        "order_id": order.order_id,
+                        "reason_code": exc.reason_code,
+                        "action": (
+                            "order rejected — the venue never saw it "
+                            "(definitive pre-venue refusal, fail closed)"
+                        ),
+                    },
+                )
+                return [], ()
+            except _Uncertain as exc:
+                # Ambiguous submission: the venue MAY hold a live
+                # order. NEVER infer failure from a lost ack —
+                # UNKNOWN + RECONCILING + EXECUTION_UNCERTAIN until
+                # reconciliation resolves from venue truth (§28).
+                self._oms.submit(
+                    order.order_id,
+                    submitted_at=bar["timestamp"],
+                    bar_index=bar_index,
+                )
+                self._oms.mark_unknown(
+                    order.order_id,
+                    f"venue submission outcome uncertain: {exc}",
+                )
+                self._oms.start_reconciling(order.order_id)
+                self._metrics.increment("orders_venue_unknown")
+                self._flag_execution_uncertain(
+                    f"venue submission outcome uncertain for order "
+                    f"{order.order_id}: {exc}",
+                    correlation_id,
+                )
+                return [], ()
         self._oms.submit(
             order.order_id,
             submitted_at=bar["timestamp"],
@@ -1350,6 +2268,13 @@ class TradingRuntime:
             source_event=fill.fill_id,
         )
         self._positions[fill.symbol] = updated
+        # PAPER-RUN-PNL-1: cumulative transaction-cost accumulator —
+        # OBSERVABILITY ONLY. These costs are ALREADY embedded exactly
+        # once in the position's average-cost basis / realized P&L by
+        # the authoritative PaperPosition core (paper/models.py
+        # price-inclusive basis). It must NEVER be subtracted from
+        # account equity again (RUN-EQ-1 double count) and is NOT a
+        # P&L measure (RUN-RL-1).
         self._equity_realized = (
             self._equity_realized + fill.commission + fill.slippage_cost
             + fill.spread_cost
@@ -1380,14 +2305,67 @@ class TradingRuntime:
         consumed (fill_index continues the order's numbering — no
         duplicate fill identities, no duplicate fills). Protective
         levels attach after the FIRST fill of an entry order.
+
+        Kill-switch enforcement at FILL time (RUN-KS-1/RUN-KS-2,
+        2026-10-12 audit): an in-flight order that would ADD
+        exposure is CANCELLED — never filled — while ANY governing
+        switch is active (SYMBOL/ORDER scope enforced here;
+        GLOBAL/ACCOUNT/PORTFOLIO additionally refuse the whole bar
+        through the operating-state guard). Risk-reducing EXIT
+        orders are exempt, mirroring the risk gate's documented
+        closing-order carve-out (the switch blocks NEW exposure,
+        not risk reduction).
         """
         fills: list = []
         from data_engine.runtime.contracts import OrderLifecycle as _LC
+        pending_exit_ids = {
+            oid for oid, _, _ in self._pending_exits.values()
+        }
         for order in list(self._oms.orders()):
             if order.status not in (
                 _LC.SUBMITTED, _LC.ACKNOWLEDGED, _LC.PARTIALLY_FILLED
             ):
                 continue
+            if order.order_id not in pending_exit_ids:
+                try:
+                    self._kill_switch.check(
+                        symbol=order.symbol, order_id=order.order_id,
+                    )
+                except KillSwitchActive as exc:
+                    # Fail closed: cancel the in-flight order (the
+                    # already-filled part of a partial order stays;
+                    # the remainder is cancelled) and ledger the
+                    # incident with the governing-switch description.
+                    # With a venue attached the cancellation goes
+                    # THROUGH the venue boundary (journal-synced venue
+                    # truth; failures ledgered, never silenced).
+                    if self._venue is not None:
+                        self._venue.cancel_order(
+                            order.order_id, correlation_id, str(exc)
+                        )
+                    self._oms.request_cancel(order.order_id)
+                    self._oms.finalize_cancel(order.order_id)
+                    self._pending_protection.pop(order.order_id, None)
+                    self._metrics.increment("orders_killswitch_cancelled")
+                    self._ledgers.record(
+                        ledger="incident",
+                        event_type="ORDER_CANCELLED_KILL_SWITCH",
+                        correlation_id=correlation_id,
+                        actor="runtime.execution",
+                        payload={
+                            "order_id": order.order_id,
+                            "symbol": order.symbol,
+                            "reason": str(exc),
+                            "filled_quantity": str(order.filled_quantity),
+                            "cancelled_quantity": str(
+                                order.remaining_quantity
+                            ),
+                            "action": "in-flight order cancelled — "
+                                      "governing kill switch active "
+                                      "before fill (fail closed)",
+                        },
+                    )
+                    continue
             if order.submitted_at_bar is None or order.submitted_at is None:
                 continue
             latency_start = order.submitted_at_bar + self._realism.fill_lag_bars
@@ -1398,19 +2376,27 @@ class TradingRuntime:
                 continue  # latency window not reached yet
             ttl_window = order.ttl_bars or self._config.ttl_bars
             try:
-                new_fills = self._execution.execute(
-                    order_id=order.order_id,
-                    symbol=order.symbol,
-                    side=order.side,
-                    order_type=order.order_type,
-                    quantity=order.remaining_quantity,
-                    bars=self._bars,
-                    submitted_at=order.submitted_at,
-                    limit_price=order.limit_price,
-                    max_bars=ttl_window,
-                    from_bar=cursor,
-                    start_index=len(order.fills),
-                )
+                if self._venue is not None:
+                    # Batch 5 (Phase M2 completion): fills come
+                    # EXCLUSIVELY from venue polls (journal-synced
+                    # venue truth; exactly-once delta).
+                    new_fills = self._venue.poll_order(
+                        order, correlation_id
+                    )
+                else:
+                    new_fills = self._execution.execute(
+                        order_id=order.order_id,
+                        symbol=order.symbol,
+                        side=order.side,
+                        order_type=order.order_type,
+                        quantity=order.remaining_quantity,
+                        bars=self._bars,
+                        submitted_at=order.submitted_at,
+                        limit_price=order.limit_price,
+                        max_bars=ttl_window,
+                        from_bar=cursor,
+                        start_index=len(order.fills),
+                    )
             except Exception as exc:
                 # Execution failure: mark the order UNKNOWN and
                 # reconcile-before-retry (mandate §28) — never
@@ -1432,44 +2418,172 @@ class TradingRuntime:
                     },
                 )
                 continue
-            for fill in new_fills:
-                self._oms.apply_fill(order.order_id, fill)
-                self._apply_fill_to_position(fill, correlation_id)
-                fills.append(fill)
-                self._metrics.increment("fills")
-                if order.remaining_quantity > 0:
-                    self._metrics.increment("partial_fill_events")
-                self._memory.record(
-                    MemoryCategory.EXECUTION,
-                    {"order_id": order.order_id, "fill_id": fill.fill_id,
-                     "quantity": str(fill.quantity), "price": str(fill.price),
-                     "correlation_id": correlation_id},
-                    correlation_id=correlation_id,
-                    at=fill.filled_at,
-                )
-            if new_fills:
-                self._order_fill_cursor[order.order_id] = (
-                    new_fills[-1].bar_index + 1
-                )
-                # Attach protective levels after the first entry fill.
-                protection = self._pending_protection.get(order.order_id)
-                if protection is not None:
-                    sl, tp, prot_corr = protection
-                    fresh = self._positions.get(
-                        order.symbol, PositionState(symbol=order.symbol)
-                    )
-                    if not fresh.is_flat:
-                        if sl is not None:
-                            fresh, _ = self._exit_manager.set_stop_loss(
-                                fresh, sl, prot_corr, fill.filled_at
-                            )
-                        if tp is not None:
-                            fresh, _ = self._exit_manager.set_take_profit(
-                                fresh, tp, prot_corr, fill.filled_at
-                            )
-                        self._positions[order.symbol] = fresh
-                        self._pending_protection.pop(order.order_id, None)
+            self._apply_execution_fills(
+                order, new_fills, correlation_id, fills
+            )
         return fills
+
+    def _apply_execution_fills(
+        self, order, new_fills: list, correlation_id: str,
+        fills_sink: list,
+    ) -> None:
+        """Apply execution fills through the ONE authoritative path
+        (OMS -> position -> metrics -> memory -> protection attach).
+
+        Shared VERBATIM by the internal execution adapter path and the
+        Batch-5 authoritative venue path (venue polls) — identical
+        semantics, identical ledger/metrics events, so venue-mode runs
+        are bit-identical to internal-mode runs. ``order`` is the
+        caller's (possibly stale-within-the-batch) OMS order snapshot
+        — RUN-PM-1: the partial-fill metric re-queries the LIVE OMS
+        order after each fill, so the COMPLETING fill (live remaining
+        hits zero) is never counted as a partial-fill event."""
+        for fill in new_fills:
+            self._oms.apply_fill(order.order_id, fill)
+            self._apply_fill_to_position(fill, correlation_id)
+            fills_sink.append(fill)
+            self._metrics.increment("fills")
+            try:
+                live = self._oms.order(order.order_id)
+                still_partial = live.remaining_quantity > 0
+            except Exception:
+                # The order vanished from the OMS mid-batch — the
+                # metric cannot be proven, so it is not counted
+                # (observability only; the authoritative OMS/position
+                # updates above already happened or raised).
+                still_partial = False
+            if still_partial:
+                self._metrics.increment("partial_fill_events")
+            self._memory.record(
+                MemoryCategory.EXECUTION,
+                {"order_id": order.order_id, "fill_id": fill.fill_id,
+                 "quantity": str(fill.quantity), "price": str(fill.price),
+                 "correlation_id": correlation_id},
+                correlation_id=correlation_id,
+                at=fill.filled_at,
+            )
+        if new_fills:
+            self._order_fill_cursor[order.order_id] = (
+                new_fills[-1].bar_index + 1
+            )
+            # Attach protective levels after the first entry fill.
+            protection = self._pending_protection.get(order.order_id)
+            if protection is not None:
+                sl, tp, prot_corr = protection
+                fresh = self._positions.get(
+                    order.symbol, PositionState(symbol=order.symbol)
+                )
+                if not fresh.is_flat:
+                    if sl is not None:
+                        fresh, _ = self._exit_manager.set_stop_loss(
+                            fresh, sl, prot_corr, fill.filled_at
+                        )
+                    if tp is not None:
+                        fresh, _ = self._exit_manager.set_take_profit(
+                            fresh, tp, prot_corr, fill.filled_at
+                        )
+                    self._positions[order.symbol] = fresh
+                    self._pending_protection.pop(order.order_id, None)
+
+    # ------------------------------------------------------------------
+    # Batch 5 (Phase M2 completion): authoritative-venue helpers
+    # ------------------------------------------------------------------
+    def _flag_execution_uncertain(self, reason: str,
+                                  correlation_id: str) -> None:
+        """Fail-closed transition into EXECUTION_UNCERTAIN with an
+        auditable incident record (used by the authoritative venue
+        seam for ambiguous submissions/recoveries)."""
+        self._state = RuntimeState.EXECUTION_UNCERTAIN
+        self._ledgers.record(
+            ledger="incident",
+            event_type="RUNTIME_EXECUTION_UNCERTAIN",
+            correlation_id=correlation_id,
+            actor="runtime.venue",
+            payload={
+                "reason": reason,
+                "action": (
+                    "bar processing + new submissions blocked until "
+                    "venue reconciliation resolves the ambiguity "
+                    "(fail closed; never an inferred failure)"
+                ),
+            },
+        )
+
+    def _resolve_venue_order(self, order_id: str, venue_status,
+                             correlation_id: str) -> None:
+        """Adopt the venue-truth resolution for ONE ambiguous
+        (UNKNOWN/RECONCILING) OMS order: apply any not-yet-applied
+        hosted fills EXACTLY ONCE (the shared authoritative path),
+        then resolve the lifecycle per the venue's status.
+
+        ``venue_status`` is the venue-neutral status enum VALUE (a
+        string) — the runtime never imports the brokers package (the
+        broker_execution seam is the only boundary)."""
+        from data_engine.runtime.contracts import OrderLifecycle as _LC
+        status_value = (
+            venue_status.value if hasattr(venue_status, "value")
+            else str(venue_status)
+        )
+        order = self._oms.order(order_id)
+        venue_fills = self._venue.adapter.runtime_fills(order_id)
+        applied = len(order.fills)
+        if applied > len(venue_fills):
+            raise RuntimeContractError(
+                f"venue resolution for {order_id!r}: the OMS holds "
+                f"{applied} fills but the venue hosts "
+                f"{len(venue_fills)} — books diverged (fail closed)"
+            )
+        delta = list(venue_fills[applied:])
+        if delta:
+            self._apply_execution_fills(order, delta, correlation_id, [])
+        order = self._oms.order(order_id)
+        if order.status in (_LC.UNKNOWN, _LC.RECONCILING):
+            resolved = {
+                "OPEN": _LC.SUBMITTED,
+                "PARTIALLY_FILLED": _LC.PARTIALLY_FILLED,
+                "FILLED": _LC.FILLED,
+                "CANCELLED": _LC.CANCELLED,
+                "REJECTED": _LC.FAILED,
+                "EXPIRED": _LC.FAILED,
+            }.get(status_value)
+            if resolved is None:
+                raise RuntimeContractError(
+                    f"venue resolution for {order_id!r}: unresolvable "
+                    f"venue status {status_value!r} (fail closed)"
+                )
+            self._oms.resolve_reconciling(order_id, resolved)
+        self._ledgers.record(
+            ledger="incident",
+            event_type="VENUE_ORDER_RESOLVED",
+            correlation_id=correlation_id,
+            actor="runtime.venue",
+            payload={
+                "order_id": order_id,
+                "venue_status": status_value,
+                "fills_adopted": len(delta),
+                "action": "venue truth adopted after reconciliation "
+                          "(exactly-once fill application)",
+            },
+        )
+
+    def _resume_after_venue_reconciliation(self,
+                                            correlation_id: str) -> None:
+        """Resume RUNNING after a CLEAN venue reconciliation resolved
+        every ambiguous order (recovery reconciles FIRST, then
+        resumes — the restart discipline, in-session)."""
+        if self._state is not RuntimeState.EXECUTION_UNCERTAIN:
+            return
+        self._state = RuntimeState.RUNNING
+        self._ledgers.record(
+            ledger="incident",
+            event_type="RUNTIME_RESUMED_AFTER_VENUE_RECONCILIATION",
+            correlation_id=correlation_id,
+            actor="runtime.venue",
+            payload={
+                "action": "clean reconciliation resolved all ambiguous "
+                          "orders; resuming (reconcile-then-resume)",
+            },
+        )
 
     def _record_completed_exits(self, bar: Mapping, correlation_id: str) -> list:
         """Record ExitRecords for exit orders that have now filled (§31)."""
@@ -1528,9 +2642,16 @@ class TradingRuntime:
     def _submit_protection_exits(
         self, bar: Mapping, bar_index: int,
         correlation_id: str, crash: Mapping
-    ) -> list:
-        """SL/TP/crash exit submission for positions from earlier bars."""
+    ) -> tuple:
+        """SL/TP/crash exit submission for positions from earlier bars.
+
+        Returns ``(orders, failed_checks)`` — RUN-OBS-1: exit-path
+        risk rejections are NOT discarded; the failed-check names
+        surface in ``BarOutcome.risk_failed_checks`` (they are
+        already ledgered as ``RISK_ASSESSMENT_FAIL`` by the gate).
+        """
         orders: list = []
+        failed: list = []
         bar_ts = bar.get("timestamp") or datetime.now(UTC)
         bar_ts_utc = bar_ts.astimezone(UTC) if getattr(bar_ts, "tzinfo", None) else None
         for symbol, position in list(self._positions.items()):
@@ -1560,17 +2681,18 @@ class TradingRuntime:
             )
             if exit_plan is None:
                 continue
-            created, _ = self._execute_plan(
+            created, exit_failed = self._execute_plan(
                 exit_plan, bar, bar_index, correlation_id,
                 Decimal(str(bar["close"])),
                 self._current_equity(Decimal(str(bar["close"]))),
             )
+            failed.extend(exit_failed)
             if created:
                 self._pending_exits[symbol] = (
                     created[0].order_id, reason, position,
                 )
                 orders.extend(created)
-        return orders
+        return orders, tuple(failed)
 
     def _reconcile_after_fills(self, correlation_id: str) -> None:
         """Post-fill three-way reconciliation (RT-F2; §32)."""
@@ -1757,11 +2879,111 @@ class TradingRuntime:
         return round(worst, 12)
 
     def _daily_realized_return(self) -> float:
-        if self._config.initial_equity <= 0:
+        """TRUE daily account P&L return (PAPER-RUN-PNL-1).
+
+        Mark-to-market (realized + unrealized) account-equity return
+        between the current UTC day's first admitted bar and the
+        latest admitted bar's close. Transaction costs enter exactly
+        once via the cost-embedded basis. The day-start anchor is
+        deterministically reconstructed by replaying every OMS fill
+        admitted before the day's first bar (see
+        :meth:`_day_start_equity`) — no persisted day state, so the
+        value is identical before and after a restart.
+
+        Fail-closed (RUN-RL-1): an anchor that cannot be established
+        or is non-positive yields -1.0 so the mandatory ``loss_limit``
+        risk-gate check FAILS (new orders refused, never permitted on
+        an unprovable loss state). Before the first admitted bar no
+        day has started and nothing can have been lost: 0.0.
+        """
+        if not self._bars:
             return 0.0
-        return float(self._equity_realized / self._config.initial_equity)
+        try:
+            anchor = self._day_start_equity()
+            if anchor <= 0:
+                return -1.0
+            mark = Decimal(str(self._bars[-1]["close"]))
+            current = self._current_equity(mark)
+            return float((current - anchor) / anchor)
+        except Exception:
+            return -1.0
+
+    def _day_start_equity(self) -> Decimal:
+        """Account equity at the start of the CURRENT UTC day
+        (PAPER-RUN-PNL-1 acceptance interface).
+
+        Deterministic reconstruction: every OMS fill whose
+        ``bar_index`` precedes the first admitted bar of the current
+        UTC day is replayed onto a fresh :class:`PositionState`
+        (costs embedded once — identical accounting to the live
+        position book), then marked at the previous day's last close.
+        Before the session's first bar the anchor is the initial
+        equity. Bars timestamps are strictly increasing (BUG-007
+        discipline) so the day's first bar is found by scanning
+        backwards from the latest bar.
+        """
+        if not self._bars:
+            return self._config.initial_equity
+        last_ts = self._bars[-1].get("timestamp")
+        if last_ts is None or not getattr(last_ts, "tzinfo", None):
+            raise RuntimeContractError(
+                "cannot establish the daily anchor: latest bar timestamp "
+                "is not timezone-aware (fail closed)"
+            )
+        day = last_ts.astimezone(UTC).date()
+        cached = self._day_anchor_cache
+        if cached is not None and cached[0] == day:
+            return cached[1]
+        day_start_index = len(self._bars) - 1
+        for i in range(len(self._bars) - 1, -1, -1):
+            ts_i = self._bars[i].get("timestamp")
+            if ts_i is None or not getattr(ts_i, "tzinfo", None) \
+                    or ts_i.astimezone(UTC).date() != day:
+                break
+            day_start_index = i
+        # Replay all fills admitted BEFORE the day's first bar onto a
+        # fresh position book (deterministic; reconciliation replays
+        # fills the same way).
+        replayed: dict = {}
+        for order in self._oms.orders():
+            for fill in order.fills:
+                if fill.bar_index is None or fill.bar_index < day_start_index:
+                    state = replayed.get(
+                        fill.symbol, PositionState(symbol=fill.symbol)
+                    )
+                    replayed[fill.symbol] = state.apply_fill(
+                        fill_quantity=fill.quantity,
+                        fill_price=fill.price,
+                        side=fill.side,
+                        commission=fill.commission,
+                        slippage_cost=fill.slippage_cost,
+                        spread_cost=fill.spread_cost,
+                        filled_at=fill.filled_at,
+                        source_event=fill.fill_id,
+                    )
+        anchor = self._config.initial_equity
+        for state in replayed.values():
+            anchor += state.realized_pnl
+        if day_start_index > 0:
+            prev_close = Decimal(
+                str(self._bars[day_start_index - 1]["close"])
+            )
+            pos = replayed.get(self._config.symbol)
+            if pos is not None and not pos.is_flat:
+                anchor += self._pnl_engine.unrealized(pos, prev_close)
+        self._day_anchor_cache = (day, anchor)
+        return anchor
 
     def _current_equity(self, mark_price: Decimal) -> Decimal:
+        """TRUE account equity (PAPER-RUN-PNL-1).
+
+        initial_equity + realized P&L + unrealized at ``mark_price``.
+        Transaction costs enter EXACTLY ONCE — embedded in the
+        average-cost basis and realized P&L by the authoritative
+        ``PaperPosition`` core (price-inclusive basis). The persisted
+        ``_equity_realized`` accumulator is cost observability and
+        must never be subtracted here (RUN-EQ-1 double count).
+        """
         position = self._positions.get(
             self._config.symbol, PositionState(symbol=self._config.symbol)
         )
@@ -1769,8 +2991,278 @@ class TradingRuntime:
         return (
             self._config.initial_equity
             + position.realized_pnl
-            - self._equity_realized
             + unrealized
+        )
+
+    # ------------------------------------------------------------------
+    # ACCOUNT-equity drawdown limit (RUN-DD-1)
+    # ------------------------------------------------------------------
+    def _risk_context_for_bridge(self, plan: TradePlan,
+                                 reference_price: Decimal,
+                                 latest_bar: Mapping) -> "RiskContext":
+        """Build the live-state RiskContext for a broker-bridge order
+        (Phase M2 seam — ``runtime/broker_execution.py``).
+
+        The context is synthesised from the runtime's AUTHORITATIVE
+        state at the latest admitted bar: TRUE account equity
+        (PAPER-RUN-PNL-1), the live position for the plan's symbol,
+        the symbol-window drawdown AND the RUN-DD-1 account drawdown,
+        window volatility, and the true daily return. Paper mode is
+        structurally true (the runtime is paper-only); model validity
+        was self-checked at start(). The plan's own uncertainty/
+        crash fields carry the deterministic external-order marker.
+        """
+        position = self._positions.get(
+            plan.symbol, PositionState(symbol=plan.symbol)
+        )
+        return RiskContext(
+            equity=self._current_equity(reference_price),
+            current_units=position.quantity,
+            reference_price=reference_price,
+            bar_volume=Decimal(str(latest_bar.get("volume") or 0)),
+            # RUN-ST-1: the HONEST in-session bar age for EXTERNAL
+            # orders. With the wall-clock watchdog enabled, the age is
+            # the wall-clock distance to the latest admitted bar,
+            # expressed in the governed bar-count unit (ceil of
+            # age/expected-interval) — a stalled feed then fails the
+            # mandatory ``data_staleness`` check fail-closed instead
+            # of the pre-fix hardcoded always-fresh 0. With the
+            # watchdog disabled (the deterministic-replay default) the
+            # age is 0 — honest within the replay frame, where bar
+            # timestamps legitimately trail the wall clock.
+            last_bar_age_bars=self._bridge_bar_age(latest_bar),
+            market_open=True,
+            paper_mode=True,
+            model_valid=True,
+            uncertainty=plan.uncertainty,
+            crash_probability=0.0,
+            max_acceptable_crash_probability=(
+                self._config.max_crash_probability
+            ),
+            max_drawdown_fraction=self._window_drawdown(),
+            account_drawdown_fraction=self._account_drawdown(),
+            account_drawdown_limit_fraction=(
+                self._config.max_account_drawdown_fraction
+            ),
+            volatility=self._window_volatility(),
+            max_volatility=0.10,
+            daily_realized_return=self._daily_realized_return(),
+            half_spread=self._realism.half_spread,
+            max_spread_fraction=Decimal("0.01"),
+        )
+
+    def _bridge_bar_age(self, latest_bar: Mapping) -> int:
+        """Wall-clock-derived bar age (in bars) for bridge risk
+        contexts (RUN-ST-1). See ``_risk_context_for_bridge``."""
+        if self._config.max_feed_staleness_seconds is None:
+            return 0
+        ts = latest_bar.get("timestamp")
+        if ts is None or getattr(ts, "tzinfo", None) is None:
+            # Freshness cannot be proven for an unmeasurable bar —
+            # express maximal staleness so the mandatory check fails
+            # closed (never neutral).
+            return 10 ** 6
+        age_seconds = (
+            self._wall_clock() - ts.astimezone(UTC)
+        ).total_seconds()
+        if age_seconds <= 0:
+            return 0
+        interval = max(1.0, float(self._config.expected_interval_seconds))
+        return max(0, int(math.ceil(age_seconds / interval)))
+
+    def _account_drawdown(self) -> Optional[float]:
+        """ACCOUNT-equity drawdown fraction (RUN-DD-1).
+
+        Calculation (mark-to-market, PAPER-RUN-PNL-1 accounting):
+        ``drawdown = (peak - current) / peak`` where ``current`` is
+        the TRUE account equity at the LATEST ADMITTED bar's close
+        (initial + realized + unrealized; costs exactly once) and
+        ``peak`` is the session high-water mark of that same equity
+        over every admitted bar close — deterministically replayed
+        from the persisted bar history + OMS fills (the identical
+        reconstruction discipline as the daily anchor: no new
+        persisted field, so the value is restart-stable by
+        construction). The mark is always the latest admitted bar —
+        the freshest equity state the runtime possesses (feed
+        staleness itself is RUN-ST-1, a separate blocker).
+
+        Fail-closed semantics:
+
+        - fresh session (no bars): ``0.0`` — peak == current ==
+          initial, nothing is at risk yet;
+        - unanchorable equity path (a fill whose ``bar_index`` is
+          missing or outside the admitted bar history): ``None`` —
+          the mandatory ``account_drawdown`` risk-gate check then
+          REFUSES new orders ("unknown — fail closed");
+        - non-positive current equity: ``1.0`` — a wiped-out
+          account is past any limit (maximal measured drawdown).
+        """
+        if not self._bars:
+            return 0.0
+        try:
+            peak = self._peak_account_equity()
+            if peak is None or peak <= 0:
+                return None
+            mark = Decimal(str(self._bars[-1]["close"]))
+            current = self._current_equity(mark)
+            if current <= 0:
+                return 1.0
+            if current >= peak:
+                return 0.0
+            return float((peak - current) / peak)
+        except Exception:
+            # Unmeasurable is NOT tradable: None fails closed at the
+            # risk gate (never a neutral 0.0).
+            return None
+
+    def _peak_account_equity(self) -> Optional[Decimal]:
+        """Session high-water mark of mark-to-market account equity.
+
+        Deterministic replay: every OMS fill is re-applied to a
+        fresh :class:`PositionState` book in ``(bar_index,
+        fill_index)`` order — exactly the authoritative
+        cost-embedded accounting — and equity is marked at every
+        admitted bar's close (realized across symbols + unrealized
+        for the configured symbol, mirroring the day-anchor
+        reconstruction). Pure function of persisted state (bars +
+        OMS fills): identical before and after a restart, in-session
+        and post-restore.
+
+        A fill whose ``bar_index`` is missing or outside the
+        admitted bar history makes the path unanchorable → ``None``
+        (fail closed). The governed execution adapter can never
+        produce such a fill — only corrupted or foreign restored
+        state can (defence in depth).
+        """
+        if not self._bars:
+            return self._config.initial_equity
+        n_bars = len(self._bars)
+        fills: list = []
+        for order in self._oms.orders():
+            for fill in order.fills:
+                idx = fill.bar_index
+                if idx is None or idx < 0 or idx >= n_bars:
+                    return None
+                fills.append(fill)
+        fills.sort(key=lambda f: (f.bar_index, f.fill_index))
+        key = (n_bars, len(fills))
+        cached = self._dd_peak_cache
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        replayed: dict = {}
+        peak = self._config.initial_equity
+        fill_i = 0
+        n_fills = len(fills)
+        for bar_i in range(n_bars):
+            while fill_i < n_fills and fills[fill_i].bar_index <= bar_i:
+                f = fills[fill_i]
+                state = replayed.get(
+                    f.symbol, PositionState(symbol=f.symbol)
+                )
+                replayed[f.symbol] = state.apply_fill(
+                    fill_quantity=f.quantity,
+                    fill_price=f.price,
+                    side=f.side,
+                    commission=f.commission,
+                    slippage_cost=f.slippage_cost,
+                    spread_cost=f.spread_cost,
+                    filled_at=f.filled_at,
+                    source_event=f.fill_id,
+                )
+                fill_i += 1
+            mark = Decimal(str(self._bars[bar_i]["close"]))
+            equity = self._config.initial_equity + sum(
+                s.realized_pnl for s in replayed.values()
+            )
+            pos = replayed.get(self._config.symbol)
+            if pos is not None and not pos.is_flat:
+                equity += self._pnl_engine.unrealized(pos, mark)
+            if equity > peak:
+                peak = equity
+        self._dd_peak_cache = (key, peak)
+        return peak
+
+    def _enforce_account_drawdown(
+        self, bar_index: int, correlation_id: str
+    ) -> None:
+        """RUN-DD-1 enforcement point (called on EVERY admitted bar,
+        after that bar's fills and before any new decision).
+
+        - Unknown measure (``None``): ledgered as
+          ``ACCOUNT_DRAWDOWN_UNKNOWN`` — new orders fail closed at
+          the gate; NO trip on an unknown measure (the switch needs
+          human reset, so it is reserved for MEASURED breaches).
+        - Strict breach (``drawdown > limit``): ledgered as
+          ``ACCOUNT_DRAWDOWN_LIMIT_BREACH`` with the full
+          calculation inputs, then the ACCOUNT kill switch is
+          tripped (auditable source ``runtime.risk.drawdown``) and
+          the session HALTS terminally. The trip persists
+          IMMEDIATELY (BLOCKER 12: a crash right after the trip must
+          never lose the state on disk); a restart NEVER clears it
+          (critical-switch loud refusal at start).
+
+        In-flight entry orders are frozen by the terminal HALT (no
+        bar is processed, so no remainder can ever fill past the
+        limit); closing orders later in the SAME bar remain
+        permitted via the risk-reduction carve-out.
+        """
+        if self._state is not RuntimeState.RUNNING:
+            return  # already in a non-trading state — nothing to enforce
+        drawdown = self._account_drawdown()
+        limit = self._config.max_account_drawdown_fraction
+        if drawdown is None:
+            self._ledgers.record(
+                ledger="incident",
+                event_type="ACCOUNT_DRAWDOWN_UNKNOWN",
+                correlation_id=correlation_id,
+                actor="runtime.risk.drawdown",
+                payload={
+                    "bar_index": bar_index,
+                    "reason": "account equity path not reconstructible "
+                              "(unanchorable fill) — the risk gate "
+                              "refuses new orders fail-closed",
+                    "action": "no trip on an unknown measure; "
+                              "investigate the fill ledger",
+                },
+            )
+            return
+        if drawdown <= limit:
+            return
+        peak = self._peak_account_equity()
+        mark = Decimal(str(self._bars[-1]["close"])) if self._bars \
+            else self._config.initial_equity
+        current = self._current_equity(mark)
+        self._metrics.increment("drawdown_limit_breaches")
+        self._ledgers.record(
+            ledger="incident",
+            event_type="ACCOUNT_DRAWDOWN_LIMIT_BREACH",
+            correlation_id=correlation_id,
+            actor="runtime.risk.drawdown",
+            payload={
+                "drawdown_fraction": round(drawdown, 12),
+                "limit_fraction": limit,
+                "peak_equity": str(peak) if peak is not None else None,
+                "current_equity": str(current),
+                "mark_price": str(mark),
+                "bar_index": bar_index,
+                "action": "ACCOUNT kill switch tripped + terminal HALT "
+                          "(RUN-DD-1: the account's own drawdown is the "
+                          "protected quantity)",
+            },
+        )
+        self._kill_switch.trip(
+            scope=KillSwitchScope.ACCOUNT,
+            reason=(
+                f"account drawdown {drawdown:.6f} exceeds limit "
+                f"{limit:.6f} (RUN-DD-1 account-equity drawdown limit)"
+            ),
+            source="runtime.risk.drawdown",
+        )
+        self._metrics.increment("kill_switch_trips")
+        self._persist_safe(f"kill-switch:ACCOUNT:*")
+        self.halt(
+            "ACCOUNT kill switch tripped by the drawdown limit: "
+            f"{drawdown:.6f} > {limit:.6f}"
         )
 
     def _persist_safe(self, correlation_id: str) -> None:
@@ -1908,6 +3400,146 @@ class TradingRuntime:
             regime="UNKNOWN",
             crash_probability=0.0,
             runtime_state=self._state.value,
+        )
+
+    # ------------------------------------------------------------------
+    # RUN-ST-1: in-session wall-clock feed watchdog
+    # ------------------------------------------------------------------
+    def _feed_is_stale(self, bar: Mapping) -> bool:
+        """True when the watchdog is ENABLED and this bar's
+        timezone-aware timestamp is STRICTLY older than
+        ``max_feed_staleness_seconds`` on the runtime's wall clock.
+
+        Disabled (``max_feed_staleness_seconds is None``, the
+        default) ⇒ never stale — the documented deterministic-replay
+        posture (historical bar timestamps legitimately trail the
+        wall clock). A bar WITHOUT a usable timezone-aware timestamp
+        is treated as STALE when the watchdog is on: freshness
+        cannot be proven, and the watchdog is an explicit
+        wall-clock assurance the operator asked for (fail closed).
+        Future-dated bars (negative age) are NOT stale — clock-skew
+        tolerance is the pre-start feed gate's domain, unchanged.
+        """
+        limit = self._config.max_feed_staleness_seconds
+        if limit is None:
+            return False
+        ts = bar.get("timestamp")
+        if ts is None or getattr(ts, "tzinfo", None) is None:
+            return True
+        age = (self._wall_clock() - ts.astimezone(UTC)).total_seconds()
+        return age > limit
+
+    def _stale_bar(
+        self, idx, correlation_id, ts, bar, bar_fills, exits
+    ) -> BarOutcome:
+        """Complete a STALE admitted bar (RUN-ST-1 fail-closed path).
+
+        Skipped: PIT sequence, prediction, calibration, regime crash
+        intelligence, decision, plan building, the RL advisor — no
+        new exposure is evaluated on data the operator's wall clock
+        says is old. Continued: protective exits (SL/TP levels still
+        evaluated on the stale bar's prices — risk reduction beats
+        freezing protection on the best-available data), post-fill
+        reconciliation, the P&L snapshot, memory and persistence —
+        the bar is ADMITTED, so authoritative state stays continuous
+        (BLOCKER 5: no unpersisted state transitions).
+
+        The ledger payload is DETERMINISTIC (bar timestamp + limit +
+        action — never the measured wall-clock age, which would
+        break replay reproducibility; INV-01 discipline).
+        """
+        limit = self._config.max_feed_staleness_seconds
+        self._metrics.increment("feed_stale_bars")
+        self._ledgers.record(
+            ledger="incident",
+            event_type="FEED_STALE_BLOCK",
+            correlation_id=correlation_id,
+            actor="runtime.feed_watchdog",
+            payload={
+                "bar_index": idx,
+                "bar_timestamp": (
+                    ts.astimezone(UTC).isoformat() if ts is not None
+                    else None
+                ),
+                "limit_seconds": limit,
+                "action": (
+                    "new exposure refused — bar wall-clock age beyond "
+                    "the configured in-session staleness limit; "
+                    "in-flight settlement, protective exits and "
+                    "persistence continue (fail closed)"
+                ),
+            },
+        )
+        # Protection exits still run: no crash intelligence was
+        # computed for this bar, so only price-level (SL/TP) hits
+        # can fire — deliberately conservative.
+        exit_orders, exit_failed = self._submit_protection_exits(
+            bar, idx, correlation_id, {"probability": 0.0}
+        )
+        orders_created = list(exit_orders)
+        if bar_fills:
+            self._reconcile_after_fills(correlation_id)
+        # P&L observability tail (identical to the normal path).
+        position = self._positions.get(
+            self._config.symbol, PositionState(symbol=self._config.symbol)
+        )
+        reference_price = Decimal(str(bar["close"]))
+        unrealized = self._pnl_engine.unrealized(
+            position, reference_price
+        )
+        pnl_record = self._pnl_engine.record(
+            state=position,
+            mark_price=reference_price,
+            fees_paid=Decimal("0"),
+            entry_fill_ids=[
+                f.fill_id for o in self._oms.orders() for f in o.fills
+            ],
+            exit_fill_ids=[],
+            order_ids=[o.order_id for o in self._oms.orders()],
+            correlation_id=correlation_id,
+        )
+        self._ledgers.record(
+            ledger="pnl",
+            event_type="PNL_SNAPSHOT",
+            correlation_id=correlation_id,
+            actor="runtime.pnl",
+            payload={
+                "pnl_id": pnl_record.pnl_id,
+                "symbol": pnl_record.symbol,
+                "realized": str(pnl_record.realized_pnl),
+                "unrealized": str(pnl_record.unrealized_pnl),
+                "mark_price": str(reference_price),
+            },
+        )
+        self._memory.record(
+            MemoryCategory.MARKET,
+            {"bar_index": idx, "close": str(reference_price),
+             "correlation_id": correlation_id},
+            correlation_id=correlation_id,
+            at=ts,
+        )
+        self._persist_safe(correlation_id)
+        return BarOutcome(
+            bar_index=idx,
+            correlation_id=correlation_id,
+            timestamp=ts or datetime.now(UTC),
+            accepted=True,
+            decision_action="NO_TRADE",
+            decision_reason=(
+                f"feed stale: bar wall-clock age exceeds the "
+                f"{limit}s in-session limit — new exposure refused, "
+                f"decision chain skipped (RUN-ST-1 fail closed)"
+            ),
+            prediction_probability=None,
+            regime=self._classify_regime(),
+            crash_probability=0.0,
+            orders_created=tuple(o.order_id for o in orders_created),
+            fills=tuple(f.fill_id for f in bar_fills),
+            exits=tuple(e.exit_id for e in exits),
+            realized_pnl=str(position.realized_pnl),
+            unrealized_pnl=str(unrealized),
+            runtime_state=self._state.value,
+            risk_failed_checks=exit_failed,
         )
 
 

@@ -1,0 +1,74 @@
+{
+  "bundle_name": "ai-trading-lab-master-data-import",
+  "created_utc": "2026-10-11T12:53:19.264928+00:00",
+  "important": "Files are supplied by user. This manifest records file integrity, not independent source authenticity or exchange verification. Do not promote to REAL_VERIFIED without source provenance and quality gates.",
+  "files": [
+    {
+      "filename": "Coins_Master.csv",
+      "size_bytes": 49742161,
+      "sha256": "7a6b9eae03d7961b5869fddb8f95f660cec5a6b91f260eb0aa1f2f96aa8a4fc8",
+      "rows": 499310,
+      "columns": [
+        "Symbol",
+        "Open_time",
+        "Open",
+        "High",
+        "Low",
+        "Close",
+        "Volume",
+        "Close_time"
+      ],
+      "status": "USER_SUPPLIED_NOT_INDEPENDENTLY_SOURCE_VERIFIED"
+    },
+    {
+      "filename": "Forex_Master.csv",
+      "size_bytes": 1064498,
+      "sha256": "f0618be1b1c48c3f7eed22c5582eb8682a56134f682546f37419ed3c9140b4fd",
+      "rows": 39025,
+      "columns": [
+        "Currency_Pair",
+        "Date",
+        "Exchange_Rate"
+      ],
+      "status": "USER_SUPPLIED_NOT_INDEPENDENTLY_SOURCE_VERIFIED"
+    },
+    {
+      "filename": "Stocks_Master.csv",
+      "size_bytes": 145878,
+      "sha256": "294df03dda5b21f05677b0bbf4f5efc7f3ba6d00c37e1c597c22c20a9a41aaae",
+      "rows": 2241,
+      "columns": [
+        "Asset",
+        "Date",
+        "Open",
+        "High",
+        "Low",
+        "Close",
+        "Volume"
+      ],
+      "status": "USER_SUPPLIED_NOT_INDEPENDENTLY_SOURCE_VERIFIED"
+    },
+    {
+      "filename": "Metals_Master.csv",
+      "size_bytes": 82127,
+      "sha256": "6e921a9a2ecf911ec6a6da657387530be21f0847049d409af6c27ff76d0d879b",
+      "rows": 1378,
+      "columns": [
+        "Asset",
+        "Date",
+        "Open",
+        "High",
+        "Low",
+        "Close",
+        "Volume"
+      ],
+      "status": "USER_SUPPLIED_NOT_INDEPENDENTLY_SOURCE_VERIFIED"
+    }
+  ],
+  "known_review_notes": [
+    "Coins_Master.csv: 499310 rows; 500 symbols; fields Symbol/Open_time/Open/High/Low/Close/Volume/Close_time. Verify timestamps, exact source, each symbol listing date, daily bar completeness and unfinished last candle.",
+    "Forex_Master.csv: 39025 rows; 7 currency pairs; fields Currency_Pair/Date/Exchange_Rate. These are rates, not OHLC bars; document quote direction and provider/source.",
+    "Stocks_Master.csv: 2241 rows; 9 assets; fields Asset/Date/Open/High/Low/Close/Volume. Mixed sampling frequency was observed; do not assume daily bars. Verify stale repeated closes and instrument-specific calendar.",
+    "Metals_Master.csv: 1378 rows; 5 assets; fields Asset/Date/Open/High/Low/Close/Volume. Prior inspection found 19 OHLC relationship violations; re-run exact validation and resolve against source before approval."
+  ]
+}

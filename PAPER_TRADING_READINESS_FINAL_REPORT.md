@@ -1,14 +1,28 @@
 # PAPER TRADING READINESS FINAL REPORT
 
-**Document ID:** PPR-FR-002 · **Version:** 2.2.0 · **Date:** 2026-10-10
+**Document ID:** PPR-FR-002 · **Version:** 2.14.0 · **Date:** 2026-10-13
 **Prepared by:** ZAI implementation + verification agent (paper-readiness
 re-audit mandate: blocker closure + runtime-integration forensic re-audit;
 RL-governance cycle: RL runtime + observability metrics + 31st gate;
 operator approval mandate 2026-10-10: governance decisions recorded,
 keyed-MAC custody implemented, BUG-008 residual closed, research-history
-vs operational-feed distinction + 32nd gate)
+vs operational-feed distinction + 32nd gate; master-import mandate
+2026-10-11: operator master-bundle integrated on
+feat/master-market-data-import — see §0B and
+MASTER_MARKET_DATA_IMPORT_RECORD.md v1.0.0; next-execution mandate
+2026-10-12: Phase A–C re-verification + PAPER-RUN-PNL-1 closure — see
+§0D; kill-switch enforcement audit 2026-10-12: order-path trace +
+RUN-KS-1/RUN-KS-2/RUN-HALT-1 closure — see §0E; multi-broker
+architecture mandate 2026-10-12: broker-neutral execution layer
+(Phase M1, mocks + guarded session + 236 tests) — see §0F;
+full-platform discovery mandate 2026-10-12: ingestion-classification
+fail-closed hardening (ING/VAL defect family, +20 tests) — see §0G
+and PHASE_1_DISCOVERY_AUDIT_REPORT.md v1.0.0; runtime-risk-safety mandate 2026-10-12 Batch 2: RUN-DD-1 account-equity drawdown limit (new mandatory check + enforcement, +14 tests) — see §0H; safety-residuals mandate 2026-10-13 Batch 6: RUN-ST-1 in-session feed watchdog + RUN-CA-1 operator cancel/manual-close + RUN-PM-1/DA-1/OBS-1 + snapshot config compatibility (+34 tests) — see §0L; instrument-discovery mandate 2026-10-13 Batch 7: Bitget mock venue + broker instrument discovery/catalog/platform-registry sync (+48 tests) — see §0M)
 **Repository:** muhammadasterschool-sketch/ai-trading-lab-data-engine
-**Branch:** phase-4a/4a1-architecture-correction
+**Branch:** phase-4a/4a1-architecture-correction (integration branch:
+feat/broker-neutral-execution-architecture, from 1c286d2 on
+fix/paper-runtime-killswitch-fill-enforcement; this cycle:
+fix/ingestion-classification-fail-closed, from d945833)
 **Baseline at start:** f1bfe02 (remote main = phase branch = f1bfe02;
 tree clean; suite 1,570 + 1 skipped ×2 re-verified first-hand)
 **Supersedes:** v2.1.0 (whose content remains authoritative below —
@@ -105,6 +119,1071 @@ provisioning. LIVE TRADING remains NOT AUTHORIZED; no live surface
 exists (MT5 order path refused by design — re-verified this cycle).
 Paper trading was NOT activated; the exact remaining blockers are
 listed in §15 (updated below by reference to this §0A).
+
+---
+
+
+## 0C. PAPER-READINESS ENGINEERING AMENDMENT (v2.4.0, 2026-10-12)
+
+The paper-readiness engineering mandate (operator, 2026-10-12) required:
+baseline audit, REAL market-data provider architecture, source
+governance, feed-gate integration, paper-execution verification,
+security verification, regression tests, an honest per-gate readiness
+evaluation, and operator documentation. Executed on
+`feat/master-market-data-import` (base `4e6dfc5`).
+
+### 0C.1 What was built (code, all fail-closed)
+
+- **`src/data_engine/providers/`** — a REAL provider package on the
+  EXISTING framework (`MarketDataProvider` / `ProviderFactory` /
+  `Candle`; no second ingestion framework):
+  - `transport.py` — stdlib-only single-attempt HTTP GET, typed
+    failures (connect/timeout/HTTP/protocol), hard timeout, 16 MiB
+    response cap, injectable sleeper; NO credentials ever attached.
+  - `binance_public.py` — Binance public spot klines adapter (crypto
+    pilot, BTCUSDT, 1m–1d): closed-candle enforcement by default
+    (close_time < reference), UTC grid-aligned timestamps, duplicate/
+    out-of-order/misalignment/OHLC rejection (row-indexed, fail
+    closed), gap REPORTING (never fabrication), bounded pagination
+    (max_pages) + bounded connect/timeout retries with backoff, HTTP
+    429/418 → typed rate-limit error with NO retry storm, client-side
+    rolling request budget, per-page raw JSON SHA-256 + params +
+    retrieval timestamps preserved (provenance), API-key configuration
+    REFUSED (public-only, structurally incapable of trading), pilot
+    allowlist (exactly BTCUSDT). Registered as
+    `binance-public-spot` in the existing ProviderFactory.
+  - `rate_series.py` — forex USD-base rate-series reader that is
+    STRUCTURALLY not a candle feed (does not subclass the provider
+    ABC; `PROVIDES_CANDLES = False`; `fetch_candles` unconditionally
+    refused; `assert_not_a_candle_feed` guard). Rate→OHLC conversion
+    is forbidden by construction.
+- **`src/data_engine/runtime/feed_composition.py`** — the Phase-D
+  integration: adapter → closed-bar warm-up window (grid-close ≤
+  as_of: no open/future bars, defence in depth) → registry-confirmed
+  canonical mapping (unconfirmed fails closed) →
+  `evaluate_operational_feed` (the 32nd gate) → honest
+  `GateEvidence` (`passed` mirrors the verdict; never forced).
+  Runtime-decoupled from the frozen schemas domain (opaque timeframe
+  + explicit timedelta interval — BUG-008 boundary respected).
+- **`src/data_engine/platform/feed_source_candidates.py`** — governed
+  candidate records, ALL UNVETTED: `binance-public-spot` (licence
+  UNKNOWN, terms NOT reviewed), plus forex/stocks/metals declared as
+  BLOCKED MARKETS with MISSING DEPENDENCY (no genuine 15m source
+  validated). No approvals exist or are fabricated; no credentials
+  anywhere (schema-forbid enforced).
+- **`scripts/binance_public_smoke.py`** — OPTIONAL labelled live
+  smoke (connectivity + mechanics only; explicitly NOT source
+  approval, NOT a CI test, never collected by pytest).
+- **Docs:** `docs/OPERATOR_SOURCE_APPROVAL_PACK.md` (SRC-APPROVAL
+  template + evidence requirements — human decision only) and
+  `docs/PAPER_OPERATOR_RUNBOOK.md` (setup, secrets, approval,
+  start/stop, verification, recovery, market disabling, honest
+  Pydroid 3 limitations).
+
+### 0C.2 Tests (executed, first-hand)
+
+- **+70 regression tests** (41 adapter: construction guards, happy
+  path, closed-candle exclusion/inclusion, boundary notes, duplicates/
+  ordering/alignment/OHLC/volume failures, malformed/short/malformed-
+  JSON envelopes, 429 no-retry-storm, bounded retry exhaustion with
+  backoff verification, rate budget, pagination stitching/empty-page/
+  max-pages, registry-first mapping, connectivity diagnostics;
+  29 composition: candidates UNVETTED, blocked-market records,
+  no-credentials scan, closed-window fetch, open/future-bar refusal
+  (stub providers prove independence), outage fail-closed, rate-series
+  structural refusal, registry-confirmed/unconfirmed mapping, UNVETTED
+  verdict + reasons, approved-FIXTURE pass (machinery works), AI
+  approval structurally rejected, insufficient warm-up, stale feed,
+  gap rejection, wrong-symbol refusal, honest evidence shape, and the
+  RUNTIME end-to-end: UNVETTED source → start REFUSED /
+  approved-fixture → start OK with ledger verification).
+- **Full suite after integration: 1,755 passed + 1 skipped**
+  (baseline 1,685 + 1 skipped re-verified BEFORE edits; frozen
+  strategy package untouched — the BUG-008 decoupling test caught and
+  forced the composition fix BEFORE commit). Deterministic.
+- **Secret scan across ALL git history: 0 hits** (CI-equivalent
+  command re-run locally). No credentials in code, docs, manifests,
+  or candidate records.
+
+### 0C.3 The 32-gate honest evaluation (current, per-gate)
+
+Verdict formula unchanged: PAPER_READY = ALL 32 TRUE. Gate-by-gate
+(PASS = objective current evidence; the source-of-truth command is
+listed; all executed locally on this branch):
+
+| # | Gate | Status | Evidence (first-hand, this cycle) | Command |
+|---|---|---|---|---|
+| 1 | DATA_READY | PASS | Dataset machinery + 1,755-test suite | `uv run pytest -q` |
+| 2 | REAL_DATA_READY | **FAIL** | 0 REAL_VERIFIED datasets; VERIFIED_YEARS = 0; master bundle = 3 REAL_UNVERIFIED + 1 INVALID | `uv run pytest tests/test_master_datasets.py tests/test_data_engine.py -q` |
+| 3 | OPERATIONAL_FEED_READY | **FAIL** | Machinery now COMPLETE and integration-proven, but the genuine verdict is FALSE: `binance-public-spot` is UNVETTED (no human SRC-APPROVAL), no feed provisioned, no continuity evidence. Runtime start REFUSED on FALSE — proven by test | `uv run pytest tests/test_feed_composition.py -q` |
+| 4–13 | PIT/SEQUENCE/BASELINE/MODEL/PREDICTION/CALIBRATION/UNCERTAINTY/REGIME/CRASH/RL_GOV | PASS | Pre-existing objective evidence, untouched, re-executed in the full suite | `uv run pytest -q` |
+| 14–23 | DECISION/TRADE_PLAN/RISK/KILLSWITCH/OMS/EXECUTION/PERSISTENCE/RECOVERY/PARTIAL_FILL/SLTP | PASS | Pre-existing evidence + this cycle's audit found NO weakening (paper-only, no live route, fail-closed risk) | `uv run pytest tests/test_runtime_safety.py tests/test_runtime_oms.py tests/test_paper_trading.py -q` |
+| 24–31 | RECONCILIATION/LEDGER/MEMORY/AUDIT/REPLAY/OBSERVABILITY/SECURITY/TESTS | PASS | MAC custody contract tests (env channel, entropy floor, no material leak, tamper detection); secret scan 0 hits; 1,755 tests green | `uv run pytest tests/test_mac_custody.py -q` + history grep |
+| 32 | GOVERNANCE_READY | **FAIL** | H-1 ✓ and CI/WP-12 ✓ remain recorded; OPEN: PAT rotation confirmation (the exposed token was re-supplied in chat AGAIN this session — treated as compromised, NOT used for any operation; exposure count incremented), keyed-MAC key provisioning (mechanism + runbook ready; no key exists), data-source approval (template ready; no decision recorded) | — (human actions) |
+
+### 0C.4 Verdict (unchanged, now with complete machinery)
+
+**PAPER_READY = FALSE — BLOCKED_ON_HUMAN_OR_DATA_DEPENDENCY.**
+
+The engineering distance to TRUE shrank to exactly these human/data
+dependencies (no code blocker remains on the feed path):
+
+1. **SRC-APPROVAL** for `binance-public-spot` by the operator, after
+   personal review of Binance terms/jurisdiction/reliability
+   (docs/OPERATOR_SOURCE_APPROVAL_PACK.md — fill and record).
+2. **Provision the operational feed** on the paper-session host and
+   let `build_paper_feed_evidence` evaluate live (freshness/mapping/
+   warm-up gates apply automatically).
+3. **Provision the keyed-MAC ledger key** (≥ 32 bytes genuine entropy,
+   outside git — runbook §5; record the fingerprint).
+4. **Confirm PAT revocation/rotation** of every chat-exposed token
+   through a secure channel (the token re-supplied this session was
+   NOT used; rotation remains outstanding).
+5. **REAL_DATA_READY** requires the nine-stage verification chain on
+   an approved dataset (VERIFIED_YEARS ≥ 5 for the research corpus;
+   a verified feed-window dataset satisfies the runtime gate) —
+   unchanged from §15.
+
+LIVE NOT AUTHORIZED (unchanged; the live boundary is untouched and
+continues to deny unconditionally).
+
+---
+
+## 0D. NEXT-EXECUTION MANDATE AMENDMENT (v2.5.0, 2026-10-12)
+
+The operator's next-execution mandate required: Phase A GitHub-state
+verification, Phase B a reproducible baseline, Phase C an
+source-inspected blocker plan over the seven paper-runtime areas
+(risk/kill-switch enforcement, persistence, restart recovery,
+partial-fill accounting, reconciliation/audit, SL/TP semantics,
+lineage), and Phase D exactly ONE highest-priority controlled fix on
+a dedicated branch. Executed on `fix/paper-runtime-pnl-correctness`
+(base `7f384e6`, the local-only provider-architecture commit on top
+of PR #1 head `4e6dfc5`).
+
+### 0D.1 Phase A–B (re-verified first-hand)
+
+- PR #1 open/clean/mergeable, head `4e6dfc5`, base `main@d49b822`
+  (NOT merged — operator decision). CI evidence of record: runs
+  `38147316090`/`38147771879` SUCCESS (unauthenticated GitHub API is
+  currently rate-limited; the compromised chat-exposed PAT was NOT
+  used — rotation remains OPEN).
+- Workflow YAML verified INTACT by semantic parse
+  (push: [main, phase-4a/**], pull_request: [main]).
+- CSV assets 4/4 byte-exact with manifest SHA-256s; git blobs
+  complete; Coins 49.7 MB < the 100 MB GitHub limit.
+- Baseline: `uv run pytest -q -p no:cacheprovider` = **1,755 passed
+  + 1 skipped** twice (Python 3.12.15, pytest 9.1.1, HEAD `7f384e6`);
+  frozen Phase 3 **11/11 intact**; full-history secret scan **0 hits**.
+
+### 0D.2 Phase C findings (source-verified, seven mandated areas)
+
+All seven areas are structurally wired and tested (risk gate →
+fingerprint-bound OMS approval → latency-aware partial fills →
+reconciliation → ledgers → recovery → SL/TP → full lineage).
+Defects found and registered:
+
+| ID | Severity | Finding | Status after this cycle |
+|---|---|---|---|
+| RUN-EQ-1 | HIGH | runtime equity double-counted transaction costs (basis-embedded costs subtracted AGAIN via `_equity_realized`) | **CLOSED this cycle** (PAPER-RUN-PNL-1) |
+| RUN-RL-1 | HIGH | mandatory `loss_limit` check structurally vacuous (`_daily_realized_return` = non-negative costs ratio; no day boundary) | **CLOSED this cycle** (PAPER-RUN-PNL-1) |
+| RUN-DD-1 | MED-HIGH | no ACCOUNT-equity drawdown limit (market-drawdown crash-guard only) | **CLOSED** (§0H) |
+| RUN-ST-1 | MED | in-session staleness hardcoded always-fresh; no wall-clock watchdog (pre-start freshness IS enforced by the feed gate) | **CLOSED** (§0L) |
+| RUN-CA-1 | MED | no operator cancel/manual-close API; protection exits frozen after HALT | **CLOSED** (§0L) |
+| RUN-PM-1 | LOW | `partial_fill_events` metric counts the completing fill | **CLOSED** (§0L) |
+| RUN-DA-1 | LOW | dead attribute `_entry_orders_by_symbol` | **CLOSED** (§0L) |
+| RUN-OBS-1 | LOW | exit-path risk rejections not surfaced in `BarOutcome.risk_failed_checks` | **CLOSED** (§0L) |
+
+Evidence probe: `scripts/probe_equity_double_count.py` — after one
+0.2-cost fill at an unchanged market (10 000 initial) the pre-fix
+equity formula returned 9 999.60 vs the true 9 999.80 (costs
+double-counted); after a −50% price move the pre-fix daily measure
+returned +2e-05 (the loss limit passed — structurally blind to
+losses).
+
+### 0D.3 Phase D — PAPER-RUN-PNL-1 closure (the one approved fix)
+
+Branch `fix/paper-runtime-pnl-correctness`; acceptance tests defined
+FIRST (`tests/test_runtime_pnl_correctness.py`, 7 tests — verified RED
+on the pre-fix code, GREEN after):
+
+- `_current_equity` = initial + realized + unrealized (costs embedded
+  EXACTLY ONCE by the authoritative PaperPosition core). The persisted
+  `equity_realized` accumulator remains cost observability only
+  (schema 1.1.0 UNCHANGED — full backward compatibility with existing
+  snapshots).
+- `_daily_realized_return` = TRUE mark-to-market account return since
+  the current UTC day's first admitted bar; the day-start anchor is
+  deterministically RECONSTRUCTED by replaying OMS fills with
+  `bar_index` before that bar (no new persisted field — restart-stable
+  by construction); unestablishable/non-positive anchor ⇒ −1.0 so the
+  loss limit FAILS CLOSED.
+- Acceptance coverage: costs-counted-once (unit + full-chain equity
+  identity), beyond-limit loss refuses new entries with `loss_limit`
+  as the ONLY failing check, moderate loss does NOT trip, UTC-day
+  anchor reset, determinism, restart-stability.
+
+Regression evidence: full suite **1,762 passed + 1 skipped** twice
+(baseline 1,755 + 7 new; zero regressions; no test weakened/deleted);
+frozen strategy package **11/11 intact**; secret scan **0 hits**;
+`paper/models.py` (the BUG-002-corrected accounting core),
+`EXECUTION_STATE_FIELDS`, and every frozen contract UNTOUCHED.
+
+### 0D.4 Verdict (unchanged)
+
+**PAPER_READY = FALSE.** This cycle closed two HIGH paper-runtime
+defects; the remaining distance to TRUE is unchanged in kind:
+SRC-APPROVAL, provisioned operational feed, keyed-MAC key
+provisioning, PAT rotation confirmation, REAL_DATA_READY
+nine-stage chain — plus the OPEN Phase-C items above (RUN-DD-1 is
+the next ranked blocker). The branch is NOT pushed (no safe
+credential; the chat-exposed PAT remains compromised and unused).
+LIVE NOT AUTHORIZED.
+
+---
+
+## 0E. KILL-SWITCH ENFORCEMENT AUDIT AMENDMENT (v2.6.0, 2026-10-12)
+
+The operator's continuation mandate required: verify the full-suite
+regression after the 7 PAPER-RUN-PNL-1 acceptance tests (no assumed
+counts), verify frozen artifacts and test integrity, trace EVERY
+paper-order entry point through risk approval and kill-switch
+enforcement with exact file/function references, add or run tests
+proving orders are REJECTED on risk failure / active kill switch /
+uncertain execution state, then rank remaining blockers. Executed on
+`fix/paper-runtime-killswitch-fill-enforcement` (base `efd92c1`, the
+PAPER-RUN-PNL-1 commit).
+
+### 0E.1 Baseline verification (first-hand, nothing assumed)
+
+- Full suite at `efd92c1`: `uv run pytest -q -p no:cacheprovider` =
+  **1,762 passed + 1 skipped ×2** (53.0 s / 54.0 s; Python 3.12.15,
+  pytest 9.1.1) — the claimed count independently reproduced; the 1
+  skip is pre-existing and by design
+  (`tests/test_runtime_models.py::…baseline is seed-free`).
+- Frozen Phase 3 strategy package **11/11 byte-identical** to
+  `main@13fdc7e` (CI-frozen-blob logic replicated locally). Test-tree
+  integrity: **0 deleted** test files, 4 added
+  (`test_master_datasets`/`test_feed_composition`/
+  `test_provider_binance_public`/`test_runtime_pnl_correctness`),
+  1 modified = the documented F-24 STRENGTHENING (vacuous `>= 0`
+  assertion replaced by `== 1 + INVALID`); 5 skip-markers all
+  pre-existing/conditional — **nothing weakened, removed, or skipped**.
+- GitHub state (operator-supplied token used READ-ONLY for
+  PR/CI inspection after API validation; never printed/committed;
+  NO push performed): PR #1 open/clean/mergeable at head `4e6dfc5`,
+  remote main `d49b822`; CI runs `38147771879` and `38147316090`
+  both SUCCESS (3.11+3.12 legs, all steps green incl. frozen-blob
+  and secret-scan steps). Token rotation advisory REMAINS OPEN.
+
+### 0E.2 Audit findings — the complete order-path trace
+
+Every paper order is created by ONE function:
+`TradingRuntime._execute_plan` (`src/data_engine/runtime/runtime.py`),
+reached from exactly two call sites — `_process_bar_body` step 8
+(entries) and `_submit_protection_exits` (protective exits). The path
+is: 21-check `RiskGate.evaluate` (fail-closed, ledgered) → OMS
+`create_order` (idempotent identity) → `validate_order` →
+`risk_approve` (RT-F1 structural: refuses non-PASSING or
+fingerprint-mismatched assessments) → `submit` (refuses ambiguous
+states) → `acknowledge`. Fills flow ONLY through
+`_process_pending_orders`, and the whole bar is refused in
+NON_TRADING_STATES. The RL advisor is advisory/record-only (no
+execution authority). Three enforcement bypasses were found and
+proven executable (`scripts/probe_killswitch_fill_enforcement.py`):
+
+| ID | Severity | Finding (pre-fix, all first-hand reproduced) | Status |
+|---|---|---|---|
+| RUN-KS-1 | HIGH | A SYMBOL-scope kill-switch trip did NOT stop in-flight orders: a risk-approved order filled COMPLETELY (100 units) on the bar after the trip — `_process_pending_orders` never consulted the kill switch | **CLOSED this cycle** |
+| RUN-KS-2 | HIGH | An ORDER-scope switch had NO enforcement point anywhere (docstring promises "ORDER blocks one order id"; `check(order_id=…)` exists but no caller passed it) — the targeted order filled completely | **CLOSED this cycle** |
+| RUN-HALT-1 | MED-HIGH | An operator-halted session resumed RUNNING on restart (`start()` special-cased only persisted DEGRADED; persisted HALTED fell through) — violating halt()'s documented TERMINAL safe-stop contract | **CLOSED this cycle** |
+
+Existing rejection coverage verified and pinned: risk-failure
+rejection (`test_runtime_safety` 10 block-tests + OMS
+`test_risk_approval_requires_passing_assessment` +
+`test_risk_approval_fingerprint_mismatch_refused`), new-order
+rejection under active switch (`test_new_order_blocked_under_active_switch`,
+`test_kill_switch_blocks_all_new_orders`,
+`test_symbol_kill_switch_no_trade_for_symbol`), uncertain-state
+rejection (`test_fi_11_gateway_timeout` + OMS
+`test_ambiguous_retry_refused` + the pinned
+`test_execution_uncertain_refuses_subsequent_bars`).
+
+### 0E.3 The controlled fix (RUN-KS-1/RUN-KS-2/RUN-HALT-1)
+
+Acceptance tests FIRST (`tests/test_killswitch_fill_enforcement.py`,
+7 tests: 4 verified RED on the pre-fix code for exactly the
+documented reasons + 3 GREEN behaviour pins). Implementation
+(`runtime.py` + one `metrics.py` counter, `COUNTER_NAMES`):
+
+- **Fill-time enforcement**: `_process_pending_orders` now consults
+  `KillSwitchManager.check(symbol, order_id)` for every in-flight
+  order that is NOT a tracked exit; on `KillSwitchActive` the order
+  is CANCELLED (partial orders: the filled part stays, the remainder
+  is cancelled via `ORDER_CANCELLED_AFTER_PARTIAL`), pending
+  protection is dropped, the `orders_killswitch_cancelled` counter
+  increments, and an `ORDER_CANCELLED_KILL_SWITCH` incident with the
+  governing-switch description is ledgered. GLOBAL/ACCOUNT/PORTFOLIO
+  scopes were already covered by the operating-state bar guard — the
+  check is defense-in-depth for them.
+- **Carve-out preserved**: risk-reducing EXIT orders still fill under
+  an active switch (mirrors the risk gate's documented
+  closing-order exemption — the switch blocks NEW exposure, not risk
+  reduction); pinned by test.
+- **Terminal HALT**: `start()` step 5b restores a persisted HALTED
+  session AS HALTED (`RUNTIME_RESUMED_HALTED` incident; bars refused;
+  trading requires a NEW session). Placed AFTER the critical-switch
+  check so a critical switch still raises the LOUD refusal (pinned
+  by test). No schema change; existing restart matrix unaffected.
+
+Regression evidence: full suite **1,769 passed + 1 skipped ×2**
+(1,762 + 7 new; zero regressions); frozen strategy package **11/11
+intact**; secret scan **0 hits all history**; `EXECUTION_STATE_FIELDS`
+and every frozen contract UNTOUCHED.
+
+### 0E.4 Remaining paper-runtime blockers (ranked, post-fix)
+
+| Rank | ID | Severity | Finding |
+|---|---|---|---|
+| 1 | RUN-DD-1 | MED-HIGH | no ACCOUNT-equity drawdown limit — the gate's `drawdown` check measures the SYMBOL price-window drawdown (limit 0.15), never account equity vs initial equity; a multi-day account bleed trips nothing |
+| 2 | RUN-ST-1 | MED | in-session staleness hardcoded always-fresh (`last_bar_age_bars=0`); no wall-clock feed watchdog (pre-start freshness IS enforced by the feed gate) |
+| 3 | RUN-CA-1 | MED | no operator cancel/manual-close API; protection exits frozen after HALT |
+| 4 | RUN-PM-1 | LOW | `partial_fill_events` metric counts the completing fill |
+| 5 | RUN-DA-1 | LOW | dead attribute `_entry_orders_by_symbol` |
+| 6 | RUN-OBS-1 | LOW (new) | exit-path risk rejections are ledgered (`RISK_ASSESSMENT_FAIL`) but NOT surfaced in `BarOutcome.risk_failed_checks` (`_submit_protection_exits` discards the failed-checks tuple) |
+
+### 0E.5 Verdict (unchanged)
+
+**PAPER_READY = FALSE.** This cycle closed all three audit-confirmed
+enforcement bypasses (kill-switch fill-time enforcement + terminal
+HALT); the remaining distance to TRUE is unchanged in kind:
+SRC-APPROVAL, provisioned operational feed, keyed-MAC key
+provisioning, PAT rotation confirmation, REAL_DATA_READY nine-stage
+chain — plus the ranked OPEN items above (RUN-DD-1 next). The branch
+is NOT pushed (read-only credential use only; no push authorized
+this cycle). LIVE NOT AUTHORIZED.
+
+---
+
+## 0F. MULTI-BROKER EXECUTION ARCHITECTURE AMENDMENT (v2.7.0, 2026-10-12)
+
+Operator mandate: design for multiple brokers/exchanges behind ONE
+broker-neutral execution interface (paper / MT5-compatible Exness-XM
+class / Binance / Bybit), mock adapters and deterministic tests FIRST,
+no real orders, no live credentials, frozen contracts preserved,
+readiness NOT true until the full runtime chain is integrated and
+independently tested. Design authority:
+`docs/MULTI_BROKER_EXECUTION_ARCHITECTURE.md` v1.0.0.
+
+### 0F.1 What was delivered (Phase M1, purely additive)
+
+- `src/data_engine/brokers/` — normalized models (order kinds incl.
+  STOP/STOP_LIMIT, TIF, UNKNOWN-as-first-class status, instrument
+  precision/lot/notional specs), typed error taxonomy with
+  venue-native codes preserved verbatim, coherence-validated
+  capability registry (REAL execution modes REFUSED at registration),
+  credential redaction boundary, the `BrokerAdapter` interface
+  (surface pinned by tests), and the guarded `BrokerSession`
+  (injectable risk/kill-switch gates — absent gate ⇒ refuse
+  everything; journal-backed idempotency; bounded deterministic retry;
+  UNKNOWN degradation with reconciliation-only recovery; atomic
+  tamper-evident journal; account isolation).
+- Four DETERMINISTIC MOCK adapters (paper / MT5-style Exness-XM-class
+  / Binance-spot-style / Bybit-v5-style) implementing venue semantics
+  in memory — zero network, zero real credentials, zero real orders.
+  Failure-injection surface: disconnect, rate-limit, ack-timeout
+  (accepted-but-unacknowledged), definitive rejection, extra fill,
+  partial fills.
+- 236 new tests across three files (core/contract/session-guards),
+  including the central-gate independence proof PARAMETRIZED over all
+  four brokers (risk refusal and kill-switch activation block every
+  venue before the adapter is reached).
+- Baseline independently re-verified FIRST (nothing assumed): full
+  suite 1,769 passed + 1 skipped at HEAD `1c286d2` (55.30s) —
+  matching the §0E record exactly.
+
+### 0F.2 Verification record
+
+| Check | Result |
+|---|---|
+| Full suite BEFORE (baseline `1c286d2`) | 1,769 passed + 1 skipped (55.30s) |
+| Full suite AFTER | **2,005 passed + 1 skipped** (54.76s) — +236, zero regressions, zero existing tests modified |
+| Frozen Phase 3 blobs | 11/11 byte-identical to `13fdc7e` (no frozen file touched — change is purely additive) |
+| Secret scan (full history) | 0 hits; journal files/error messages proven secret-free by redaction tests |
+| Live trading | NOT AUTHORIZED — every shipped adapter is MOCK_DETERMINISTIC; REAL descriptors are refused at registration AND at session construction |
+
+### 0F.3 What was deliberately NOT done
+
+No real Binance/Bybit/MT5 network adapters (Phases M3–M5, planned by
+risk order, none started). No rewiring of the frozen paper runtime
+onto the interface (Phase M2 — requires review of the design document
+first). No live credentials. The operational paper pipeline and its
+32-gate readiness stack are untouched by this change.
+
+### 0F.4 Verdict (unchanged)
+
+**PAPER_READY = FALSE.** The multi-broker layer is interface-level
+machinery + executable proof, not the trading path. The verdict can
+only change through Phase M2 integration and independent testing of
+the full runtime chain; the standing human blockers (SRC-APPROVAL,
+operational feed provisioning, keyed-MAC key, PAT rotation
+confirmation, REAL_DATA_READY chain) are unchanged, as are the ranked
+paper-runtime blockers from §0E.4 (RUN-DD-1 next). LIVE NOT AUTHORIZED.
+
+---
+
+## 0G. FULL-PLATFORM DISCOVERY AMENDMENT (v2.8.0, 2026-10-12)
+
+The full-platform discovery mandate (repository-wide audit → phased
+improvement toward the multi-user product goal) began with a
+first-hand re-verification of the baseline and a data-quality
+audit of every ingestion/classification path. Full record:
+`PHASE_1_DISCOVERY_AUDIT_REPORT.md` v1.0.0 (branch
+`fix/ingestion-classification-fail-closed`, from `d945833`).
+
+### 0G.1 Baseline re-verified (nothing assumed)
+
+Suite at `d945833`: 2,005 passed + 1 skipped (56.51 s) — matches
+the §0F record exactly. Remote state re-verified via unauthenticated
+`git ls-remote`: main `d49b822`; PR #1 open at `4e6dfc5`; PR #2 open
+at `d945833` (CI evidence of record: run `38242367378` SUCCESS).
+GitHub REST API rate-limited from this environment — recorded
+blocker, no credential used.
+
+### 0G.2 Confirmed + closed defect family (ingestion classification)
+
+Six defects, each reproduced by an executable probe BEFORE any fix,
+closed with 20 RED-first regression tests
+(`tests/test_ingestion_classification_fail_closed.py`):
+
+- **ING-NAT-1 (HIGH):** unparseable CSV dates silently became NaT —
+  no counter, no finding, dataset still classified REAL_UNVERIFIED,
+  NaT rows counted inside `valid_ohlc_rows`.
+- **ING-VOL-1 (MED-HIGH):** negative volume invisible to the
+  platform CSV audit (volume column discovered, never checked).
+- **ING-COL-1 (MED-HIGH):** schema mismatch not consulted by
+  classification; missing critical columns crashed with a raw
+  KeyError instead of a contract error.
+- **VAL-ORDER-1 (MED-HIGH):** out-of-order timestamps rated WARNING
+  by the core validator, so ingestion admitted non-chronological
+  datasets into the canonical store (now INVALID, consistent with
+  the platform CSV path; one incidental test fixture corrected with
+  the change documented in-line).
+- **ING-STALE-1 (HIGH):** both evidence scripts silently ingested a
+  stale `data/raw/` copy when a newly supplied source file differed
+  (now loud refusals: exit 1 / exit 2; raw store never overwritten).
+- **ING-NVIEW-1 (HIGH):** normalized-view generation failures were
+  swallowed (bare except + print) and the master script still
+  returned exit 0 (now FATAL + exit 3, nothing partial written).
+
+Companion: audit `columns` field now records the file's ORIGINAL
+columns (previously polluted with audit helper columns — observed in
+the committed manifests).
+
+### 0G.3 Verification
+
+Full suite **2,025 + 1 skipped × 3 consecutive** (55.04/56.23/55.75 s)
+— +20 tests, zero regressions, zero tests weakened (test-delta
+accounting in the audit report §8). Frozen Phase 3 blobs 11/11
+byte-identical to `13fdc7e`. Secret scan 0 hits across all history.
+Read-only stability check: all four committed platform datasets keep
+their recorded SYNTHETIC classification under the hardened audit
+(no data touched, no manifests regenerated).
+
+### 0G.4 Verdict (unchanged)
+
+**PAPER_READY = FALSE.** This cycle hardens data-quality
+classification and exit-code honesty; it does not touch the
+operational paper pipeline, the 32-gate stack, or any readiness
+dependency. Ranked runtime blockers unchanged (RUN-DD-1 next);
+standing human blockers unchanged (SRC-APPROVAL, operational feed,
+keyed-MAC key, PAT rotation, REAL_DATA_READY). LIVE NOT AUTHORIZED.
+Push of this branch is blocked on an operator credential (exact
+commands recorded in the audit report §9).
+
+---
+
+## 0H. RUNTIME-RISK-SAFETY AMENDMENT — BATCH 2 (v2.9.0, 2026-10-12)
+
+The runtime-risk-safety mandate (Batch 2: account-equity drawdown
+limit; every order/fill path respects the risk gate and kill
+switch) executed on the continuous feature branch
+`feat/runtime-risk-broker-neutral-tenancy`, from `82f46d9`
+(`fix/ingestion-classification-fail-closed`, §0G head).
+
+### 0H.1 Baseline re-verified (nothing assumed)
+
+Suite at `82f46d9`: **2,025 passed + 1 skipped** (55.57 s) — matches
+the §0G.3 record exactly. Working tree clean; all prior local
+branches preserved; `git log` chain intact.
+
+### 0H.2 RUN-DD-1 closed (the ranked next blocker since §0E)
+
+**Defect:** the mandatory `drawdown` risk-gate check measured ONLY
+the SYMBOL's price-window drawdown (`_window_drawdown` over bar
+closes). The ACCOUNT's own mark-to-market equity drawdown was never
+limited: a session could lose half its equity with every mandatory
+check passing, and no automatic protective action existed.
+
+**Accepted interface (implemented, fail-closed):**
+
+1. **Calculation** — `_account_drawdown() = (peak - current) / peak`;
+   both are TRUE mark-to-market account equity (PAPER-RUN-PNL-1
+   accounting: initial + realized + unrealized at the latest
+   admitted bar's close, costs exactly once); `peak` is the session
+   high-water mark replayed deterministically from persisted bars +
+   OMS fills (same discipline as the daily anchor: **no new persisted
+   field**, restart-stable by construction; in-memory memo is a pure
+   determinism cache keyed by (bar count, fill count)).
+2. **Configuration** — `RuntimeConfig.max_account_drawdown_fraction`
+   (default 0.20; validated finite fraction in (0, 1]).
+3. **Risk gate** — NEW mandatory check `account_drawdown`
+   (MANDATORY_CHECKS 21 → 22): unknown ⇒ FAIL CLOSED (never
+   neutral); strictly above limit ⇒ entry orders refused with
+   `ACCOUNT DRAWDOWN LIMIT`; closing/reducing orders stay permitted
+   (the limit blocks NEW exposure, not risk reduction — mirroring
+   the kill-switch carve-out). Equality is in-limit (consistent with
+   `drawdown`/`loss_limit`).
+4. **Enforcement** — evaluated on EVERY admitted bar after that
+   bar's fills (fill-driven AND price-driven breaches): a strict
+   breach is ledgered as `ACCOUNT_DRAWDOWN_LIMIT_BREACH` (full
+   calculation inputs), trips the ACCOUNT kill switch (auditable
+   source `runtime.risk.drawdown`) and HALTS terminally; the trip
+   persists immediately (BLOCKER 12) and a restart REFUSES to clear
+   it (critical-switch loud refusal, verified). In-flight entry
+   remainders are frozen by the terminal HALT (no bar can process ⇒
+   no fill past the limit — verified).
+5. **Missing/anomalous equity data** — fresh session ⇒ 0.0 (peak ==
+   current == initial); unanchorable equity path (fill `bar_index`
+   missing/outside admitted history — unreachable through the
+   governed adapter, defence-in-depth) ⇒ `None` ⇒ gate fails closed
+   + `ACCOUNT_DRAWDOWN_UNKNOWN` incident, NO trip on an unknown
+   measure (the human-reset switch is reserved for MEASURED
+   breaches). Non-positive current equity ⇒ 1.0 (maximal measured
+   drawdown).
+6. **Observability** — new counter `drawdown_limit_breaches`
+   (closed vocabulary extended additively).
+
+**Every order/fill path re-verified:** the single order path
+(`_execute_plan` → 22-check RiskGate → OMS RT-F1 fingerprint-bound
+approval) now carries the account-drawdown input for BOTH entry and
+protective-exit plans; fills remain governed by the RUN-KS-1/2
+fill-time kill-switch enforcement plus the terminal-HALT freeze.
+
+### 0H.3 Tests (RED-first, all verified)
+
+`tests/test_runtime_account_drawdown.py` — **14 tests**, all 14
+verified RED pre-fix for the documented reasons (the interface did
+not exist), all GREEN post-fix: measurement (fresh/round-trip/open-
+position/unrealized-peak), config validation (0/negative/>1/NaN
+refused; 1.0 and 0.001 legal), gate refusal (only failing check =
+`account_drawdown`), exact-limit boundary (equality passes, gate AND
+enforcement), closing-order carve-out during breach (entry refused,
+close created), unknown-data fail-closed (+ incident + no trip),
+breach trip (state/switch/ledger/metric + next-bar refusal),
+price-driven breach (no new fills), in-flight freeze (fill-lag order
+never fills past the trip), restart refusal (critical switch +
+identical reconstructed measure), organic-session restart stability
+(peak + drawdown identical after full restore).
+
+Two pre-existing fixture sites updated to satisfy the new mandatory
+input (`tests/test_runtime_safety.py::_ctx`,
+`tests/test_runtime_pnl_correctness.py::_seed_order_fill` — both now
+declare `account_drawdown_fraction=0.0` explicitly; **zero assertions
+weakened**, the fixtures merely satisfy the stricter contract).
+
+### 0H.4 Verification
+
+Full suite **2,039 + 1 skipped × 3 consecutive** (59.53/60.95/58.80 s)
+— +14 tests, zero regressions, zero tests weakened. Frozen Phase 3
+blobs 11/11 byte-identical to `13fdc7e`. Secret scan 0 hits on all
+changed files.
+
+### 0H.5 Known limitations (honest)
+
+- **Config-identity evolution:** the new config field enters
+  `config_digest`; snapshots persisted by pre-§0H code fail the
+  identity binding on restart (fail-closed refusal — new session
+  required). This is the correct direction but operators must know
+  old sessions do not carry over.
+- **Peak replay cost:** the high-water mark is replayed from bar
+  history on each new bar (memoized per (bar, fill) counts) — same
+  asymptotic class as the existing per-bar full-state persistence;
+  a perf pass is future work, not a safety issue.
+- **HALT freezes exits too:** a tripped session leaves open
+  positions unmanaged (bars refused) — consistent with the existing
+  ACCOUNT/GLOBAL switch semantics (operator winds down in a NEW
+  session). Documented trade-off, not a regression.
+- Feed staleness itself remains RUN-ST-1 (open, separately ranked).
+
+### 0H.6 Verdict (unchanged)
+
+**PAPER_READY = FALSE.** This batch closes a runtime-safety blocker;
+it does not touch the operational feed, the 32-gate stack, or any
+readiness dependency. Ranked runtime blockers after this cycle:
+RUN-ST-1 (in-session staleness watchdog) > RUN-CA-1 (operator
+cancel/manual-close) > RUN-PM-1/DA-1/OBS-1. Standing human blockers
+unchanged (SRC-APPROVAL, operational feed provisioning, keyed-MAC
+key, PAT rotation, REAL_DATA_READY). LIVE NOT AUTHORIZED.
+
+---
+
+## 0I. BROKER-NEUTRAL RUNTIME INTEGRATION AMENDMENT — BATCH 3 (v2.10.0, 2026-10-12)
+
+The runtime-risk-safety mandate Batch 3 (broker-neutral runtime
+integration) delivered Phase M2 of
+`docs/MULTI_BROKER_EXECUTION_ARCHITECTURE.md` as the SMALLEST
+maintainable integration layer:
+`src/data_engine/runtime/broker_execution.py` (module record in the
+architecture doc §6a).
+
+### 0I.1 What the integration proves
+
+A `BrokerSession` attached to a STARTED paper runtime is governed by
+the runtime's REAL central gates — the SAME `RiskGate` (all 22
+mandatory checks incl. RUN-DD-1 account drawdown, §0H) and
+`KillSwitchManager` instances — and executes through the runtime's
+OWN deterministic `PaperExecutionAdapter` fill model over the
+runtime's admitted bar history. Session protections (journal
+idempotency across restarts, bounded deterministic retry, UNKNOWN
+degradation with reconciliation-only recovery, capability/precision
+refusals, account isolation) work end-to-end on this boundary.
+
+### 0I.2 What the integration deliberately does NOT do
+
+The runtime's authoritative order path (`_execute_plan` -> OMS ->
+runtime fills) is UNTOUCHED — the bridge is SIDE-BAND (venue orders
+live in the session journal + venue book, never in the runtime
+OMS). Zero existing tests modified; the only runtime-surface
+addition is the read-only `TradingRuntime.risk_gate` property. No
+real broker adapter exists or is claimed: M3-M6 (Binance testnet,
+Bybit demo, MT5-compatible Exness/XM DEMO, cross-venue aggregation)
+remain NOT STARTED — MT5/Exness/Binance/Bitget/XM remain UNSUPPORTED
+for real execution. LIVE NOT AUTHORIZED.
+
+### 0I.3 Verification
+
+`tests/test_runtime_broker_integration.py` — 22 tests (lifecycle,
+partial fills, resting LIMIT, cancel freeze, central-gate
+governance incl. drawdown through the bridge, idempotency incl.
+restart, timeout retry, UNKNOWN degrade/reconcile/resume,
+unsupported TIF + STOP kinds, isolation, unknown symbol, §32
+divergence -> sync -> clean, phantom degradation, side-band
+preservation, MOCK_DETERMINISTIC enforcement). Suite
+**2,039 + 1 skipped -> 2,061 + 1 skipped** — +22, zero regressions,
+zero existing tests modified, frozen Phase 3 blobs untouched.
+
+### 0I.4 Verdict (unchanged)
+
+**PAPER_READY = FALSE.** The integration is paper-mock only; no
+readiness dependency changed. Standing human blockers unchanged
+(SRC-APPROVAL, operational feed provisioning, keyed-MAC key, PAT
+rotation, REAL_DATA_READY). LIVE NOT AUTHORIZED.
+
+---
+
+## 0J. MULTI-USER SECURITY FOUNDATION AMENDMENT — BATCH 4 (v2.11.0, 2026-10-12)
+
+The runtime-risk-safety mandate Batch 4 delivered the multi-user
+security FOUNDATION: the new `src/data_engine/tenancy/` package
+(identity + approval/license lifecycle, short-lived authenticated
+principals, server-side authoritative resource ownership,
+deny-by-default authorization with the full capability matrix,
+per-tenant secret vault contract, per-user provisioning CONTRACT
+with a dry-run-only provisioner) plus the design authority
+document `docs/MULTI_USER_TENANCY_SECURITY_FOUNDATION.md` v1.0.0
+(threat model, control-plane boundary, mobile read-only policy,
+explicit non-claims).
+
+### 0J.1 Security properties proven by executable tests (46)
+
+- Server-side authorization: the tenant binding comes from the
+  AUTHENTICATED principal — client-supplied tenant claims are
+  compared against it and a mismatch is DENIED + recorded as a
+  security incident (checked before resource lookup, so probes
+  cannot enumerate).
+- Cross-user denial: recipients mutually invisible (both
+  directions, all actions); owner data protected by the same rules.
+- Control-plane boundary: owner/admin roles manage approvals and
+  license state but are structurally DENIED recipient trading data
+  (ledgers, databases, secrets, backups, VPS, sessions) — the
+  control plane never centralizes trading history or secrets.
+- Mobile read-only: no WRITE/ORDER_SUBMIT/SECRET_REVEAL for any
+  resource kind — there is no order-placement path reachable by a
+  read-only principal (structural proof over the registry); mobile
+  order placement is NOT implemented.
+- License gating (all inactive states, instant revocation), session
+  expiry, unknown-resource deny-by-default.
+- Secret hygiene: authorization-gated reveals with defence-in-depth
+  tenant re-checking; values never in audit records, decisions or
+  reprs; fingerprint discipline; explicit rotation.
+- Provisioning: dry-run only — full six-stack per-user contract
+  plans (VPS/database/secrets/backups/license/ledger) for APPROVED
+  tenants; `execute_plan` refused BY DESIGN; specs refuse weakening.
+
+### 0J.2 Explicit non-claims (unchanged honesty)
+
+NOT production-ready multi-tenancy: no authentication provider, no
+public API, no network surface, no real infrastructure provisioned,
+no mobile application, no end-to-end deployment tests. The Phase 1
+product-gap matrix rows (multi-user/VPS/mobile/distribution) move
+from NOT STARTED to FOUNDATION-ONLY — none are claimed complete.
+
+### 0J.3 Verification
+
+Suite 2,061 + 1 skipped -> **2,107 + 1 skipped** (+46, zero
+regressions, zero existing tests modified). Frozen Phase 3 blobs
+untouched; secret scan 0 hits on changed files.
+
+### 0J.4 Verdict (unchanged)
+
+**PAPER_READY = FALSE.** The tenancy foundation is enforcement
+machinery, not a readiness dependency. Standing human blockers
+unchanged. LIVE NOT AUTHORIZED.
+
+---
+
+## 0K. AUTHORITATIVE BROKER-NEUTRAL RUNTIME INTEGRATION AMENDMENT — BATCH 5 (v2.12.0, 2026-10-12)
+
+The multi-broker architecture mandate Batch 5 completed Phase M2 as
+the AUTHORITATIVE integration (the prior §0I/Batch-3 delivery was an
+explicitly side-band bridge with the runtime order path untouched):
+`attach_authoritative_paper_venue(...)` binds a guarded
+`BrokerSession` ONTO the runtime's single order path. With a venue
+attached, EVERY runtime order (entries AND protective exits) flows
+gate -> OMS fingerprint-bound approval -> the session pipeline
+(isolation > health > reconciliation-gate > kill-switch > identity-
+binding risk verification > journal idempotency > capability +
+precision pre-checks > bounded retry) and fills EXCLUSIVELY from
+venue polls — there is NO hidden direct-execution fallback, and a
+runtime with live pre-venue internal orders REFUSES the attachment.
+
+### 0K.1 Properties proven by executable tests (26, RED-first)
+
+- **Single coherent risk decision**: the session's risk gate is
+  `RuntimeOrderPathRiskGate` — an identity-binding VERIFICATION that
+  the request maps 1:1 onto an OMS order in RISK_APPROVED state with
+  matching fingerprint fields (the RT-F1 approval of the runtime's
+  ONE authoritative 22-check assessment, incl. RUN-DD-1 drawdown).
+  The venue `client_order_id` IS the OMS order id — one identity from
+  decision to venue.
+- **Fill model unchanged**: the venue hosts the runtime's own
+  `PaperExecutionAdapter`; venue-mode runs are BIT-IDENTICAL to
+  internal-mode runs (same order ids, same fill ids, quantities,
+  prices, costs — the twin-run test) and the organic decision ->
+  plan -> order chain matches the internal control run exactly.
+- **Kill-switch/fill-time/exit semantics preserved**: new exposure
+  refused at the gate; in-flight remainders cancelled at BOTH the
+  OMS and the venue; organically triggered protective exits traverse
+  the SAME venue boundary under the risk-reduction carve-out (an
+  explicitly reduce-only order that verifiably reduces the live
+  position — the venue-side mirror of the runtime gate's documented
+  closing-order carve-out).
+- **Exactly-once accounting**: polls return only the RuntimeFill
+  delta beyond what the OMS holds; multi-bar partial fills update
+  OMS/position/metrics/ledger exactly once; a redundant poll is a
+  no-op.
+- **UNKNOWN ambiguity discipline**: a definitive venue refusal
+  REJECTS the OMS order (the venue never saw it); an ambiguous
+  submission (UNKNOWN ack / exhausted TIMEOUT retries) marks it
+  UNKNOWN + RECONCILING, sets EXECUTION_UNCERTAIN and blocks ALL new
+  submissions and bars; recovery adopts venue truth through the
+  LEDGERED reconciliation actions (`resolve_ambiguity`,
+  cross-checked phantom adoption via `BrokerSession.adopt_venue_order`)
+  — NEVER an inferred failure; a restart inside the ambiguity stays
+  fail-closed (unexplainable phantoms stay blocked).
+- **Restart idempotency**: the venue book is rebuilt from persisted
+  OMS + journal truth with deterministic-regeneration verification
+  (divergence refuses recovery); the split run equals the whole run;
+  key reuse with different details is refused (the binding gate is a
+  TIGHTER refusal point than the journal's IDEMPOTENCY_KEY_REUSE);
+  a recovered HALT never silently becomes RUNNING.
+- **Precision enforcement, price vs quantity distinguished**:
+  lot-misaligned quantities and tick-misaligned limit prices are
+  REFUSED pre-venue (PRECISION_INVALID, ledgered with the dimension
+  named) — never silently rounded; attach without an instrument spec
+  for the runtime's own symbol is refused.
+- **Account isolation**: the credential secret never reaches the
+  runtime ledgers, the persisted execution state, the OMS records or
+  the session journal (executable scan).
+- **RUN-DD-1 through the venue**: drawdown enforcement, ACCOUNT kill
+  switch trip and terminal HALT are unchanged with a venue attached.
+
+### 0K.2 Scope honesty (what this is NOT)
+
+This is the PAPER-MOCK venue integration only: the hosted venue is
+`MOCK_DETERMINISTIC` (REAL adapters refused by the session), the
+in-memory venue book is rebuilt deterministically from persisted
+state (real venues are durable — Phase M3+ tests against real venue
+truth), and executing runtime orders through a REAL venue (Binance
+testnet / Bybit demo / MT5-compatible demo) remains M3-M6 work,
+NOT STARTED. MT5/Exness/Binance/Bitget/XM remain UNSUPPORTED for
+real execution. The Batch-3 side-band surface is preserved and
+still passes its own 22 tests.
+
+### 0K.3 Verification
+
+Suite 2,107 + 1 skipped -> **2,133 + 1 skipped** (+26, zero
+regressions, ZERO existing tests modified) x3 consecutive runs
+(73.2s / 71.2s / 71.7s). Frozen Phase 3 blobs 11/11 byte-identical
+to 13fdc7e; secret scan 0 hits across ALL history.
+
+### 0K.4 Verdict (unchanged)
+
+**PAPER_READY = FALSE.** An attached paper-mock venue is a
+structural integration proof, not a readiness dependency; the
+readiness verdict requires the full independently-tested runtime
+chain on the operational feed. Standing human blockers unchanged
+(SRC-APPROVAL, operational feed provisioning, keyed-MAC key, PAT
+rotation confirmation, REAL_DATA_READY chain). LIVE NOT AUTHORIZED.
+
+---
+
+## 0L. RUNTIME SAFETY RESIDUALS + SNAPSHOT COMPATIBILITY AMENDMENT — BATCH 6 (v2.13.0, 2026-10-13)
+
+The three-batch continuation mandate's Batch 6 closed every
+remaining OPEN paper-runtime safety residual registered in §0D/§0E
+plus the §0H-recorded snapshot-compatibility limitation. Baseline
+re-verified FIRST-HAND at 7b532bb (Batch 5 head): branch
+feat/runtime-risk-broker-neutral-tenancy, tree clean, suite
+**2,133 + 1 skipped** (72.9s) — matching the §0K record exactly.
+All fixes are RED-first (34 new acceptance tests in
+`tests/test_runtime_safety_residuals.py`, verified failing on the
+pre-fix code for the documented reasons: missing interfaces).
+
+### 0L.1 RUN-ST-1 — in-session wall-clock feed watchdog (MED → CLOSED)
+
+`RuntimeConfig.max_feed_staleness_seconds` (`Optional[StrictInt]`,
+default `None` = DISABLED) + an injectable `wall_clock` seam on
+`TradingRuntime`. A bar whose timezone-aware timestamp is STRICTLY
+older than the limit on the runtime's wall clock is still ADMITTED
+— in-flight settlement, TTL expiry, RUN-DD-1 drawdown enforcement,
+protective exits and persistence all continue (the watchdog blocks
+NEW EXPOSURE, never settlement or protection) — but the
+prediction/decision/entry chain is SKIPPED (fail closed), a
+`FEED_STALE_BLOCK` incident is ledgered (DETERMINISTIC payload: bar
+timestamp + configured limit; never the measured wall-clock age —
+INV-01 discipline), and the `feed_stale_bars` counter increments.
+A bar without a provable timestamp is STALE when the watchdog is on
+(freshness unprovable ⇒ fail closed); future-dated bars are not
+stale (clock-skew remains the pre-start feed gate's domain).
+
+Design decision (documented honestly): the DEFAULT is DISABLED to
+preserve the runtime's deterministic-replay posture — historical bar
+timestamps legitimately trail the wall clock, and every existing
+operational-mode test replays such histories. An operational
+live-clock paper session OPTS IN with an explicit limit (the paper
+operator runbook §7 now documents this as REQUIRED for live-clock
+operation). The broker bridge's external-order risk context derives
+`last_bar_age_bars` from the SAME wall clock when the watchdog is
+enabled — a stalled feed fails the mandatory `data_staleness` check
+fail-closed for external submissions (the pre-fix hardcode of 0 was
+structurally always-fresh).
+
+### 0L.2 RUN-CA-1 — operator cancel / manual close (MED → CLOSED)
+
+Two audited, fail-closed operator APIs:
+
+- **`operator_cancel_order(order_id, *, reason)`** — live orders
+  only (unknown/terminal ids are loud refusals); permitted in
+  RUNNING/DEGRADED/HALTED, refused in the §28 ambiguity states
+  (EXECUTION_UNCERTAIN / RECOVERY_REQUIRED / RECONCILIATION_REQUIRED
+  — reconcile first). Cancels through the REAL OMS transition pair
+  (request_cancel → finalize_cancel; partial fills keep their
+  filled part) and the venue boundary when attached; drops pending
+  protection; ledgers `ORDER_CANCELLED_OPERATOR` + counter +
+  immediate persistence (BLOCKER 12).
+- **`operator_close_position(symbol=None, *, reason)`** — RUNNING
+  submits a MANUAL_CLOSE order through the AUTHORITATIVE gate→OMS
+  path (closing carve-outs apply; settles on later bars through the
+  normal latency model). HALTED settles IMMEDIATELY at the latest
+  admitted bar (open ± adverse half spread + per-unit commission,
+  deterministic bar-derived mark): every live order for the symbol
+  is cancelled first (the frozen-protection condition), the closing
+  order is risk-gated (a failure is a LOUD refusal naming the failed
+  checks — no override path exists), and ONE full MARKET fill
+  applies through `_apply_execution_fills` — the same authoritative
+  OMS→position→P&L path every fill uses (exactly-once accounting,
+  `OPERATOR_MANUAL_CLOSE` incident, counter, immediate persistence).
+  With a venue attached the settlement is deliberately NOT submitted
+  to the venue (the venue refuses non-RUNNING runtimes BY DESIGN);
+  the incident records that venue truth was not consulted — an
+  operator-owned out-of-band settlement, never a hidden
+  direct-execution fallback in the normal path.
+
+### 0L.3 Low-severity residuals (LOW → CLOSED)
+
+- **RUN-PM-1**: `partial_fill_events` re-queries the LIVE OMS order
+  after each applied fill — the COMPLETING fill (remaining hits
+  zero) is no longer counted as a partial-fill event. The fix is in
+  the ONE shared fill-application path, so internal-mode and
+  venue-mode runs stay bit-identical.
+- **RUN-DA-1**: the dead `_entry_orders_by_symbol` attribute is
+  removed (written once in `__init__`, never read — zero references
+  in src or tests).
+- **RUN-OBS-1**: `_submit_protection_exits` now returns
+  `(orders, failed_checks)` and `BarOutcome.risk_failed_checks`
+  surfaces EXIT-path rejections (previously ledgered as
+  `RISK_ASSESSMENT_FAIL` but silently discarded from the outcome —
+  an operator reading the bar outcome could not see WHY a protective
+  exit was refused).
+
+### 0L.4 Snapshot config compatibility (§0H limitation → CLOSED)
+
+The §0H record noted that config-digest evolution "refuses pre-§0H
+snapshots (fail-closed)" — every schema addition changed the digest
+of an UNCHANGED session, with an opaque generic mismatch refusal.
+Batch 6 adds `SNAPSHOT_CONFIG_EVOLUTION` (ordered registry of
+post-formula config-field additions: §0H `max_account_drawdown_
+fraction`, §0L `max_feed_staleness_seconds` +
+`allow_snapshot_config_evolution`) and
+`RuntimeConfig.allow_snapshot_config_evolution` (StrictBool, default
+False). A digest mismatch now decomposes FIRST: a mismatch that is
+EXACTLY the documented additive evolution (legacy suffix-strip
+digest recomputation for pre-Batch-6 snapshots, or exact
+field-wise decomposition over the now-persisted
+`identity["config"]` view) refuses by DEFAULT with a precise
+message naming the added fields and the opt-in; with the explicit
+operator opt-in the session RESUMES and the evolution is ledgered
+as `SNAPSHOT_CONFIG_EVOLVED` (recorded after ledger restoration so
+it joins the permanent audit chain). Any SHARED-field value change
+still refuses (never silently continue under another identity —
+BLOCKER 21 unchanged). FUTURE config additions MUST be appended to
+the registry. EXECUTION_STATE_SCHEMA_VERSION stays 1.1.0 (the
+identity mapping is schema-opaque; new snapshots remain loadable by
+the unchanged schema validator).
+
+### 0L.5 Verification
+
+Suite 2,133 + 1 skipped -> **2,167 + 1 skipped** (+34, zero
+regressions, ZERO existing tests modified or weakened) x3
+consecutive runs (77.8s / 77.7s / 77.7s). Frozen Phase 3 blobs
+11/11 byte-identical to 13fdc7e; manifest pins 13/13; real-
+credential scan over all changed files: 0 hits (the 5 literal hits
+of the legacy gate script are the pre-existing MOCK test literals
+`mock-secret-material-DO-NOT-PRINT` from the committed Batch-M1
+broker tests — unchanged by this cycle). Changed surface:
+`src/data_engine/runtime/runtime.py`,
+`src/data_engine/runtime/metrics.py` (4 new counters:
+`feed_stale_bars`, `orders_operator_cancelled`,
+`orders_operator_close_submitted`, `orders_operator_closed`),
+`tests/test_runtime_safety_residuals.py` (new), readiness report +
+index + operator runbook (this amendment).
+
+### 0L.6 Verdict (unchanged)
+
+**PAPER_READY = FALSE.** The watchdog's default-off posture is a
+documented deterministic-replay compatibility decision — live-clock
+operation REQUIRES the explicit opt-in (runbook §7). Standing human
+blockers unchanged (SRC-APPROVAL, operational feed provisioning,
+keyed-MAC key, PAT rotation confirmation, REAL_DATA_READY chain).
+LIVE NOT AUTHORIZED.
+
+---
+
+## 0M. INSTRUMENT DISCOVERY / CATALOG / BITGET MOCK / REGISTRY-SYNC AMENDMENT — BATCH 7 (v2.14.0, 2026-10-13)
+
+The three-batch continuation mandate's Batch 7 delivered the
+instrument half of the multi-broker architecture (design authority:
+docs/MULTI_BROKER_EXECUTION_ARCHITECTURE.md §6c v1.3.0). Baseline
+re-verified FIRST-HAND at 39e7939 (Batch 6 head): tree clean, suite
+2,167 + 1 skipped. All work RED-first (21 new acceptance tests in
+`tests/test_broker_instrument_discovery.py`, verified failing
+pre-fix; plus the SHARED adapter contract suite newly parametrized
+over the fifth venue).
+
+### 0M.1 Bitget spot v2 mock venue (broker-matrix gap → CLOSED at mock level)
+
+`BitgetSpotMockAdapter` + `BITGET_MOCK_CAPABILITIES` (registered in
+`default_registry`) — the Phase-1 discovery audit's broker matrix
+recorded Bitget as "NOTHING — no adapter, no mock, no
+market-data provider". Semantics encoded: MARKET/LIMIT only; SL/TP
+as SEPARATE trigger (plan) orders; clientOrderId native idempotency;
+balances-only account; trade filters (tick/lot/minTradeUSDT-class
+minimum notional); request + order rate limits; representative v2
+native codes preserved for audit (40001/43007/43025/42911 —
+re-verified against the live docs when a real-adapter phase is
+operator-authorized). MOCK_DETERMINISTIC enforced; REAL execution
+modes structurally refused at descriptor registration.
+
+### 0M.2 Instrument discovery + catalog (fail-closed)
+
+`discover_instruments(adapter, at=..., registry=None)` → immutable
+`InstrumentCatalog` of `CatalogEntry` records (spec + the venue's
+capability descriptor SNAPSHOT at discovery time + provenance).
+Refusals: disconnected adapter (a fabricated catalog is worse than
+none); foreign-broker specs; duplicate venue symbols; capability
+DRIFT against the registry (changes are explicit versioned events);
+unknown-symbol lookups.
+
+### 0M.3 Platform-registry sync (registration ≠ eligibility)
+
+`sync_catalog_to_platform_registry(catalog, registry, at=...)` →
+registers canonical identities with `broker:<id>` provider-symbol
+mappings into the CENTRAL platform InstrumentRegistry, honoring its
+own contracts verbatim: a synced instrument lands DISCOVERED (the
+sync never touches data state/verification/eligibility); the same
+canonical instrument from a second venue is the registry's
+duplicate path with the mapping MERGED (one identity, many venue
+symbols — the canonical identity carries no exchange/venue so
+venues never fork identity); broker mappings start UNVERIFIED.
+
+### 0M.4 Verification
+
+Suite 2,167 + 1 skipped → **2,215 + 1 skipped** (+48: 21 new tests +
+27 shared-contract tests newly parametrized over bitget-mock; one
+existing inventory pin updated four→five mocks — documented
+strengthening, zero assertions weakened) x3 consecutive runs
+(80.3s / 81.0s / 80.4s). Frozen Phase 3 blobs 11/11 byte-identical
+to 13fdc7e; manifest pins 13/13; real-credential scan 0 hits on
+changed files. Changed surface: capabilities.py, adapters/__init__,
+brokers/__init__, bitget_mock.py (new), instruments.py (new), the
+two test files, three docs.
+
+### 0M.5 Verdict (unchanged)
+
+**PAPER_READY = FALSE.** The Bitget venue is a deterministic mock;
+discovery/sync grant NO trading permission (registration ≠
+eligibility; no market-data provider for Bitget exists). Standing
+human blockers unchanged. LIVE NOT AUTHORIZED.
+
+---
+
+## 0B. MASTER-DATA IMPORT AMENDMENT (v2.3.0, 2026-10-11)
+
+The operator supplied a four-file master market-data bundle
+(Coins/Forex/Stocks/Metals). It was integrated on the feature branch
+`feat/master-market-data-import` through the governed pipeline with
+checksums verified before import, originals preserved byte-for-byte,
+full independent audits, honest UNKNOWN provenance, 55 new regression
+tests, and NO readiness-gate changes. Full evidence:
+`MASTER_MARKET_DATA_IMPORT_RECORD.md` v1.0.0. Summary of what changed
+and what did NOT:
+
+- **Registered (521 instruments, 541,954 rows):** Coins_Master.csv →
+  REAL_UNVERIFIED (500 symbols, daily ms-epoch klines, integrity
+  clean, 16 partial-span candles, all 500 final candles incomplete at
+  acquisition); Forex_Master.csv → REAL_UNVERIFIED (7 USD-base rate
+  pairs — a RATE SERIES, never fabricated into OHLC); Stocks_Master.csv
+  → REAL_UNVERIFIED (9 assets, monthly/quarterly, 0/9 D1-suitable);
+  Metals_Master.csv → **INVALID** (19 impossible-OHLC rows quarantined
+  verbatim — correction requires original provider data that was
+  never supplied).
+- **VERDICT UNCHANGED: PAPER_READY = FALSE.** REAL_DATA_READY stays
+  FALSE (VERIFIED_YEARS = 0; REAL_VERIFIED remains unreachable without
+  provider identification, licence confirmation, SRC-APPROVAL and the
+  nine-stage verification chain — operator supply is approval-to-use,
+  not source approval). OPERATIONAL_FEED_READY stays FALSE (historical
+  CSVs prove nothing about a current feed's freshness/mapping/reliability;
+  additionally the forex file is not OHLC, stocks/metals are not daily,
+  and the coins file's final candles are incomplete). GOVERNANCE_READY
+  components unchanged (H-1 ✓, CI/WP-12 ✓; PAT rotation, keyed-MAC key
+  provisioning, source approval open).
+- **Suite:** 1,630 → **1,685 passed + 1 skipped** (+55 master-dataset
+  tests) with one pre-existing weak assertion replaced by a real one
+  (legacy non-chronology check was post-sort/vacuous — fixed with
+  byte-identical legacy manifests verified before commit).
+- **Frozen Phase 3: 13/13 unchanged. Security scans: clean.**
 
 ---
 
@@ -473,6 +1552,14 @@ frozen-contract change was committed.
    verified feed-window dataset satisfies the runtime gate; the
    long-term research corpus remains DEFERRED per GOV-HDD-001 and is
    never falsely reported).
+   > **v2.3.0 note (master-import):** the operator's master bundle is
+   > now REGISTERED (3 × REAL_UNVERIFIED + 1 × INVALID; provider,
+   > licence and source approval all UNKNOWN — see
+   > MASTER_MARKET_DATA_IMPORT_RECORD.md §5/§8). Registration changed
+   > nothing about this gate: REAL_UNVERIFIED/INVALID data can never
+   > satisfy it; the promotion path (SRC-APPROVAL + licence +
+   > nine-stage chain, provider-derived corrections for the 19 metals
+   > violations) remains exactly as documented.
 3. **GOVERNANCE_READY = FALSE — remaining components:**
    a. **PAT rotation confirmation** — the exposed token (now exposure
       #15) must be revoked/rotated by the operator through a secure
@@ -528,7 +1615,8 @@ AND AUDIT_READY           (PASS — continuous chains)
 AND REPLAY_READY          (PASS — cross-process ×2)
 AND OBSERVABILITY_READY   (PASS — RuntimeMetrics wired, v2.1.0)
 AND SECURITY_READY        (PASS — scans; PAT rotation OPEN)
-AND TESTS_READY           (PASS — 1621 ×2 deterministic, v2.2.0)
+AND TESTS_READY           (PASS — 1685 ×2 deterministic, v2.3.0
+                            master-import cycle)
 AND GOVERNANCE_READY      (FALSE — H-1 ✓ and CI/WP-12 ✓ recorded
                             2026-10-10; open components: PAT rotation
                             confirmation, keyed-MAC custody

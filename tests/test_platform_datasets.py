@@ -106,10 +106,14 @@ class TestIntegrityChecks:
         p = tmp_path / "fx.csv"
         p.write_text(FOREX_HEADER + "".join(rows), encoding="utf-8")
         audit = audit_csv_file(p, CsvKind.FOREX)
-        # rows are sorted before the chronology check: a file whose stored
-        # order is non-chronological must still be detected via the sort
-        # reconciliation below; the sorted grid itself stays chronological
-        assert audit.non_chronological_rows >= 0
+        # 2026-10-11 strengthening (master-import cycle, F-24 pattern):
+        # the audit's chronology check now measures the FILE's stored
+        # order (pre-sort). The previous assertion `>= 0` was vacuous
+        # and masked a post-sort check that could never fire; this
+        # replacement pins the real behaviour.
+        assert audit.non_chronological_rows == 1
+        assert audit.integrity_findings
+        assert audit.recommended_state is DatasetState.INVALID
         stored_order_check = pd.read_csv(p)
         dates = pd.to_datetime(stored_order_check["Date"])
         assert (dates.diff().dt.total_seconds() < 0).sum() == 1
