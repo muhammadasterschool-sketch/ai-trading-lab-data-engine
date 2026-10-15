@@ -109,7 +109,7 @@ jobs:
           pip install pip-audit
           # Export ALL locked pins (runtime + dev) — auditing dev deps
           # too is the conservative, fail-closed posture.
-          uv export --frozen --no-header -o requirements-audit.txt
+          uv export --frozen --no-header --no-emit-project --extra dev -o requirements-audit.txt
           # --strict: fail on ANY known vulnerability.
           # --disable-pip: audit the exported locked pins only, not the
           # ambient pip tooling itself.
