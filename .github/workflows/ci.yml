@@ -33,6 +33,8 @@ jobs:
           uv sync --frozen --extra dev
       - name: Full test suite (must be 100% green)
         run: uv run pytest -q -p no:cacheprovider
+      - name: Deployment-template validator (fail-closed — reconstruction D-3)
+        run: uv run python scripts/validate_deployment_templates.py
       - name: Determinism (three consecutive runs)
         run: |
           uv run pytest -q -p no:cacheprovider
