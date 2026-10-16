@@ -63,6 +63,53 @@ class RiskCheckResult(BaseModel):
         return v.strip()
 
 
+class RuntimeRiskLimits(BaseModel):
+    """Provisional paper-mode runtime order limits (reconstruction D-6).
+
+    Fail-closed by construction: the gate refuses an order when the
+    measured limit state is missing/unknown AND when the limits
+    themselves are misconfigured (validators below).
+
+    HONEST limit provenance:
+    - ``max_orders_per_window = 5`` and ``window_seconds = 60.0``
+      MIRROR the repository's own venue-capability emulation defaults
+      (``brokers/capabilities.py`` RateLimitPolicy + venue profiles) —
+      the only order-rate notion the existing design has;
+    - ``max_open_orders = 10`` has NO prior design value anywhere in
+      the repository: it is a deliberately conservative PAPER-MODE
+      provisional default chosen by the reconstruction — it is NOT a
+      production limit and REQUIRES operator review/ratification;
+    - all values are per-runtime configurable and none is approved for
+      any real-money context (live execution stays structurally
+      refused; PAPER_READY remains the only gate that matters).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    max_orders_per_window: int = 5
+    window_seconds: float = 60.0
+    max_open_orders: int = 10
+
+    @field_validator("max_orders_per_window", "max_open_orders")
+    @classmethod
+    def _validate_positive_counts(cls, v: int) -> int:
+        if v is None or v < 1:
+            raise RiskGateError(
+                "runtime risk limits: counts must be >= 1 (fail closed "
+                "on misconfiguration — no uncapped runtime default)"
+            )
+        return v
+
+    @field_validator("window_seconds")
+    @classmethod
+    def _validate_window(cls, v: float) -> float:
+        if v is None or v <= 0:
+            raise RiskGateError(
+                "runtime risk limits: window_seconds must be positive"
+            )
+        return float(v)
+
+
 MANDATORY_CHECKS = (
     "paper_mode",
     "kill_switch",
@@ -86,6 +133,8 @@ MANDATORY_CHECKS = (
     "stop_loss_presence",
     "take_profit_validity",
     "risk_reward",
+    "order_rate_limit",
+    "max_open_orders",
 )
 
 
@@ -126,6 +175,13 @@ class RiskContext(BaseModel):
     min_volatility: Optional[float] = None
     duplicate_order_id: Optional[str] = None
     stale_data_max_age_bars: int = 2
+    #: --- D-6 runtime order-limit state (fail-closed: unknown = FAILURE,
+    #: never neutral). Measured + supplied by the runtime per order.
+    open_order_count: Optional[int] = None
+    max_open_orders: Optional[int] = None
+    orders_submitted_in_window: Optional[int] = None
+    max_orders_per_window: Optional[int] = None
+    order_rate_window_seconds: Optional[float] = None
 
     @field_validator("equity")
     @classmethod
@@ -341,6 +397,85 @@ class RiskGate:
             if context.duplicate_order_id is None
             else f"duplicate order intent detected: {context.duplicate_order_id}",
         )
+
+        # 9b. order submission rate (reconstruction D-6). The limit
+        # governs NEW exposure; risk-reducing (closing) orders are
+        # exempt — the same fail-safe carve-out discipline as the
+        # kill-switch and drawdown checks (limits throttle runaway
+        # submission, never risk reduction). Unknown measured state
+        # fails CLOSED, never neutral.
+        if is_closing:
+            record(
+                "order_rate_limit",
+                True,
+                "risk-reducing order: submission-rate exempt "
+                "(fail-safe direction; new exposure stays throttled)",
+            )
+        elif (
+            context.orders_submitted_in_window is None
+            or context.max_orders_per_window is None
+            or context.order_rate_window_seconds is None
+        ):
+            record(
+                "order_rate_limit",
+                False,
+                "order-rate control state unknown — fail closed",
+            )
+        elif (
+            context.orders_submitted_in_window
+            < context.max_orders_per_window
+        ):
+            record(
+                "order_rate_limit",
+                True,
+                f"{context.orders_submitted_in_window}/"
+                f"{context.max_orders_per_window} submissions in the "
+                f"last {context.order_rate_window_seconds:g}s",
+            )
+        else:
+            record(
+                "order_rate_limit",
+                False,
+                f"ORDER RATE LIMIT: "
+                f"{context.orders_submitted_in_window} submissions in "
+                f"the last {context.order_rate_window_seconds:g}s is at/"
+                f"over the {context.max_orders_per_window} limit — new "
+                "exposure refused",
+            )
+
+        # 9c. maximum open (unresolved) OMS orders (reconstruction D-6).
+        # Open = OMS LIVE_STATES + AMBIGUOUS_STATES: a possibly-live
+        # venue order keeps occupying capacity until reconciliation
+        # resolves it (conservative). Closing orders exempt (fail-safe
+        # direction); unknown state fails CLOSED.
+        if is_closing:
+            record(
+                "max_open_orders",
+                True,
+                "risk-reducing order: open-order limit exempt "
+                "(fail-safe direction; new exposure stays capped)",
+            )
+        elif context.open_order_count is None or context.max_open_orders is None:
+            record(
+                "max_open_orders",
+                False,
+                "open-order control state unknown — fail closed",
+            )
+        elif context.open_order_count < context.max_open_orders:
+            record(
+                "max_open_orders",
+                True,
+                f"{context.open_order_count}/{context.max_open_orders} "
+                "open orders (live + ambiguous)",
+            )
+        else:
+            record(
+                "max_open_orders",
+                False,
+                f"MAX OPEN ORDERS: {context.open_order_count} open "
+                f"(live + ambiguous) is at/over the "
+                f"{context.max_open_orders} limit — new exposure refused",
+            )
 
         # 10. position limit — authoritative engine (BUG-003 netting)
         try:

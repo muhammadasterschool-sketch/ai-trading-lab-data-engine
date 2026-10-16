@@ -108,6 +108,13 @@ def _ctx(**over):
         volatility=0.01,
         daily_realized_return=0.001,
         half_spread=Decimal("0.05"),
+        # reconstruction D-6: in-limit order-limit state (the gate's new
+        # mandatory checks fail closed when unknown)
+        open_order_count=0,
+        max_open_orders=10,
+        orders_submitted_in_window=0,
+        max_orders_per_window=5,
+        order_rate_window_seconds=60.0,
     )
     defaults.update(over)
     return RiskContext(**defaults)

@@ -82,7 +82,11 @@ from data_engine.runtime.readiness import (
     ReadinessReport,
 )
 from data_engine.runtime.reconciliation import RuntimeReconciliation
-from data_engine.runtime.risk_gate import RiskContext, RiskGate
+from data_engine.runtime.risk_gate import (
+    RiskContext,
+    RiskGate,
+    RuntimeRiskLimits,
+)
 from data_engine.runtime.rl import (
     GovernedRLPolicy,
     RLGovernanceError,
@@ -326,6 +330,7 @@ class TradingRuntime:
         rl_policy: Optional[GovernedRLPolicy] = None,
         mac_custody=None,
         wall_clock=None,
+        risk_limits: Optional[RuntimeRiskLimits] = None,
     ) -> None:
         if config is None or ensemble is None:
             raise RuntimeContractError(
@@ -385,6 +390,13 @@ class TradingRuntime:
         )
         self._risk_engine = RiskEngine(limits)
         self._risk_gate = RiskGate(self._risk_engine, self._kill_switch)
+        # Reconstruction D-6: mandatory runtime order limits (order
+        # submission rate + maximum open/unresolved orders). Provisional
+        # paper-mode defaults; see RuntimeRiskLimits for honest provenance.
+        self._risk_limits = risk_limits or RuntimeRiskLimits()
+        # Submission-rate accounting on GOVERNED time (bar timestamps —
+        # deterministic, replay-stable; wall clock only as fallback).
+        self._submission_times: list = []
         self._execution = PaperExecutionAdapter(self._realism)
         self._exit_manager = ExitManager(self._ledgers)
         self._reconciliation = RuntimeReconciliation(self._ledgers)
@@ -1089,6 +1101,9 @@ class TradingRuntime:
             bar_index=self._bar_index,
         )
         self._oms.acknowledge(order.order_id)
+        # D-6: truthful submission accounting (closing orders are exempt
+        # from the limit BLOCKS but still occupy submission capacity).
+        self._record_submission(latest_bar.get("timestamp"))
 
         # 4. ONE immediate full MARKET fill at the latest admitted
         #    bar's open, adverse half spread applied (deterministic:
@@ -2124,6 +2139,15 @@ class TradingRuntime:
             half_spread=self._realism.half_spread,
             max_spread_fraction=Decimal("0.01"),
             duplicate_order_id=duplicate,
+            # D-6 measured order-limit state (fail-closed when unknown;
+            # measured fresh for EVERY order — no stale snapshots).
+            open_order_count=self._open_order_count(),
+            max_open_orders=self._risk_limits.max_open_orders,
+            orders_submitted_in_window=self._submissions_in_window(
+                bar.get("timestamp")
+            ),
+            max_orders_per_window=self._risk_limits.max_orders_per_window,
+            order_rate_window_seconds=self._risk_limits.window_seconds,
         )
         assessment = self._risk_gate.evaluate(
             plan, context, correlation_id, ledger=self._ledgers,
@@ -2232,6 +2256,9 @@ class TradingRuntime:
                     f"venue submission outcome uncertain: {exc}",
                 )
                 self._oms.start_reconciling(order.order_id)
+                # D-6: the venue MAY hold this order — it WAS submitted,
+                # so it truthfully occupies submission-rate capacity.
+                self._record_submission(bar["timestamp"])
                 self._metrics.increment("orders_venue_unknown")
                 self._flag_execution_uncertain(
                     f"venue submission outcome uncertain for order "
@@ -2245,6 +2272,8 @@ class TradingRuntime:
             bar_index=bar_index,
         )
         self._oms.acknowledge(order.order_id)
+        # D-6: gate-passed submission — occupy the rate window.
+        self._record_submission(bar["timestamp"])
         if plan.stop_loss is not None or plan.take_profit is not None:
             self._pending_protection[order.order_id] = (
                 plan.stop_loss,
@@ -2995,6 +3024,56 @@ class TradingRuntime:
         )
 
     # ------------------------------------------------------------------
+    # D-6 runtime order-limit state (order rate + open orders)
+    # ------------------------------------------------------------------
+    def _open_order_count(self) -> int:
+        """Open (unresolved) OMS orders = LIVE_STATES + AMBIGUOUS_STATES.
+
+        Ambiguous outcomes (UNKNOWN/RECONCILING) COUNT as open: a
+        possibly-live venue order must keep occupying capacity until
+        reconciliation resolves it from venue truth (conservative
+        direction). Reconstructed from OMS state after restarts — the
+        open-order control survives state restore.
+        """
+        from data_engine.runtime.oms import AMBIGUOUS_STATES, LIVE_STATES
+
+        return sum(
+            1
+            for o in self._oms.orders()
+            if o.status in LIVE_STATES or o.status in AMBIGUOUS_STATES
+        )
+
+    def _prune_submissions(self, now_ts: datetime) -> None:
+        """Drop submissions older than the governed-time window.
+        On any timestamp-comparison failure the entry is KEPT (an
+        over-count blocks more — the fail-safe direction)."""
+        window = self._risk_limits.window_seconds
+        kept = []
+        for t in self._submission_times:
+            try:
+                age = (now_ts - t).total_seconds()
+            except TypeError:
+                kept.append(t)
+                continue
+            if 0 <= age <= window:
+                kept.append(t)
+        self._submission_times = kept
+
+    def _record_submission(self, ts: Optional[datetime]) -> None:
+        """Record a gate-passed OMS submission (governed time: the bar
+        timestamp drives determinism/replay; wall clock only as a
+        fallback when a bar carries no timestamp)."""
+        self._submission_times.append(
+            ts if ts is not None else datetime.now(UTC)
+        )
+
+    def _submissions_in_window(self, now_ts: Optional[datetime]) -> int:
+        if now_ts is None:
+            now_ts = datetime.now(UTC)
+        self._prune_submissions(now_ts)
+        return len(self._submission_times)
+
+    # ------------------------------------------------------------------
     # ACCOUNT-equity drawdown limit (RUN-DD-1)
     # ------------------------------------------------------------------
     def _risk_context_for_bridge(self, plan: TradePlan,
@@ -3049,6 +3128,15 @@ class TradingRuntime:
             daily_realized_return=self._daily_realized_return(),
             half_spread=self._realism.half_spread,
             max_spread_fraction=Decimal("0.01"),
+            # D-6 measured order-limit state (fail-closed when unknown;
+            # measured fresh for EVERY order — no stale snapshots).
+            open_order_count=self._open_order_count(),
+            max_open_orders=self._risk_limits.max_open_orders,
+            orders_submitted_in_window=self._submissions_in_window(
+                latest_bar.get("timestamp")
+            ),
+            max_orders_per_window=self._risk_limits.max_orders_per_window,
+            order_rate_window_seconds=self._risk_limits.window_seconds,
         )
 
     def _bridge_bar_age(self, latest_bar: Mapping) -> int:

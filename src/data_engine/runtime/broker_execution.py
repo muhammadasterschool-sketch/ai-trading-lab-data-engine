@@ -330,9 +330,13 @@ class RuntimeRiskGateBridge:
         assessment = runtime.risk_gate.evaluate(
             plan, context, correlation_id, ledger=runtime.ledgers
         )
+        if assessment.passed:
+            # D-6: a gate-passed bridge decision is a submission for the
+            # runtime's order-rate accounting (governed time: latest bar).
+            runtime._record_submission(latest.get("timestamp"))
         failed = tuple(c.check for c in assessment.failed_checks)
         reason = (
-            "all 22 mandatory checks passed (bridged assessment "
+            "all mandatory checks passed (bridged assessment "
             f"{assessment.assessment_id})"
             if assessment.passed
             else "failed checks: " + ", ".join(failed)
