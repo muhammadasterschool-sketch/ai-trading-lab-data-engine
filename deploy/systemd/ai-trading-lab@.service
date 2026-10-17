@@ -46,7 +46,13 @@ EnvironmentFile=/var/lib/ai-trading-lab/%i/secrets.env
 
 # -- runtime layout ------------------------------------------------------
 WorkingDirectory=/var/lib/ai-trading-lab/%i
-ExecStart=/opt/ai-trading-lab/%i/venv/bin/python -m data_engine.cli
+# Reconstruction D-4 (2026-10-17): EXPLICIT long-running subcommand.
+# The previous bare `-m data_engine.cli` printed help and exited 0
+# (finite-command CLI), so the unit went inactive immediately.
+# `serve` is the paper-mode supervisor: fail-closed startup against the
+# paper readiness gate (PAPER_READY=FALSE -> refuses to start, exit 2),
+# loopback-only read-only dashboard, graceful SIGTERM shutdown.
+ExecStart=/opt/ai-trading-lab/%i/venv/bin/python -m data_engine.cli serve
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30

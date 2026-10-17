@@ -155,6 +155,11 @@ def _seed_order_fill(rt, plan, price, bar_index, corr):
         volatility=0.01, daily_realized_return=0.0,
         account_drawdown_fraction=0.0,
         half_spread=Decimal("0.02"), max_spread_fraction=Decimal("0.01"),
+        # reconstruction D-6: in-limit order-limit state (the gate's new
+        # mandatory checks fail closed when unknown)
+        open_order_count=0, max_open_orders=10,
+        orders_submitted_in_window=0, max_orders_per_window=5,
+        order_rate_window_seconds=60.0,
     )
     assessment = rt._risk_gate.evaluate(plan, ctx, corr)
     assert assessment.passed, [c.reason for c in assessment.failed_checks]

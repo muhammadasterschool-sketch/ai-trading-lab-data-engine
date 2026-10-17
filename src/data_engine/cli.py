@@ -6,6 +6,8 @@ Usage:
     data-engine status
     data-engine storage-report
     data-engine check-boundary <calc_type>
+    data-engine serve [--host H] [--port P] [--no-dashboard]
+                      [--max-seconds S]   (long-running paper supervisor)
 
 BUG-006 correction: ``status`` reports seven DISTINCT health
  dimensions with truthful values for the current repository state
@@ -60,6 +62,53 @@ def main():
     boundary_parser = subparsers.add_parser("check-boundary", help="Verify LLM/quant boundary")
     boundary_parser.add_argument("calc_type", help="Calculation type to verify")
 
+    # Long-running paper-mode supervisor (reconstruction D-4/D-5:
+    # explicit entrypoint for the systemd unit — the bare module
+    # invocation printed help and exited 0, going inactive at once).
+    serve_parser = subparsers.add_parser(
+        "serve",
+        help=(
+            "Run the long-running paper-mode supervisor "
+            "(fail-closed startup; loopback-only dashboard)"
+        ),
+    )
+    serve_parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="dashboard bind host (loopback ONLY — non-loopback is refused)",
+    )
+    serve_parser.add_argument(
+        "--port",
+        type=int,
+        default=8017,
+        help="dashboard port (0 = ephemeral)",
+    )
+    serve_parser.add_argument(
+        "--no-dashboard",
+        action="store_true",
+        help="do not start the read-only dashboard",
+    )
+    serve_parser.add_argument(
+        "--heartbeat-seconds",
+        type=float,
+        default=30.0,
+        help="supervisor heartbeat interval",
+    )
+    serve_parser.add_argument(
+        "--tick-seconds",
+        type=float,
+        default=1.0,
+        help="supervision loop tick interval",
+    )
+    serve_parser.add_argument(
+        "--max-seconds",
+        type=float,
+        default=None,
+        help=(
+            "bounded runtime (tests/smoke); omit to run until SIGTERM/SIGINT"
+        ),
+    )
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -87,6 +136,21 @@ def main():
             print(f"  Timestamp: {datetime.now(UTC).isoformat()}")
             for dimension, value in STATUS_DIMENSIONS.items():
                 print(f"  {dimension}: {value}")
+
+        elif args.command == "serve":
+            from data_engine.runtime.service import PaperRuntimeService
+
+            service = PaperRuntimeService(
+                host=args.host,
+                port=args.port,
+                enable_dashboard=not args.no_dashboard,
+                heartbeat_seconds=args.heartbeat_seconds,
+                tick_seconds=args.tick_seconds,
+                max_seconds=args.max_seconds,
+            )
+            # SystemExit propagates past the Exception handler below so
+            # the documented service exit codes reach the process.
+            raise SystemExit(service.run())
 
         elif args.command == "check-boundary":
             calc_type = CalculationType(args.calc_type.lower()) if args.calc_type else None

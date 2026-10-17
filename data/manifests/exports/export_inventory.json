@@ -1,0 +1,89 @@
+{
+  "classification": "DERIVED",
+  "derived_from": {
+    "generator_script": "scripts/platform_csv_ingest.py",
+    "master_import_summary": "data/manifests/master/master_import_summary.json",
+    "raw_dailies_summary": "data/manifests/import_summary.json"
+  },
+  "exports": [
+    {
+      "bytes": 12510,
+      "classification": "DERIVED",
+      "dataset_state": null,
+      "generator": "scripts/platform_csv_ingest.py (data_engine.platform.WorkbookExporter.export_xlsx)",
+      "path": "ai_trading_lab_workbook.xlsx",
+      "sha256": "7f8b69758fdced53e7d66285022ef0a64985ba34db788057ca78879b5ced1b62"
+    },
+    {
+      "bytes": 4515,
+      "classification": "DERIVED",
+      "dataset_state": null,
+      "generator": "scripts/platform_csv_ingest.py (data_engine.platform.WorkbookExporter.export_csv)",
+      "path": "csv/instrument_registry.csv",
+      "sha256": "73d2771ecbd04692fa36345bf0d947a09692866bafc93da5221b89f8860e199c"
+    },
+    {
+      "bytes": 113,
+      "classification": "DERIVED",
+      "dataset_state": null,
+      "generator": "scripts/platform_csv_ingest.py (data_engine.platform.WorkbookExporter.export_csv)",
+      "path": "csv/market_watch.csv",
+      "sha256": "b14dea4b9fca0359e93f39f6a858862a2d03c0868d3725863ae047027c821a0f"
+    },
+    {
+      "bytes": 190,
+      "classification": "DERIVED",
+      "dataset_state": null,
+      "generator": "scripts/platform_csv_ingest.py (data_engine.platform.WorkbookExporter.export_csv)",
+      "path": "csv/news_log.csv",
+      "sha256": "0250f9a5ee01cda00d11bd8dbbcd523b78ce9cbaa29db71dbe80c5c57241ac7f"
+    },
+    {
+      "bytes": 149,
+      "classification": "DERIVED",
+      "dataset_state": null,
+      "generator": "scripts/platform_csv_ingest.py (data_engine.platform.WorkbookExporter.export_csv)",
+      "path": "csv/open_positions.csv",
+      "sha256": "371d2e544e3afcafaa7ff68ba050c57608b9ee732b2087f8311ed7a623ff3b7d"
+    },
+    {
+      "bytes": 128,
+      "classification": "DERIVED",
+      "dataset_state": null,
+      "generator": "scripts/platform_csv_ingest.py (data_engine.platform.WorkbookExporter.export_csv)",
+      "path": "csv/strategy_performance.csv",
+      "sha256": "ee4ba7e42d2a58faaad0f09d7da649f36b5f60e0d35c48386b475466575d7099"
+    },
+    {
+      "bytes": 2152,
+      "classification": "DERIVED",
+      "dataset_state": null,
+      "generator": "scripts/platform_csv_ingest.py (data_engine.platform.WorkbookExporter.export_csv)",
+      "path": "csv/system_audit_log.csv",
+      "sha256": "a7ed85281fa58ae14195322c70e53e68f729f1e0a5c01126b275961968f9cda4"
+    },
+    {
+      "bytes": 318,
+      "classification": "DERIVED",
+      "dataset_state": null,
+      "generator": "scripts/platform_csv_ingest.py (data_engine.platform.WorkbookExporter.export_csv)",
+      "path": "csv/trade_log.csv",
+      "sha256": "ee13c179c2d5f91ea07356948896c45eabf3560b379dbe986beea2dcd96b87dc"
+    },
+    {
+      "bytes": 17659,
+      "classification": "DERIVED",
+      "dataset_state": null,
+      "generator": "scripts/platform_csv_ingest.py (data_engine.platform.dashboard build_snapshot)",
+      "path": "dashboard_snapshot.json",
+      "sha256": "513b7a784986a7f30ab0b992881bb5687424f0324584c384788b37f46369ab97"
+    }
+  ],
+  "generated_by": "scripts/generate_export_inventory.py",
+  "kind": "export_inventory",
+  "note": "DatasetState (data_engine.prediction.datasets) has no DERIVED member: exports are projections of ingested state, not independently classified datasets \u2014 dataset_state is intentionally null per entry",
+  "provenance_status": "DERIVED exports inherit the unverified provenance of their source datasets; no independent classification is claimed; REAL_VERIFIED is unreachable by construction",
+  "totals": {
+    "files": 9
+  }
+}
