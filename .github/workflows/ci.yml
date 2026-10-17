@@ -4,9 +4,8 @@ on:
   schedule:
     # Reconstruction D-7 (2026-10-17): weekly scheduled run
     # (Mondays 03:17 UTC). The scheduled event runs the SAME jobs
-    # (tests + validator + dependency audit) — informational; it never
-    # blocks pull requests, and the PR-trigger policy below is
-    # unchanged.
+    # (tests + validator + dependency audit). The dependency audit
+    # also runs on pull_request events, but not on push events.
     - cron: "17 3 * * 1"
   push:
     branches: [main, "phase-4a/**"]
@@ -94,11 +93,9 @@ jobs:
         run: uv run pytest tests/test_prediction_redteam_matrix.py -q
 
   # Reconstruction D-7 (2026-10-17): dependency-audit hardening on top
-  # of the Batch 17 opt-in job. Triggers: workflow_dispatch + the
-  # weekly schedule — still NEVER on push/PR, so the pull-request
-  # blocking policy is UNCHANGED (this job stays informational; making
-  # it PR-blocking is a separate explicit operator decision in EITHER
-  # direction). Evidence handling is now fail-closed:
+  # of the Batch 17 opt-in job. Triggers: workflow_dispatch, weekly
+  # schedule, and pull_request. It does not run on push events.
+  # Evidence handling is fail-closed:
   #   * the audit tool is version-pinned (pip-audit==2.10.1);
   #   * the locked-set export AND the machine-readable audit JSON are
   #     RETAINED as workflow artifacts (the previous job deleted its
@@ -108,7 +105,7 @@ jobs:
   #   * a missing/invalid audit report is INCONCLUSIVE and FAILS the
   #     job — a tool outage can never masquerade as a clean audit.
   audit-dependencies:
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
