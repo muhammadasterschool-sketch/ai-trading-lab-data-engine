@@ -32,9 +32,17 @@ convention) and never participate in any identity hash.
 
 import json
 import os
+import itertools
 from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any, Mapping, Optional
+
+try:  # POSIX (deployment target: Linux/systemd)
+    import fcntl as _lock_mod
+    _HAVE_FCNTL = True
+except ImportError:  # pragma: no cover — Windows (Stage E packaging)
+    import msvcrt as _lock_mod
+    _HAVE_FCNTL = False
 
 from data_engine.pit.hashing import deterministic_hash
 
@@ -46,6 +54,92 @@ from data_engine.runtime.identity import (
 
 class StateStoreError(ValueError):
     """Raised on persistence failures / integrity violations."""
+
+
+#: Unique-tmp counter (F-03): every atomic write targets a
+#: process-unique temporary name — two writers can NEVER interleave
+#: on the same tmp inode.
+_TMP_COUNTER = itertools.count(1)
+
+
+def _unique_tmp(path: Path) -> Path:
+    """Unique temporary sibling name (pid + counter; F-03)."""
+    return path.parent / (
+        f".{path.name}.{os.getpid()}.{next(_TMP_COUNTER)}.tmp"
+    )
+
+
+def _fsync_dir(path: Path) -> None:
+    """Directory fsync (F-09): after ``os.replace`` the NEW name's
+    durability is not guaranteed on all filesystems until the parent
+    directory entry itself is synced. Raises OSError upstream callers
+    convert to their fail-closed errors."""
+    fd = os.open(str(path), os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+class _StoreLock:
+    """Exclusive advisory lock on ``<store_dir>/.lock`` — the
+    single-writer deployment assumption is ENFORCED on the actual
+    filesystem, not assumed (finding F-03). Acquired non-blocking at
+    store construction; a second holder (same process OR another
+    process) is refused fail-closed."""
+
+    def __init__(self, path: Path) -> None:
+        self._path = Path(path)
+        self._fd: Optional[int] = None
+
+    def acquire(self) -> None:
+        try:
+            fd = os.open(
+                str(self._path), os.O_CREAT | os.O_RDWR, 0o600
+            )
+        except OSError as exc:
+            # The lock file itself cannot be created/opened (e.g. the
+            # store directory is read-only): the store is UNUSABLE and
+            # construction must refuse fail-closed — never construct a
+            # store whose single-writer guarantee cannot be enforced.
+            raise StateStoreError(
+                f"state-store lock file unusable at {self._path}: "
+                f"{exc!r} — the store directory does not permit the "
+                "single-writer lock (fail closed, F-03)"
+            ) from exc
+        try:
+            if _HAVE_FCNTL:
+                _lock_mod.flock(fd, _lock_mod.LOCK_EX | _lock_mod.LOCK_NB)
+            else:  # pragma: no cover — Windows
+                _lock_mod.locking(fd, _lock_mod.LK_NBLCK, 1)
+        except OSError as exc:
+            os.close(fd)
+            raise StateStoreError(
+                f"another engine holds this store "
+                f"({self._path.parent}) — concurrent store use is "
+                "refused (single-writer enforced on the actual "
+                "filesystem, fail closed; F-03)"
+            ) from exc
+        self._fd = fd
+
+    def release(self) -> None:
+        if self._fd is None:
+            return
+        fd, self._fd = self._fd, None
+        try:
+            if _HAVE_FCNTL:
+                _lock_mod.flock(fd, _lock_mod.LOCK_UN)
+            else:  # pragma: no cover — Windows
+                try:
+                    _lock_mod.locking(fd, _lock_mod.LK_UNLCK, 1)
+                except OSError:
+                    pass  # fd close releases regardless
+        finally:
+            os.close(fd)
+
+    @property
+    def held(self) -> bool:
+        return self._fd is not None
 
 
 #: Formal execution-state schema (paper-readiness re-audit BLOCKER 5).
@@ -237,8 +331,11 @@ class HashChainJournal:
 
 
 def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
-    """Atomic JSON write: tmp file + ``os.replace`` (no torn writes)."""
-    tmp = path.with_suffix(path.suffix + ".tmp")
+    """Atomic durable JSON write (F-03/F-09): UNIQUE tmp name
+    (pid+counter — two writers never share a tmp inode), fsync the
+    FILE before replace, fsync the DIRECTORY after (name durability
+    on power loss)."""
+    tmp = _unique_tmp(path)
     try:
         text = json.dumps(payload, sort_keys=True, default=str, indent=1)
         with open(tmp, "w", encoding="utf-8") as fh:
@@ -246,7 +343,13 @@ def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
             fh.flush()
             os.fsync(fh.fileno())
         os.replace(tmp, path)
+        _fsync_dir(path.parent)
     except OSError as exc:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
         raise StateStoreError(
             f"atomic state write failed at {path}: {exc} — runtime must "
             "halt (unverifiable state is never best-effort, mandate §53)"
@@ -281,6 +384,19 @@ class ExecutionStateStore:
             raise StateStoreError(
                 f"state directory unusable at {self._dir}: {exc}"
             ) from exc
+        # F-03: exclusive single-writer lock on the actual filesystem.
+        # A second holder — same process or another — is refused.
+        self._lock = _StoreLock(self._dir / ".lock")
+        self._lock.acquire()
+
+    def close(self) -> None:
+        """Release the store's single-writer lock (idempotent).
+
+        Honest restart/crash doubles in tests call this on the OLD
+        store before constructing the restarted one — a real process
+        death releases the fd (and with it the flock) exactly the
+        same way."""
+        self._lock.release()
 
     @property
     def journal(self) -> HashChainJournal:
@@ -392,6 +508,167 @@ class ExecutionStateStore:
         """True when a state snapshot exists (restart vs cold start)."""
         return (self._dir / self.SNAPSHOT_FILE).exists()
 
+    def __del__(self) -> None:  # pragma: no cover — best-effort backstop
+        try:
+            self._lock.release()
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
+# F-12 — torn-tail recovery (audited, explicit confirmation, never silent)
+# ---------------------------------------------------------------------------
+def scan_journal_tail(journal_path: Path) -> dict:
+    """Parse + chain-verify a journal file LINE BY LINE, stopping at
+    the first damaged record. Returns a report mapping:
+
+    - ``valid_records`` — count of the longest valid chained prefix
+    - ``damaged_lines`` — count of trailing lines that are not part
+      of the verifiable chain (torn tail)
+    - ``last_valid_index`` — index of the last valid record (or None)
+    - ``head_hash`` — record hash of the last valid record (or the
+      genesis hash)
+
+    Never mutates anything — the repair is a SEPARATE, explicitly
+    confirmed step (``truncate_journal_tail``)."""
+    journal_path = Path(journal_path)
+    if not journal_path.exists():
+        raise StateStoreError(f"no journal at {journal_path}")
+    valid: list[dict] = []
+    damaged = 0
+    prev = "0" * 64
+    try:
+        text = journal_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise StateStoreError(
+            f"journal unreadable at {journal_path}: {exc}"
+        ) from exc
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+            ok = (
+                record.get("index") == len(valid)
+                and record.get("prev_hash") == prev
+                and prefixed_hash(
+                    CHECKPOINT_PREFIX,
+                    {
+                        "index": record.get("index"),
+                        "kind": record.get("kind"),
+                        "payload": record.get("payload"),
+                        "prev_hash": record.get("prev_hash"),
+                    },
+                ) == record.get("record_hash")
+            )
+        except (json.JSONDecodeError, TypeError, ValueError):
+            ok = False
+        if ok:
+            valid.append(record)
+            prev = record["record_hash"]
+        else:
+            damaged += 1
+    return {
+        "valid_records": len(valid),
+        "damaged_lines": damaged,
+        "last_valid_index": (
+            valid[-1]["index"] if valid else None
+        ),
+        "head_hash": prev,
+    }
+
+
+def truncate_journal_tail(
+    journal_path: Path, report: Mapping[str, Any]
+) -> int:
+    """AUDITED repair: rewrite the journal to its longest valid
+    chained prefix (unique tmp + file fsync + atomic replace + dir
+    fsync), then append a ``recovery_truncate`` journal record
+    documenting exactly what was removed. NEVER called without the
+    operator's explicit confirmation (the CLI refuses first).
+
+    Returns the number of records in the repaired journal. Raises
+    StateStoreError on any inconsistency (e.g. the report does not
+    match the current file — a concurrent writer changed it).
+    """
+    journal_path = Path(journal_path)
+    current = scan_journal_tail(journal_path)
+    if (
+        current["valid_records"] != report["valid_records"]
+        or current["damaged_lines"] != report["damaged_lines"]
+    ):
+        raise StateStoreError(
+            "journal changed since the scan — rerun the report and "
+            "confirm against CURRENT truth (fail closed)"
+        )
+    if current["damaged_lines"] == 0:
+        return current["valid_records"]
+    # Rebuild the valid prefix.
+    valid_lines: list[str] = []
+    prev = "0" * 64
+    for line in journal_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+            ok = (
+                record.get("index") == len(valid_lines)
+                and record.get("prev_hash") == prev
+                and prefixed_hash(
+                    CHECKPOINT_PREFIX,
+                    {
+                        "index": record.get("index"),
+                        "kind": record.get("kind"),
+                        "payload": record.get("payload"),
+                        "prev_hash": record.get("prev_hash"),
+                    },
+                ) == record.get("record_hash")
+            )
+        except (json.JSONDecodeError, TypeError, ValueError):
+            ok = False
+        if ok:
+            valid_lines.append(json.dumps(
+                record, sort_keys=True, default=str
+            ))
+            prev = record["record_hash"]
+    tmp = _unique_tmp(journal_path)
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            for line in valid_lines:
+                fh.write(line + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, journal_path)
+        _fsync_dir(journal_path.parent)
+    except OSError as exc:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
+        raise StateStoreError(
+            f"journal tail-truncation write failed at "
+            f"{journal_path}: {exc} (fail closed)"
+        ) from exc
+    # The repair is itself JOURNALED (audited, never a silent edit).
+    journal = HashChainJournal(journal_path)
+    journal.append(
+        "recovery_truncate",
+        {
+            "truncated_damaged_lines": current["damaged_lines"],
+            "valid_records_before": current["valid_records"],
+            "action": (
+                "operator-confirmed torn-tail truncation — the "
+                "damaged trailing records were removed and this "
+                "event is journaled (F-12; fail-closed availability "
+                "recovery, never automatic)"
+            ),
+        },
+    )
+    return len(journal.records)
+
 
 __all__ = [
     "StateStoreError",
@@ -400,4 +677,6 @@ __all__ = [
     "EXECUTION_STATE_SCHEMA_VERSION",
     "EXECUTION_STATE_FIELDS",
     "validate_execution_state",
+    "scan_journal_tail",
+    "truncate_journal_tail",
 ]

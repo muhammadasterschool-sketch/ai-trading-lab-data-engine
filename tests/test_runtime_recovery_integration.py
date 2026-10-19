@@ -109,6 +109,16 @@ def _operational(session, store_dir, gate=None, pins=(), volume=None,
     return rt
 
 
+def _crash(rt):
+    """In-process emulation of process DEATH for restart tests: the
+    old runtime releases its single-writer store lock (F-03). A real
+    crash closes the lock fd — and with it the flock — exactly the
+    same way; the runtime object itself stays readable afterwards so
+    restart-equivalence assertions against the OLD world still work."""
+    if getattr(rt, "_store", None) is not None:
+        rt._store.close()
+
+
 def _partial_realism():
     """Realism that produces genuine MULTI-BAR PARTIAL FILLS through
     the full governed path (risk-gate liquidity rule requires
@@ -249,6 +259,7 @@ class TestPersistenceMandatory:
         record["payload"] = {"tampered": True}
         lines[-1] = json.dumps(record, sort_keys=True, default=str)
         journal.write_text("\n".join(lines) + "\n")
+        _crash(rt)  # old engine dies; the fresh store must see it
         rt2 = _operational("b1-corrupt", tmp_path / "st2")
         with pytest.raises(Exception, match="self-check FAILED"):
             rt2.start()
@@ -261,13 +272,14 @@ class TestPersistenceMandatory:
         blocked.mkdir()
         blocked.chmod(0o444)  # read-only
         try:
-            store = ExecutionStateStore(blocked)
-            rt = TradingRuntime(
-                _op_config("b1-unavail"), ens, calibrator=cal,
-                state_store=store, readiness_gate=_ready_gate(),
-            )
-            with pytest.raises(Exception):
-                rt.start()
+            # F-03 (Stage B hardening): an unwritable store directory
+            # now refuses AT CONSTRUCTION — the single-writer lock
+            # file cannot exist there, and a store that cannot enforce
+            # its own lock is never handed to a runtime (fail closed
+            # EARLIER than start; the refusal itself is the pin).
+            from data_engine.runtime.state import StateStoreError
+            with pytest.raises(StateStoreError, match="lock file unusable"):
+                ExecutionStateStore(blocked)
         finally:
             blocked.chmod(0o755)
 
@@ -281,6 +293,7 @@ class TestPersistenceMandatory:
         # refuse via schema/parse failure, not treat as cold start.
         snap = tmp_path / "st3" / "state.json"
         snap.write_text("{not json")
+        _crash(rt)  # old engine dies before the restart attempt
         rt2 = _operational("b1-read", tmp_path / "st3")
         with pytest.raises(Exception, match="RECOVERY_REQUIRED"):
             rt2.start()
@@ -402,6 +415,7 @@ class TestRestartThroughRuntime:
     def _restart(self, rt, session, store_dir, bars, consumed, ens_cal):
         """Simulated crash + restart: a brand-new runtime, same store,
         same ready gate — start() must LOAD→VERIFY→RESTORE→RECONCILE."""
+        _crash(rt)  # process death: release the old store lock (F-03)
         rt2 = _operational(session, store_dir, ens_cal=ens_cal)
         rt2.start()
         assert rt2.state is RuntimeState.RUNNING
@@ -628,6 +642,7 @@ class TestRestartThroughRuntime:
                 str(Decimal(payload["state"]["positions"][0]["quantity"])
                     + Decimal("999"))
             snap.write_text(json.dumps(payload, default=str))
+        _crash(rt)  # process death; fresh store must reconcile-refuse
         rt2 = _operational("r10", tmp_path / "r10", ens_cal=ens_cal)
         with pytest.raises(Exception,
                            match="RECONCILIATION_REQUIRED"):
@@ -678,6 +693,7 @@ class TestRestartThroughRuntime:
             KillSwitchScope.GLOBAL, "operator halt — restart test"
         )
         assert rt.state is RuntimeState.HALTED
+        _crash(rt)  # halted engine dies; the switch must survive
         rt2 = _operational("ks-c", tmp_path / "ks-c", ens_cal=ens_cal)
         with pytest.raises(Exception, match="kill switch"):
             rt2.start()
@@ -696,6 +712,7 @@ class TestRestartThroughRuntime:
         rt.trip_kill_switch(
             KillSwitchScope.SYMBOL, "symbol halt", target=SYMBOL,
         )
+        _crash(rt)  # process death; symbol switch must survive
         rt2 = _operational("ks-s", tmp_path / "ks-s", ens_cal=ens_cal)
         rt2.start()  # non-critical scope: restart permitted
         assert rt2.kill_switch.is_active(
@@ -727,6 +744,7 @@ class TestRestartThroughRuntime:
         assert incident
         incident[-1]["payload"] = {"forged": True}
         snap.write_text(json.dumps(payload, default=str))
+        _crash(rt)  # process death; tampered ledger must refuse
         rt2 = _operational("lc", tmp_path / "lc", ens_cal=ens_cal)
         with pytest.raises(Exception, match="RECOVERY_REQUIRED"):
             rt2.start()
@@ -746,6 +764,7 @@ class TestRestartThroughRuntime:
         assert mem
         mem[-1]["content"] = {"forged": True}
         snap.write_text(json.dumps(payload, default=str))
+        _crash(rt)  # process death; tampered memory must refuse
         rt2 = _operational("mc", tmp_path / "mc", ens_cal=ens_cal)
         with pytest.raises(Exception, match="RECOVERY_REQUIRED"):
             rt2.start()
@@ -760,6 +779,7 @@ class TestRestartThroughRuntime:
         for b in bars[:10]:
             rt.process_bar(b)
         other_ens, other_cal = _fit_world(drift=5.0)
+        _crash(rt)  # process death; the foreign model must still refuse
         rt2 = _operational("fm", tmp_path / "fm", ens_cal=(other_ens,
                                                             other_cal))
         with pytest.raises(Exception, match="DIFFERENT"):

@@ -566,6 +566,8 @@ class TestRestartRecovery:
         pre_dd = rt1._account_drawdown()
         assert pre_dd > 0.001
 
+        if getattr(rt1, "_store", None) is not None:
+            rt1._store.close()  # process death (F-03 single-writer lock)
         rt2 = TradingRuntime(
             _dd_config("dd-restart", 0.001).model_copy(
                 update={"ephemeral_test_fixture": False}
@@ -600,6 +602,8 @@ class TestRestartRecovery:
         pre_peak = rt1._peak_account_equity()
         assert pre_dd is not None and pre_dd >= 0.0
 
+        if getattr(rt1, "_store", None) is not None:
+            rt1._store.close()  # process death (F-03 single-writer lock)
         rt2 = _operational("dd-organic", store, ens_cal=ens_cal)
         rt2.start()
         assert rt2.restarted

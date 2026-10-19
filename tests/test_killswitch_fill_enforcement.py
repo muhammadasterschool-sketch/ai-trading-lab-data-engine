@@ -305,6 +305,8 @@ class TestTerminalHaltRestart:
         rt.halt("operator stop (audit)")
         assert rt.state is RuntimeState.HALTED
 
+        if getattr(rt, "_store", None) is not None:
+            rt._store.close()  # process death (F-03 single-writer lock)
         rt2 = _operational("ks-halt", tmp_path / "st", ens_cal)
         rt2.start()
         assert rt2.restarted is True
@@ -331,6 +333,8 @@ class TestTerminalHaltRestart:
             KillSwitchScope.GLOBAL, "operator halt — audit",
         )
         assert rt.state is RuntimeState.HALTED
+        if getattr(rt, "_store", None) is not None:
+            rt._store.close()  # process death (F-03 single-writer lock)
         rt2 = _operational("ks-crit", tmp_path / "st", ens_cal)
         with pytest.raises(Exception, match="kill switch"):
             rt2.start()

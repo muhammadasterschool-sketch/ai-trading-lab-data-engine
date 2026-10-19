@@ -128,6 +128,15 @@ def _ledger_runtime(tmp_path, session, ledger_path, *, started=True):
     return rt
 
 
+def _crash(rt):
+    """In-process emulation of process DEATH for restart doubles: the
+    old runtime releases its single-writer store lock (F-03). A real
+    crash closes the lock fd — and with it the flock — exactly the
+    same way."""
+    if getattr(rt, "_store", None) is not None:
+        rt._store.close()
+
+
 def _cfg(session):
     from test_submission_ledger import _op_config
 
@@ -191,6 +200,7 @@ class TestF07PreSubmittedDivergence:
         assert order.status is OrderLifecycle.ACKNOWLEDGED
         # Persist the acknowledged truth, then restart from it.
         rt1._persist("f07-persist")
+        _crash(rt1)  # process death: release the store lock (F-03)
         rt2 = _mk_runtime(session, tmp_path / "state", started=True)
         assert rt2.oms.order(cid).status is OrderLifecycle.ACKNOWLEDGED
         # CONTROLLED CRASH-WINDOW DOUBLE (labeled): rewind the OMS
@@ -428,6 +438,7 @@ class TestLedgerJournalConvergenceAtAttach:
                 rec["state"] = "RESERVED"
         Path(ledger_path).write_text(_json.dumps(doc, indent=1))
         # RESTART both runtime and venue from the same durable truth.
+        _crash(rt)  # process death: release the store lock (F-03)
         rt2 = _ledger_runtime(tmp_path, "lj-0", ledger_path)
         assert rt2.state is RuntimeState.RUNNING
         view_before = _ledger_view(ledger_path)
@@ -466,6 +477,7 @@ class TestLedgerJournalConvergenceAtAttach:
         cid = orders[0].order_id
         assert cid in _journal_cids(venue)
         # Restart: the persisted OMS state has no record of the order.
+        _crash(rt)  # process death: release the store lock (F-03)
         rt2 = _mk_runtime("lj-1", tmp_path / "state", started=True)
         with pytest.raises(BridgeContractError):
             _attach(rt2, tmp_path, name="venue.json",

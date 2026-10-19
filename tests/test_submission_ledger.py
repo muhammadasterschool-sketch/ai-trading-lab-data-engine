@@ -423,6 +423,8 @@ class TestVolatileBudgetReproduction:
         assert not orders6, "in-memory cap must hold in-process"
         # … but a RESTART (same store) reconstructs an EMPTY budget —
         # the defect: nothing durable carries the submissions forward.
+        if getattr(rt1, "_store", None) is not None:
+            rt1._store.close()  # process death (F-03 single-writer lock)
         rt2 = TradingRuntime(
             _op_config("f01-repro"), ens, calibrator=cal,
             state_store=ExecutionStateStore(store),
@@ -465,6 +467,8 @@ class TestDurableBudget:
         orders6, _ = _try_entry(rt1, bars, "dur-5")
         assert not orders6
         # … and STILL exhausted after restart (the durable fix)
+        if getattr(rt1, "_store", None) is not None:
+            rt1._store.close()  # process death (F-03 single-writer lock)
         rt2 = self._runtime(tmp_path, "b1-durable", led_path)
         rt2.start()
         assert rt2.state is RuntimeState.RUNNING
