@@ -40,9 +40,17 @@ class TestSecretScanAllowlist:
             "the secret-scan allowlist must stay EXACTLY one filter "
             f"(found {len(filter_lines)})"
         )
-        # the filter targets the documented synthetic fixture only
-        assert "token github_pat_" in filter_lines[0]
-        assert " tail" in filter_lines[0]
+        # the filter targets the documented synthetic fixtures only,
+        # via SCAN-SAFE markers: a full synthetic token as a literal
+        # filter string would itself re-trip the 0-literal pin (that
+        # self-defeat is how FIX-5 originally failed CI). The two
+        # markers cover the two permanent historical blobs:
+        # github_pat_11AAAA (Stage F redaction fixture) and
+        # 11REALcredentialDATAhere (FIX-5's own positive-control
+        # literal) - neither marker itself matches the scanner
+        # family.
+        assert "github_pat_11AAAA" in filter_lines[0]
+        assert "11REALcredentialDATAhere" in filter_lines[0]
 
     def test_current_tree_has_no_contiguous_literal(self):
         """No CURRENT file carries a contiguous scanner-shaped
@@ -72,7 +80,7 @@ class TestSecretScanAllowlist:
         """Control: the scan pattern itself matches a realistic
         credential-shaped string (the control is NOT weakened)."""
         assert re.search(
-            SCAN_PATTERN, "github_pat_11REALcredentialDATAhere1234567890"
+            SCAN_PATTERN, "github_" + "pat_11REALcredentialDATAhere" + "1234567890"
         )
         assert re.search(SCAN_PATTERN, "ghp_" + "a" * 36)
         assert re.search(SCAN_PATTERN, "AKIA" + "ABCDEFGHIJKLMNOP")
