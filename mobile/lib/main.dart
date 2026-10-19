@@ -238,9 +238,9 @@ class ProfileGatePage extends StatefulWidget {
 }
 
 class _ProfileGatePageState extends State<ProfileGatePage> {
-  final FlutterSecureStorage _storage = const FlutterSecureStorage(
-    AndroidOptions(encryptedSharedPreferences: true),
-  );
+  // flutter_secure_storage v9: Android Keystore-backed encrypted
+  // SharedPreferences is the platform default — no options needed.
+  final FlutterSecureStorage _storage = const FlutterSecureStorage();
   late final ProfileStore _store = ProfileStore(_storage);
   List<ServerProfile> _profiles = <ServerProfile>[];
   String? _activeId;
