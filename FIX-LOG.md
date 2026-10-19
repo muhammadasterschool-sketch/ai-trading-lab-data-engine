@@ -106,3 +106,59 @@ mandated format and will be extended for any future owner reports.
 - **Re-test evidence:** build-apk workflow completed SUCCESS on
   bab12c7; APK published as release `apk-bab12c7aa768` (21,156,320
   bytes) with SHA256SUMS.
+
+## FIX-7 — CI secret-scan red on final tree (self-caught, continuation session)
+
+- **Owner report:** none (continuation session re-verified CI on
+  812a5fc before sign-off: all four Python test jobs RED).
+- **Diagnosis:** FIX-5 was self-defeating in two ways: (a) its CI
+  filter embedded the full synthetic fixture as a contiguous literal
+  (`grep -vF 'token github_pat_… tail'`) — the literal itself matched
+  the scan pattern, so the current-tree pin
+  (`test_current_tree_has_no_contiguous_literal`) found
+  `HEAD:.github/workflows/ci.yml`; (b) the pin test's own positive
+  control (line 75, `github_pat_11REAL…`) was also a contiguous
+  literal in the current tree.
+- **Fix (merge 0906279, adopting PR #10's F-18b + extension):**
+  1. ci.yml secret scan restructured: named `PATTERN=`, `BASELINE=
+     "github_pat_11AAAA"` (the Stage F synthetic marker) + FIX-7
+     marker `MARKER2="github_pat_11REAL"` (the immutable 812a5fc
+     control literal) — both markers are SHORTER than the pattern's
+     20-char tail requirement, so neither is itself credential-
+     shaped; fail-closed git-grep exit-code handling; FIX-5's
+     embedded literal filter deleted.
+  2. tests/test_secret_scan_allowlist.py re-pinned (5 tests):
+     exactly ONE variable-driven filter pipeline applying BOTH
+     named markers; literal-substring filters forbidden forever;
+     markers proven not credential-shaped; redaction fixture
+     concatenation pin updated to the PR's `"github_" + "pat_11AAAA"`
+     idiom; positive controls converted to concatenation.
+- **Re-test evidence:** local full suite 2732→2735 passed + 1
+  skipped; exact CI step body (extracted from ci.yml, not a copy)
+  exits 0 on the real repository; negative control: an injected
+  real-shaped ghp_ token SURVIVES the filters (CI would fail);
+  history diagnostic: 10 raw hits, all marker-covered; CI on
+  0906279: ALL SIX JOBS SUCCESS (first fully green main since
+  Stage F).
+
+## FIX-8 — package validator format divergence (self-caught)
+
+- **Owner report:** none (caught by validating the rebuilt package
+  with PR #10's new tamper-proof validator).
+- **Diagnosis:** the validator parsed SHA256SUMS.txt as
+  `"<rel>  <digest>"` while the builder emits the standard sha256sum
+  convention `"<digest>  <rel>"`; the validator's fixture tests were
+  self-consistent but never cross-checked against a REAL built zip,
+  so the divergence was invisible until the real package hit it
+  (2 FAILs: "does not cover" + "covers non-members").
+- **Fix (0dcccc2):** validator parses digest-first with strict
+  malformed-line refusal (64 hex + non-empty path → else ValueError
+  → fail closed); fixture harness emits digest-first lines; NEW
+  TestBuilderValidatorFormatAgreement source-level cross-pins the
+  builder's `f"{digest}  {rel}"` expression against the parser so
+  the two can never silently diverge again.
+- **Re-test evidence:** real package validates 8/8 — "SHA256SUMS.txt
+  covers + matches all 534 packaged files"; tamper control: a
+  modified install.ps1 fails BOTH the digest mismatch and the
+  posture pins; validation tests 29/29 green; full suite 2735
+  passed + 1 skipped.

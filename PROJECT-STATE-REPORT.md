@@ -145,6 +145,28 @@ multi-asset instrument rules (G3), allocation engine (G4), plugin
 interface docs (G5), fail-closed strategy activation gate + API (G6),
 prediction status exposure (G7). Suite: 2685 passed + 1 skipped.
 
+## 7b. Post-final hardening supplement (merged 0906279 + 0dcccc2)
+
+Continuation-session close-out of the parallel-delivery branch
+(PR #10, `feat/milestone-a-supplement`) plus two self-caught fixes:
+
+- U-23 fault battery (restart/duplicate/timeout/reconciliation
+  faults) + simulation behavioral pinning + tamper-proof Windows
+  package validator — see CHANGELOG "Post-final hardening
+  supplement".
+- FIX-7: the F-18b secret-scan baseline (two exact short synthetic
+  markers, fail-closed tool-error handling); CI green on ALL SIX
+  jobs at 0906279 — the first fully-green main since Stage F (FIX-5
+  had left every test job red: its embedded filter literal was
+  itself credential-shaped).
+- FIX-8: the package validator now parses the builder's real
+  sha256sum format; the REAL rebuilt package validates 8/8 (534
+  files, tamper-evident); builder/validator format agreement is
+  source-level cross-pinned by tests.
+- Final suite: **2735 passed + 1 skipped**; final HEAD recorded in
+  the GitHub Release (the release asset SHA256SUMS files are
+  authoritative for the published artifacts).
+
 ## 8. Final deliverables + links
 
 | Deliverable | Location |

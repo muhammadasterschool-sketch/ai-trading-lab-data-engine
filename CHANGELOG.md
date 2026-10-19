@@ -84,6 +84,31 @@ green full suites).
   panel row); prediction module audited spec-compliant.
 - artifacts/stage-g/FEATURE-VERIFICATION-REPORT.md.
 
+## Post-final hardening supplement (merged 0906279 + 0dcccc2, PR #10)
+
+- U-23 fault battery (tests/test_paper_fault_battery.py, 393 lines):
+  restart-with-outstanding-orders, duplicate signals/acks, timeout
+  and reconciliation fault injection.
+- Simulation behavioral pinning
+  (tests/test_simulation_assumptions_doc.py, 278 lines): D2
+  assumptions pinned to executable behavior.
+- Tamper-proof Windows package validator
+  (scripts/validate_windows_package.py, 347 lines +
+  tests/test_windows_package_validation.py, 29 tests): structure,
+  SHA256SUMS tamper-evidence, forbidden members, unsafe paths,
+  version agreement, fail-closed posture pins.
+- F-18b secret-scan baseline (FIX-7): named PATTERN + two exact
+  synthetic markers (github_pat_11AAAA, github_pat_11REAL) +
+  fail-closed git-grep error handling; FIX-5's embedded literal
+  filter REMOVED (the literal itself was credential-shaped);
+  tests/test_secret_scan_allowlist.py re-pinned (5 tests).
+- FIX-8: validator parses the builder's real sha256sum format
+  (digest-first) + TestBuilderValidatorFormatAgreement cross-pin;
+  the real package validates 8/8 (534 files).
+- Suite after supplement: 2735 passed + 1 skipped; CI green on all
+  6 jobs (Python 3.11/3.12/3.13/3.14 + lint-sast-coverage +
+  audit-dependencies).
+
 ## Dependencies
 
 - New RUNTIME dependencies: none (stdlib + declared pydantic/numpy/
