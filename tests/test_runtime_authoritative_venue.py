@@ -154,12 +154,13 @@ def _mk_runtime(session, store_dir, ens_cal=None, realism=None,
 
 
 def _attach(rt, tmp_path, *, name="venue.json", instruments=None,
-            adapter_factory=None, account=ACCOUNT, secret=SECRET):
+            adapter_factory=None, account=ACCOUNT, secret=SECRET,
+            clock=None):
     return attach_authoritative_paper_venue(
         rt,
         account_id=account,
         journal_path=Path(tmp_path) / name,
-        clock=_clock(),
+        clock=_clock() if clock is None else clock,
         instruments=_specs() if instruments is None else instruments,
         credential=BrokerCredential(account, secret),
         adapter_factory=adapter_factory,
@@ -350,7 +351,13 @@ class TestAuthoritativeSubmissionPath:
         """The organic decision -> plan -> order chain flows through
         the venue: every created order is venue-acked under its OMS
         id, fills/exits fire, and the end state matches the internal
-        control run exactly."""
+        control run exactly.
+
+        Venue clock steps 61s per call: the owner-ratified venue
+        order budget (F-06 backstop — max 5 per 60s) never binds for
+        the organic chain, which legitimately spaces submissions far
+        beyond it on 5-minute bars (the 1s default clock would pack
+        every submission into one artificial 60s window)."""
         ens_cal = _fit_world()
         control = _mk_runtime("b5-organic", tmp_path / "ctl",
                               ens_cal=ens_cal, notrade=False)
@@ -359,7 +366,13 @@ class TestAuthoritativeSubmissionPath:
 
         rt = _mk_runtime("b5-organic", tmp_path / "state",
                          ens_cal=ens_cal, notrade=False)
-        venue = _attach(rt, tmp_path)
+        fast = {"t": CLOCK_BASE}
+
+        def fast_clock():
+            fast["t"] = fast["t"] + timedelta(seconds=61)
+            return fast["t"]
+
+        venue = _attach(rt, tmp_path, clock=fast_clock)
         outcomes = [rt.process_bar(b) for b in _bars(60)]
         assert any(o.orders_created for o in outcomes)
         assert any(o.fills for o in outcomes)

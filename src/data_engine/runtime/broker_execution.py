@@ -58,10 +58,11 @@ internals.
 """
 
 import hashlib
+from collections import deque
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Callable, Dict, List, Mapping, Optional, Tuple
+from typing import Callable, Deque, Dict, List, Mapping, Optional, Tuple
 
 from data_engine.brokers.capabilities import (
     AccountMode,
@@ -69,6 +70,7 @@ from data_engine.brokers.capabilities import (
     ExecutionMode,
     IdempotencyKeyMechanism,
     PositionMode,
+    RateLimitPolicy,
     ReconciliationStyle,
     SlTpSemantics,
 )
@@ -76,6 +78,7 @@ from data_engine.brokers.errors import (
     BrokerErrorCategory,
     BrokerExecutionError,
     OrderRefusedError,
+    RateLimitError,
 )
 from data_engine.brokers.interface import BrokerAdapter
 from data_engine.brokers.models import (
@@ -133,6 +136,17 @@ RUNTIME_PAPER_VENUE_CAPABILITIES = BrokerCapabilities(
     idempotency_key=IdempotencyKeyMechanism.INTERNAL_JOURNAL,
     supports_reduce_only=True,
     account_modes=(AccountMode.DEMO,),
+    # F-06 fix: the venue declares the owner-ratified PAPER submission
+    # budget (Part 3: max 5 orders per 60s) — and enforces it
+    # venue-side (RuntimePaperExecutionAdapter._enforce_order_budget)
+    # as an independent backstop behind the runtime's durable ledger
+    # + spacing governor. PAPER MODE ONLY; must be re-ratified before
+    # any future live mode.
+    rate_limit=RateLimitPolicy(
+        max_orders_per_window=5,
+        window_seconds=60.0,
+        retry_after_seconds=60.0,
+    ),
     venue_notes=(
         "Phase M2 integration venue: hosts the frozen runtime's "
         "PaperExecutionAdapter fill model over the runtime's admitted "
@@ -464,6 +478,10 @@ class RuntimePaperExecutionAdapter(BrokerAdapter):
         self._authoritative = bool(authoritative)
         self._state = ConnectionState.DISCONNECTED
         self._orders: Dict[str, _VenueOrder] = {}
+        # F-06: venue-side order-budget window (owner-ratified paper
+        # defaults, enforced from the capability descriptor — an
+        # independent backstop behind the runtime's ledger/governor).
+        self._order_window: Deque[datetime] = deque()
 
     # -- descriptive ------------------------------------------------------
     @property
@@ -506,6 +524,39 @@ class RuntimePaperExecutionAdapter(BrokerAdapter):
             display_name="Runtime-hosted paper account (play money)",
         )
 
+    def _enforce_order_budget(self) -> None:
+        """F-06: venue-level submission backstop (defense in depth).
+
+        Enforces the owner-ratified paper budget declared in
+        ``RUNTIME_PAPER_VENUE_CAPABILITIES.rate_limit`` (Part 3: max 5
+        orders per 60s) at the VENUE boundary — behind the runtime's
+        durable submission ledger + spacing governor, but fully
+        independent of them: even a caller that bypasses every
+        runtime gate cannot exceed this budget. Idempotent duplicates
+        never reach here (they return early in ``submit_order``), so
+        retries of an already-held order are free. PAPER MODE ONLY.
+        """
+        policy = self.capabilities.rate_limit
+        cap = policy.max_orders_per_window
+        if cap <= 0:
+            return
+        now = self._clock()
+        window = policy.window_seconds
+        while self._order_window and (
+            now - self._order_window[0]
+        ).total_seconds() > window:
+            self._order_window.popleft()
+        if len(self._order_window) >= cap:
+            raise RateLimitError(
+                f"order placement budget exhausted "
+                f"({cap} orders / {window}s) at venue {self.broker_id} "
+                "(owner-ratified paper submission backstop)",
+                broker_id=self.broker_id,
+                venue_code="ORDER_RATE_LIMITED",
+                retry_after_seconds=policy.retry_after_seconds,
+            )
+        self._order_window.append(now)
+
     def instrument_spec(self, symbol: str) -> InstrumentSpec:
         spec = self._instruments.get(symbol)
         if spec is None:
@@ -534,9 +585,13 @@ class RuntimePaperExecutionAdapter(BrokerAdapter):
         prior = self._orders.get(request.client_order_id)
         if prior is not None:
             # Idempotent: the SAME client_order_id never executes twice;
-            # the CURRENT venue truth is returned.
+            # the CURRENT venue truth is returned. Duplicates consume
+            # NO order budget (the venue already holds this order).
             self._advance(prior)
             return self._ack_for(prior)
+        # F-06 backstop: venue-level order budget — enforced for NEW
+        # orders only, independent of every runtime gate.
+        self._enforce_order_budget()
         fill_window_bars = None
         fill_order_id = None
         if self._authoritative:
