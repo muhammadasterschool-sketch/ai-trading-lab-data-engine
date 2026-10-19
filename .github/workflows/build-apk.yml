@@ -1,0 +1,126 @@
+# build-apk.yml — reproducible Android APK build (Stage F, Part 9 F3).
+#
+# Builds the Flutter monitoring client (mobile/) into a release APK
+# signed with the DEBUG keystore (release signing is documented for
+# later: mobile/README-APK.md §Release signing). Uploads the artifact
+# and attaches it (plus SHA256SUMS) to a GitHub Release.
+#
+# No secrets are required: the app embeds NOTHING (users configure
+# their own server URL + token at login). The workflow uses only the
+# repository's built-in GITHUB_TOKEN for release attachment.
+#
+# Trigger: manual (workflow_dispatch) or changes under mobile/.
+
+name: build-apk
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to attach the APK to (e.g. v0.3.0-apk)"
+        required: false
+        default: ""
+  push:
+    branches: [main]
+    paths:
+      - "mobile/**"
+      - ".github/workflows/build-apk.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    name: Flutter APK (debug-signed)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout (pinned)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Java 17
+        uses: actions/setup-java@3a4f6e1af504cf6a31855fa899c6aa5355ba6c12 # v4.7.0
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter (pinned stable)
+        uses: subosito/flutter-action@44ac965b96f18d999802d4b807e3256d5a3f9fa1 # v2.16.0
+        with:
+          channel: stable
+          flutter-version: "3.24.5"
+          cache: true
+
+      - name: Regenerate Android platform scaffolding
+        # The repo deliberately does NOT commit generated android/ files;
+        # flutter create regenerates them deterministically around the
+        # committed lib/ + pubspec.yaml.
+        working-directory: mobile
+        run: |
+          flutter create . \
+            --platforms android \
+            --org com.aitradinglab \
+            --project-name ai_trading_lab_monitor \
+            --description "AI Trading Lab monitoring client (paper-only engine)"
+
+      - name: Pub get
+        working-directory: mobile
+        run: flutter pub get
+
+      - name: Static analysis
+        working-directory: mobile
+        run: flutter analyze --no-fatal-infos
+
+      - name: Widget tests (if present)
+        working-directory: mobile
+        run: |
+          if ls test/*.dart >/dev/null 2>&1; then
+            flutter test
+          else
+            echo "no widget tests present (static analysis only)"
+          fi
+
+      - name: Build release APK (debug-keystore signing)
+        # Release signing requires the owner's keystore (secure external
+        # process) — documented in mobile/README-APK.md. Until then the
+        # APK is debug-signed: installable for private distribution.
+        working-directory: mobile
+        run: flutter build apk --release
+
+      - name: Collect + checksum
+        run: |
+          mkdir -p artifact
+          cp mobile/build/app/outputs/flutter-apk/app-release.apk \
+             artifact/ai-trading-lab-monitor.apk
+          cd artifact
+          sha256sum ai-trading-lab-monitor.apk > SHA256SUMS.apk.txt
+          cat SHA256SUMS.apk.txt
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        with:
+          name: ai-trading-lab-monitor-apk
+          path: artifact/
+
+      - name: Attach to GitHub Release (GITHUB_TOKEN only)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ github.event.inputs.release_tag }}
+        run: |
+          TAG="${INPUT_TAG:-apk-${GITHUB_SHA::12}}"
+          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          gh release view "$TAG" >/dev/null 2>&1 || \
+            gh release create "$TAG" \
+              --title "Android monitoring APK ($TAG)" \
+              --notes "Reproducible Flutter build of the monitoring client
+          (commit $GITHUB_SHA, built $DATE).
+
+          - Debug-keystore signed (release signing documented in
+            mobile/README-APK.md for later).
+          - The APK contains ZERO secrets and NO default server address —
+            each user configures their OWN dedicated server URL + token.
+          - LIVE TRADING IS NOT AUTHORIZED; PAPER_READY stays FALSE."
+          gh release upload "$TAG" \
+            artifact/ai-trading-lab-monitor.apk \
+            artifact/SHA256SUMS.apk.txt --clobber
+          echo "release: $TAG"

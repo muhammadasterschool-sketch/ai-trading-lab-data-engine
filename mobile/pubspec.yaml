@@ -1,0 +1,28 @@
+name: ai_trading_lab_monitor
+description: >
+  AI Trading Lab — Android monitoring client (Stage F, Part 9 F2).
+  Monitoring + control client for the user's OWN dedicated server.
+  The trading engine NEVER runs on the phone. No secrets and no
+  hardcoded server address are embedded in the APK: every connection
+  is user-configured (server URL + personal token), TLS-only.
+publish_to: "none"
+version: 0.3.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # token storage in Android Keystore-backed secure storage — never
+  # shared preferences, never plain files
+  flutter_secure_storage: ^9.2.2
+  http: ^1.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
