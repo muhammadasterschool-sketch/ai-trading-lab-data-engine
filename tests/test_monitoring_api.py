@@ -638,3 +638,123 @@ class TestCliWiring:
         ) or None
         assert sender.beat_once() is True
         assert set(captured["body"]) == set(HEARTBEAT_ALLOWED_FIELDS)
+
+
+# ---------------------------------------------------------------------------
+# Stage G surfaces: strategy gate (G6) + prediction status (G7)
+# ---------------------------------------------------------------------------
+
+
+class TestStrategyEndpoints:
+    def _api_with_gate(self):
+        from data_engine.runtime.ledgers import LedgerFamily
+        from data_engine.runtime.strategy_activation import (
+            StrategyActivationGate,
+        )
+
+        gate = StrategyActivationGate(LedgerFamily())
+        api = MonitoringAPI(auth_token=TOKEN, port=0, strategy_gate=gate)
+        api.start()
+        return api, gate
+
+    def test_submit_creates_inactive_submission(self):
+        api, gate = self._api_with_gate()
+        try:
+            code, body = _post(
+                f"{api.url}/api/strategy/submit",
+                {
+                    "label": "BTC momentum",
+                    "structured_spec": {"symbol": "BTCUSDT"},
+                    "free_text": "buy breakouts",
+                },
+                AUTH,
+            )
+            assert code == 200
+            assert body["disposition"] == "INACTIVE"
+            assert body["pipeline"] == [
+                "automated backtest", "validation cycle", "explicit user YES",
+            ]
+            status_code, status = _get(
+                f"{api.url}/api/strategy/{body['submission_id']}", AUTH
+            )
+            assert status_code == 200
+            assert status["state"] == "SUBMITTED"
+        finally:
+            api.stop()
+
+    def test_activate_without_evidence_stays_inactive(self):
+        """The endpoint can NEVER bypass the gate: a YES on a fresh
+        submission returns INACTIVE (the gate held)."""
+        api, gate = self._api_with_gate()
+        try:
+            code, body = _post(
+                f"{api.url}/api/strategy/submit",
+                {"label": "x", "structured_spec": {"s": 1}, "free_text": ""},
+                AUTH,
+            )
+            submission_id = body["submission_id"]
+            code, body = _post(
+                f"{api.url}/api/strategy/{submission_id}/activate",
+                {"confirm": "YES"},
+                AUTH,
+            )
+            assert code == 200
+            assert body["disposition"] == "INACTIVE"
+        finally:
+            api.stop()
+
+    def test_activate_requires_explicit_yes_string(self):
+        api, gate = self._api_with_gate()
+        try:
+            code, body = _post(
+                f"{api.url}/api/strategy/anything/activate",
+                {"confirm": True},
+                AUTH,
+            )
+            assert code == 409
+            assert "explicit YES required" in body["error"]
+        finally:
+            api.stop()
+
+    def test_unwired_gate_503(self, api):
+        code, body = _post(
+            f"{api.url}/api/strategy/submit",
+            {"label": "x", "structured_spec": {}, "free_text": ""},
+            AUTH,
+        )
+        assert code == 503
+        code, _ = _get(f"{api.url}/api/strategy/whatever", AUTH)
+        assert code == 503
+
+    def test_unknown_strategy_status_404(self):
+        api, gate = self._api_with_gate()
+        try:
+            code, _ = _get(f"{api.url}/api/strategy/ghost", AUTH)
+            assert code == 404
+        finally:
+            api.stop()
+
+
+class TestPredictionEndpoint:
+    def test_prediction_provider_served(self):
+        api = MonitoringAPI(
+            auth_token=TOKEN,
+            port=0,
+            prediction_provider=lambda: {
+                "crash_model": "calibrated",
+                "drift": "none",
+                "status": "OPERATIONAL",
+            },
+        )
+        api.start()
+        try:
+            code, body = _get(f"{api.url}/api/prediction", AUTH)
+            assert code == 200
+            assert body["status"] == "OPERATIONAL"
+        finally:
+            api.stop()
+
+    def test_prediction_default_is_honest_absent(self, api):
+        code, body = _get(f"{api.url}/api/prediction", AUTH)
+        assert code == 200
+        assert body["state"] == "ABSENT"

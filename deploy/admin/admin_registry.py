@@ -62,6 +62,7 @@ ALLOWED_FIELDS = {
     "kill_switch",
     "feed_health",
     "risk_state",
+    "prediction_status",
     "timestamp",
 }
 
@@ -176,6 +177,7 @@ function render() {
       '<tr><td>feed health</td><td>' + esc(r.feed_health) + '</td></tr>' +
       '<tr><td>risk state</td><td>' + esc(r.risk_state) + '</td></tr>' +
       '<tr><td>kill switch</td><td>' + esc(r.kill_switch) + '</td></tr>' +
+      '<tr><td>prediction</td><td>' + esc(r.prediction_status == null ? '?' : r.prediction_status) + '</td></tr>' +
       '<tr><td>uptime</td><td>' + (r.uptime_seconds == null ? '?' : Math.round(r.uptime_seconds/60) + ' min') + '</td></tr>' +
       '</table></div>';
   }).join('') || '<div class="card muted">No user servers registered yet.</div>';
@@ -232,6 +234,7 @@ class RegistryState:
             "feed_health": str(payload.get("feed_health", "UNKNOWN")),
             "risk_state": str(payload.get("risk_state", "UNKNOWN")),
             "kill_switch": str(payload.get("kill_switch", "UNKNOWN")),
+            "prediction_status": str(payload.get("prediction_status", "UNKNOWN")),
             "heartbeat_timestamp": payload.get("timestamp"),
             "last_seen_iso": time.strftime(
                 "%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)
@@ -289,6 +292,7 @@ class RegistryState:
                     "feed_health": entry["feed_health"],
                     "risk_state": entry["risk_state"],
                     "kill_switch": entry["kill_switch"],
+                    "prediction_status": entry.get("prediction_status"),
                     "uptime_seconds": entry.get("uptime_seconds"),
                     "active_alerts": alerts,
                 }
@@ -379,7 +383,7 @@ class AdminRegistry:
                     lines = [
                         "user_label,server_id,online,last_seen,engine_mode,"
                         "engine_version,feed_health,risk_state,kill_switch,"
-                        "uptime_seconds,active_alerts"
+                        "prediction_status,uptime_seconds,active_alerts"
                     ]
                     for r in rows:
                         up = r["uptime_seconds"]
@@ -388,6 +392,7 @@ class AdminRegistry:
                             r["last_seen_iso"] or "", r["engine_mode"],
                             r["engine_version"], r["feed_health"],
                             r["risk_state"], r["kill_switch"],
+                            r["prediction_status"] or "",
                             "" if up is None else str(up),
                             ";".join(r["active_alerts"]),
                         ]

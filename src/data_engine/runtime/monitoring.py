@@ -48,6 +48,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Optional
 
 from data_engine.runtime.contracts import RuntimeContractError
+from data_engine.runtime.strategy_activation import ActivationDecision
 
 #: Fields a heartbeat payload may contain (Stage F / F6 data
 #: minimization — TEST-ENFORCED; see tests/test_monitoring_api.py).
@@ -62,6 +63,10 @@ HEARTBEAT_ALLOWED_FIELDS = frozenset(
         "feed_health",
         "risk_state",
         "kill_switch",
+        # G7 (owner requirement): prediction status is a HEALTH field
+        # exposed through the heartbeat; still NO positions, NO PnL,
+        # NO orders, NO broker details, NO credentials.
+        "prediction_status",
         "timestamp",
     }
 )
@@ -147,6 +152,8 @@ class MonitoringAPI:
         killswitch_activator: Optional[
             Callable[[str, str], dict]
         ] = None,
+        prediction_provider: Callable[[], Any] = lambda: _absent("prediction"),
+        strategy_gate: Optional[Any] = None,
         rate_limit_max: int = 60,
         rate_limit_window: float = 60.0,
     ) -> None:
@@ -174,6 +181,8 @@ class MonitoringAPI:
             "killswitch": killswitch_state_provider,
         }
         self._killswitch_activator = killswitch_activator
+        self._prediction_provider = prediction_provider
+        self._strategy_gate = strategy_gate  # StrategyActivationGate (G6)
         self._limiter = _RateLimiter(rate_limit_max, rate_limit_window)
         self._server: Optional[ThreadingHTTPServer] = None
         self._started_at: Optional[float] = None
@@ -253,6 +262,31 @@ class MonitoringAPI:
                     self._json(
                         HTTPStatus.OK, api._provider("killswitch")
                     )
+                elif route == "/api/prediction":
+                    self._json(
+                        HTTPStatus.OK, api._prediction_provider()
+                    )
+                elif route.startswith("/api/strategy/"):
+                    # GET /api/strategy/{id} -> gate status (G6)
+                    if api._strategy_gate is None:
+                        self._json(
+                            HTTPStatus.SERVICE_UNAVAILABLE,
+                            {"error": "strategy gate not wired "
+                                     "(fail closed)"},
+                        )
+                        return
+                    submission_id = route[len("/api/strategy/"):]
+                    try:
+                        self._json(
+                            HTTPStatus.OK,
+                            api._strategy_gate.status(submission_id),
+                        )
+                    except Exception as exc:
+                        self._json(
+                            HTTPStatus.NOT_FOUND,
+                            {"error": f"unknown strategy: "
+                                     f"{type(exc).__name__}"},
+                        )
                 elif route == "/":
                     self._json(
                         HTTPStatus.OK,
@@ -262,8 +296,11 @@ class MonitoringAPI:
                                 "/api/health", "/api/positions",
                                 "/api/orders", "/api/pnl", "/api/feed",
                                 "/api/risk", "/api/events",
-                                "/api/killswitch",
+                                "/api/killswitch", "/api/prediction",
                                 "POST /api/killswitch/activate",
+                                "POST /api/strategy/submit",
+                                "GET /api/strategy/{id}",
+                                "POST /api/strategy/{id}/activate",
                             ],
                             "live_trading": "NOT_AUTHORIZED",
                         },
@@ -288,11 +325,143 @@ class MonitoringAPI:
                     )
                     return
                 route = self.path.split("?", 1)[0].rstrip("/")
+                if route == "/api/strategy/submit":
+                    """G6 chat-form submission: structured spec + free
+                    text (LLM assist allowed for PARSING ONLY, never
+                    decisions). Creates an INACTIVE submission."""
+                    if api._strategy_gate is None:
+                        self._json(
+                            HTTPStatus.SERVICE_UNAVAILABLE,
+                            {"error": "strategy gate not wired (fail closed)"},
+                        )
+                        return
+                    length = int(
+                        self.headers.get("Content-Length", "0") or 0
+                    )
+                    if not 0 < length <= 16384:
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": "JSON body required (max 16 KiB)"},
+                        )
+                        return
+                    try:
+                        body = json.loads(self.rfile.read(length).decode("utf-8"))
+                    except (ValueError, UnicodeDecodeError):
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": "invalid JSON body"},
+                        )
+                        return
+                    if not isinstance(body, dict):
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": "JSON object required"},
+                        )
+                        return
+                    try:
+                        submission = api._strategy_gate.submit(
+                            submitted_by=str(body.get("submitted_by", "monitoring-client")),
+                            label=str(body.get("label", "")),
+                            structured_spec=body.get("structured_spec") or {},
+                            free_text=str(body.get("free_text", "")),
+                            parse_source=str(body.get("parse_source", "USER")),
+                        )
+                    except Exception as exc:
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": f"submission refused: {type(exc).__name__}"},
+                        )
+                        return
+                    self._json(
+                        HTTPStatus.OK,
+                        {
+                            "submission_id": submission.submission_id,
+                            "state": "SUBMITTED",
+                            "disposition": "INACTIVE",
+                            "pipeline": [
+                                "automated backtest",
+                                "validation cycle",
+                                "explicit user YES",
+                            ],
+                        },
+                    )
+                    return
+                if route.startswith("/api/strategy/") and route.endswith("/activate"):
+                    """G6 activation: the gate itself enforces backtest
+                    + validation evidence + explicit YES; this endpoint
+                    can NEVER bypass the gate (fail closed by design)."""
+                    if api._strategy_gate is None:
+                        self._json(
+                            HTTPStatus.SERVICE_UNAVAILABLE,
+                            {"error": "strategy gate not wired (fail closed)"},
+                        )
+                        return
+                    submission_id = route[len("/api/strategy/"):-len("/activate")]
+                    length = int(
+                        self.headers.get("Content-Length", "0") or 0
+                    )
+                    if not 0 < length <= 4096:
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": "JSON body required (max 4096 bytes)"},
+                        )
+                        return
+                    try:
+                        body = json.loads(self.rfile.read(length).decode("utf-8"))
+                    except (ValueError, UnicodeDecodeError):
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": "invalid JSON body"},
+                        )
+                        return
+                    answer = (body or {}).get("confirm")
+                    if answer != "YES":
+                        self._json(
+                            HTTPStatus.CONFLICT,
+                            {
+                                "error": "explicit YES required: re-send "
+                                         "with {\"confirm\": \"YES\"} — "
+                                         "no answer or ambiguity keeps "
+                                         "the strategy INACTIVE",
+                            },
+                        )
+                        return
+                    try:
+                        record = api._strategy_gate.activate(
+                            submission_id,
+                            ActivationDecision.yes(
+                                decided_by=str(
+                                    (body or {}).get(
+                                        "decided_by", "monitoring-client"
+                                    )
+                                ),
+                                note=str((body or {}).get("note", "")),
+                            ),
+                        )
+                    except Exception as exc:
+                        self._json(
+                            HTTPStatus.NOT_FOUND,
+                            {"error": f"unknown strategy: {type(exc).__name__}"},
+                        )
+                        return
+                    self._json(
+                        HTTPStatus.OK,
+                        {
+                            "submission_id": submission_id,
+                            "state": record.state.value,
+                            "disposition": record.disposition,
+                            "note": "activation requires the full evidence "
+                                    "chain; INACTIVE means the gate held",
+                        },
+                    )
+                    return
                 if route != "/api/killswitch/activate":
                     self._json(
                         HTTPStatus.METHOD_NOT_ALLOWED,
-                        {"error": "read-only surface; only the kill "
-                                  "switch accepts POST"},
+                        {"error": "read-only surface; POST exists only "
+                                  "for the kill switch and the "
+                                  "strategy gate (no order submission "
+                                  "route exists)"},
                     )
                     return
                 length = int(self.headers.get("Content-Length", "0") or 0)
