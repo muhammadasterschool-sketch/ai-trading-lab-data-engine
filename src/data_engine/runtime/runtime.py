@@ -2226,6 +2226,13 @@ class TradingRuntime:
         # order (RISK_APPROVED -> REJECTED, ledgered) and an ambiguous
         # outcome marks it UNKNOWN + RECONCILING (§28 — never an
         # inferred failure).
+        # Milestone A B3: ONE reservation identity per attempt, live
+        # across BOTH the venue path and the internal path — the
+        # venue-success fall-through keeps the reservation made BEFORE
+        # the broker call (never re-reserved) and the shared tail
+        # below finalizes it ACKNOWLEDGED, completing the durable
+        # outcome on the authoritative path too.
+        reservation_id = None
         if self._venue is not None:
             from data_engine.runtime.broker_execution import (
                 VenueSubmissionRefused as _Refused,
@@ -2260,7 +2267,6 @@ class TradingRuntime:
             # ledger's exclusive flock. A failed reservation leaves
             # no record; a successful one carries the durable order
             # identity.
-            reservation_id = None
             if self._submission_ledger is not None:
                 try:
                     reservation = self._submission_ledger.reserve(
@@ -2365,8 +2371,10 @@ class TradingRuntime:
         # durable reservation still gates commit/ack processing —
         # no order reaches acknowledge without a valid reservation.
         # (Venue-success path falls through with its reservation
-        # already made BEFORE the broker call — never re-reserved.)
-        reservation_id = None
+        # already made BEFORE the broker call — never re-reserved;
+        # Milestone A B3: that SAME reservation is finalized
+        # ACKNOWLEDGED below once the OMS acknowledges, completing
+        # the durable outcome on the authoritative path too.)
         if self._venue is None and self._submission_ledger is not None:
             try:
                 reservation = self._submission_ledger.reserve(

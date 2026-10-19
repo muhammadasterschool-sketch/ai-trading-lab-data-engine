@@ -104,6 +104,7 @@ from data_engine.brokers.session import (
     BrokerSession,
     KillSwitchState,
     RiskDecision,
+    SessionJournalError,
 )
 from data_engine.runtime.contracts import (
     DecisionAction,
@@ -159,6 +160,19 @@ RUNTIME_PAPER_VENUE_CAPABILITIES = BrokerCapabilities(
 
 class BridgeContractError(RuntimeError):
     """Raised on bridge construction/contract violations."""
+
+
+#: Milestone A B3 (F-07): OMS states that prove the runtime NEVER
+#: recorded a submission for the order — yet the venue journal holds
+#: a tracked (non-refused) record for it. That combination is a
+#: durable TRUTH DIVERGENCE (crash between venue accept and
+#: OMS.submit, or a journal write that outlived the OMS transition):
+#: recovery must NEVER resume silently from it.
+_OMS_PRE_SUBMITTED_STATES = frozenset({
+    OrderLifecycle.CREATED,
+    OrderLifecycle.VALIDATED,
+    OrderLifecycle.RISK_APPROVED,
+})
 
 
 class VenueSubmissionRefused(RuntimeContractError):
@@ -1328,6 +1342,20 @@ class RuntimeAuthoritativeVenue:
                 from exc
         except BrokerExecutionError as exc:
             raise VenueSubmissionUncertain(str(exc)) from exc
+        except SessionJournalError as exc:
+            # Milestone A B3 (F-07 family): the venue call SUCCEEDED
+            # (the adapter may hold a live order) but the durable
+            # session-journal write FAILED. This is AMBIGUOUS, never
+            # an inferred failure — surface it through the §28
+            # uncertainty discipline instead of an unhandled error:
+            # the runtime marks the order UNKNOWN + RECONCILING and
+            # stops (EXECUTION_UNCERTAIN) until reconciliation
+            # resolves the outcome from venue truth.
+            raise VenueSubmissionUncertain(
+                f"venue accepted the order but the session journal "
+                f"write failed: {exc} — outcome ambiguous, reconcile "
+                "from venue truth (never an inferred failure)"
+            ) from exc
         finally:
             self._active_submission = None
         self._runtime._ledgers.record(
@@ -1606,6 +1634,49 @@ class RuntimeAuthoritativeVenue:
                     + " — reconcile before any new submission",
                     correlation_id,
                 )
+        # 5. Milestone A B3 (F-07): journalled venue orders whose OMS
+        #    order NEVER reached SUBMITTED are a durable truth
+        #    divergence — the crash window between venue accept and
+        #    OMS.submit (or a journal write that outlived it). The
+        #    rebuilt venue book and the journal AGREE, so reconcile
+        #    alone cannot see it; without this check the runtime would
+        #    resume silently with a stuck pre-SUBMITTED order that is
+        #    never polled for fills. NEVER optimism: incident +
+        #    fail-closed halt; only explicit reconciliation resolves.
+        pre_submitted = [
+            record.client_order_id for record in tracked
+            if runtime._oms.order(
+                record.client_order_id
+            ).status in _OMS_PRE_SUBMITTED_STATES
+        ]
+        if pre_submitted:
+            runtime._ledgers.record(
+                ledger="incident",
+                event_type="VENUE_OMS_STATE_DIVERGENCE",
+                correlation_id=correlation_id,
+                actor="runtime.venue",
+                payload={
+                    "order_ids": pre_submitted[:10],
+                    "count": len(pre_submitted),
+                    "action": (
+                        "venue journal holds tracked orders whose OMS "
+                        "records never reached SUBMITTED — recovery "
+                        "halts (EXECUTION_UNCERTAIN); explicit "
+                        "reconciliation required, never a silent "
+                        "resume (fail closed)"
+                    ),
+                },
+            )
+            if runtime._state is RuntimeState.RUNNING:
+                runtime._flag_execution_uncertain(
+                    "venue recovery: " + str(len(pre_submitted))
+                    + " journalled venue order(s) whose OMS records "
+                    "never reached SUBMITTED ("
+                    + ", ".join(pre_submitted[:3])
+                    + ") — truth diverged; reconcile explicitly, "
+                    "never a silent resume",
+                    correlation_id,
+                )
         return report
 
 
@@ -1715,6 +1786,42 @@ def attach_authoritative_paper_venue(
         runtime, session, adapter, account_id
     )
     session.connect(credential)
+    # Milestone A B3 (P3; F-19 convergence): reconcile durable
+    # submission-ledger reservations against the venue journal — the
+    # FIRST moment venue truth is available. Journaled reservations
+    # reconcile to SUBMITTED (venue truth, durable transition);
+    # never-journaled ones stay PRESERVED/consumed (never released
+    # on absence — the venue may have seen the request).
+    ledger = getattr(runtime, "_submission_ledger", None)
+    if ledger is not None:
+        journal_cids = {
+            record.client_order_id
+            for record in session._tracked_records()
+        }
+        ledger_report = ledger.recover(
+            journal_client_order_ids=journal_cids
+        )
+        runtime._ledgers.record(
+            ledger="incident",
+            event_type="VENUE_LEDGER_RECONCILED",
+            correlation_id="venue-attach",
+            actor="runtime.venue",
+            payload={
+                "reconciled_submitted": (
+                    ledger_report.reconciled_submitted
+                ),
+                "preserved_reserved": (
+                    ledger_report.preserved_reserved
+                ),
+                "total_records": ledger_report.total_records,
+                "action": (
+                    "durable submission reservations reconciled "
+                    "against the venue journal at attach — journaled "
+                    "to SUBMITTED, never-journaled preserved consumed "
+                    "(fail closed)"
+                ),
+            },
+        )
     runtime._bind_authoritative_venue(venue)
     venue.recover()
     return venue
