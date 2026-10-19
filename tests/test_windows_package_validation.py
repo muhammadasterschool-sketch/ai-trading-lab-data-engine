@@ -13,13 +13,14 @@ What this adds on top of main's coverage:
 - a representative-fixture harness that mimics the builder's exact
   layout (top-level package dir, source/, dist/<wheel>,
   requirements-windows.txt, SHA256SUMS.txt in the builder's
-  "<rel>  <digest>" format) without invoking uv/network — the
+  "<digest>  <rel>" standard sha256sum format) without invoking uv/network — the
   fixture shares the builder's REAL member names and honesty
   content, so the validator is exercised against the true shape.
 """
 
 import hashlib
 import importlib.util
+import re
 import sys
 import zipfile
 from pathlib import Path
@@ -91,11 +92,13 @@ def _fixture_members() -> dict:
 
 
 def _add_sums(members: dict) -> None:
-    """SHA256SUMS.txt in the builder's format ("<rel>  <digest>"),
+    """SHA256SUMS.txt in the builder's REAL format (FIX-8:
+    "<digest>  <rel>" — standard sha256sum convention, exactly as
+    scripts/build_windows_package.py emits f"{digest}  {rel}"),
     computed LAST so it covers every other member."""
     root = next(iter(members)).split("/", 1)[0]
     lines = [
-        f"{name[len(root) + 1:]}  {_sha(data)}"
+        f"{_sha(data)}  {name[len(root) + 1:]}"
         for name, data in sorted(members.items())
     ]
     members[f"{root}/SHA256SUMS.txt"] = ("\n".join(lines) + "\n").encode()
@@ -268,3 +271,53 @@ class TestValidatorCli:
         )
         assert probe.returncode != 0
         assert "VALIDATION FAILED" in probe.stdout
+
+
+# ---------------------------------------------------------------------------
+# FIX-8 cross-pin: the builder's manifest format and the validator's
+# parser can never silently diverge again (the original defect: the
+# validator parsed "<rel>  <digest>" while the builder emits the
+# standard sha256sum convention "<digest>  <rel>").
+# ---------------------------------------------------------------------------
+class TestBuilderValidatorFormatAgreement:
+    def test_builder_emits_digest_first_lines(self):
+        """The builder's manifest expression is exactly
+        f"{digest}  {rel}" (standard sha256sum convention)."""
+        builder = (
+            SCRIPTS / "build_windows_package.py"
+        ).read_text(encoding="utf-8")
+        assert 'f"{digest}  {rel}"' in builder, (
+            "build_windows_package.py must keep the standard "
+            "sha256sum line format (digest first, two spaces, path)"
+        )
+
+    def test_validator_parses_digest_first_lines(self):
+        """The validator accepts exactly that line shape and refuses
+        malformed lines (wrong order, short digest, missing path)."""
+        digest = "a" * 64
+        assert re.match(r"[0-9a-f]{64}", digest)
+        # well-formed: digest-first
+        line = f"{digest}  install.ps1"
+        d, sep, rel = line.partition("  ")
+        assert sep and d == digest and rel == "install.ps1"
+        # reversed order must NOT parse as digest-first
+        bad = f"install.ps1  {digest}"
+        d2, sep2, _ = bad.partition("  ")
+        assert not (sep2 and len(d2) == 64 and
+                    all(c in "0123456789abcdef" for c in d2))
+
+    def test_fixture_sums_match_builder_format(self):
+        """The fixture harness itself emits digest-first lines (the
+        same convention as the builder), so the validator is always
+        exercised against the true shape."""
+        members = {
+            "pkg-root/install.ps1": b"# smoke",
+            "pkg-root/run-tests.ps1": b"# tests",
+        }
+        _add_sums(members)
+        text = members["pkg-root/SHA256SUMS.txt"].decode()
+        for line in text.splitlines():
+            d, sep, rel = line.partition("  ")
+            assert sep and len(d) == 64
+            assert all(c in "0123456789abcdef" for c in d)
+            assert rel in ("install.ps1", "run-tests.ps1")

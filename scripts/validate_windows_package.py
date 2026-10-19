@@ -186,13 +186,25 @@ def validate_zip(zip_path: Path) -> ValidationReport:
         if sums_name in names:
             try:
                 sums_text = zf.read(sums_name).decode("utf-8")
-                # builder format: "<rel>  <digest>" per line
+                # builder format (FIX-8): "<digest>  <rel>" per line —
+                # the standard sha256sum convention emitted by
+                # scripts/build_windows_package.py
+                # (f"{digest}  {rel}"), so `sha256sum -c` also works.
                 recorded: dict[str, str] = {}
                 for line in sums_text.splitlines():
                     if not line.strip():
                         continue
-                    path_part, _, digest = line.rpartition("  ")
-                    recorded[path_part.strip()] = digest.strip()
+                    digest, sep, rel = line.partition("  ")
+                    if (
+                        not sep
+                        or len(digest) != 64
+                        or any(c not in "0123456789abcdef" for c in digest)
+                        or not rel.strip()
+                    ):
+                        raise ValueError(
+                            f"malformed SHA256SUMS line: {line[:80]!r}"
+                        )
+                    recorded[rel.strip()] = digest
                 others = [n for n in names if n != sums_name]
                 rel_map = {n[len(pkg_root) + 1:]: n for n in others}
                 uncovered = [
