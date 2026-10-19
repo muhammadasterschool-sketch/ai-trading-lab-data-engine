@@ -96,6 +96,8 @@ class PaperRuntimeService:
         sleep_fn: Callable[[float], None] = time.sleep,
         stdout=None,
         stderr=None,
+        monitoring_api: Optional[Any] = None,
+        heartbeat_sender: Optional[Any] = None,
     ) -> None:
         if tick_seconds <= 0 or heartbeat_seconds <= 0:
             raise ValueError("tick/heartbeat intervals must be positive")
@@ -118,6 +120,12 @@ class PaperRuntimeService:
         self._dashboard: Optional[Any] = None
         self._dashboard_thread: Optional[threading.Thread] = None
         self._stop_reason = "bounded runtime reached"
+        # Stage F wiring: authenticated monitoring API (F1) + one-way
+        # outbound registry heartbeat (F6) — BOTH optional, BOTH
+        # lifecycle-managed by the supervisor (started after the
+        # readiness gate passes, stopped on graceful shutdown).
+        self._monitoring_api = monitoring_api
+        self._heartbeat_sender = heartbeat_sender
 
     # -- lifecycle -------------------------------------------------------
 
@@ -182,6 +190,30 @@ class PaperRuntimeService:
                 self._dashboard_thread = None
             self._dashboard = None
 
+    def _stop_auxiliary_services(self) -> None:
+        """Stop the Stage F surfaces (monitoring API, heartbeat sender)
+        in reverse startup order; failures are logged, never fatal."""
+        if self._heartbeat_sender is not None:
+            try:
+                self._heartbeat_sender.stop()
+            except Exception as exc:  # graceful shutdown stays graceful
+                print(
+                    f"[serve] heartbeat sender stop issue: "
+                    f"{type(exc).__name__}",
+                    file=self._stderr,
+                    flush=True,
+                )
+        if self._monitoring_api is not None:
+            try:
+                self._monitoring_api.stop()
+            except Exception as exc:
+                print(
+                    f"[serve] monitoring API stop issue: "
+                    f"{type(exc).__name__}",
+                    file=self._stderr,
+                    flush=True,
+                )
+
     def run(self) -> int:
         """Run the supervisor to completion; returns the exit code."""
         # 1. fail-closed readiness gate -----------------------------------
@@ -216,6 +248,25 @@ class PaperRuntimeService:
         started = self._clock()
         if self._enable_dashboard:
             self._start_dashboard()
+        if self._monitoring_api is not None:
+            self._monitoring_api.start()
+            print(
+                f"[serve] authenticated monitoring API bound "
+                f"{self._monitoring_api.bind_host}:"
+                f"{self._monitoring_api.bind_port} "
+                "(token auth + rate limit; read-only + kill switch)",
+                file=self._stdout,
+                flush=True,
+            )
+        if self._heartbeat_sender is not None:
+            self._heartbeat_sender.start()
+            print(
+                "[serve] one-way outbound registry heartbeat started "
+                "(graceful degradation: engine operation never depends "
+                "on registry reachability)",
+                file=self._stdout,
+                flush=True,
+            )
         print(
             "[serve] paper-mode supervisor started (PAPER-ONLY posture; "
             "live execution is structurally refused elsewhere in the "
@@ -254,10 +305,12 @@ class PaperRuntimeService:
                 file=self._stderr,
                 flush=True,
             )
+            self._stop_auxiliary_services()
             self._stop_dashboard()
             return EXIT_ERROR
 
         # 5. graceful shutdown -------------------------------------------------
+        self._stop_auxiliary_services()
         self._stop_dashboard()
         print(
             f"[serve] graceful shutdown ({self._stop_reason}); exit 0",

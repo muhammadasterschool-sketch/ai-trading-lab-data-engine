@@ -20,9 +20,118 @@ types — and therefore always exited 1).
 
 import sys
 import argparse
+import os
 from datetime import datetime, UTC
 from data_engine import DataIngester, DataValidator, DataStorage, DataQualityGate
 from data_engine.quant_boundary import LLMBoundary, CalculationType
+
+
+def _read_token_file(path: str, purpose: str) -> str:
+    """Read a bearer token from a dedicated file (Stage F hygiene:
+    tokens travel via files with 600 permissions, NEVER via CLI
+    arguments, environment dumps, or logs)."""
+    from pathlib import Path
+
+    token_file = Path(path)
+    if not token_file.is_file():
+        raise ValueError(f"{purpose} token file not found: {path}")
+    token = token_file.read_text(encoding="utf-8").strip()
+    if len(token) < 16:
+        raise ValueError(
+            f"{purpose} token too weak (>= 16 chars required): {path}"
+        )
+    mode = token_file.stat().st_mode & 0o777
+    if mode & 0o077:
+        print(
+            f"[serve] WARNING: {purpose} token file {path} is "
+            f"group/world readable (mode {oct(mode)}); run: "
+            f"chmod 600 {path}",
+            file=sys.stderr,
+        )
+    return token
+
+
+def _build_monitoring_api(*, bind: str, port: int, token_file: str):
+    """Construct the authenticated monitoring API (Stage F/F1) with
+    HONEST providers: the health endpoint reflects the supervisor's
+    own process state; every not-yet-composed dimension reports
+    ABSENT. The kill-switch activator stays UNWIRED in the bare CLI
+    path (fail closed: POST returns 503 until an operational session
+    composition injects the real activator)."""
+    import time as _time
+
+    from data_engine import __version__
+    from data_engine.runtime.monitoring import MonitoringAPI
+
+    token = _read_token_file(token_file, "monitoring API")
+    started = _time.monotonic()
+
+    def health() -> dict:
+        return {
+            "engine_mode": "PAPER_SUPERVISOR",
+            "engine_state": "RUNNING",
+            "engine_version": __version__,
+            "uptime_seconds": round(_time.monotonic() - started, 1),
+            "kill_switch": "NOT_WIRED_IN_BARE_CLI_PATH",
+            "detail": (
+                "supervisor-level health; a composed operational session "
+                "injects richer providers (positions/orders/pnl/risk)"
+            ),
+        }
+
+    return MonitoringAPI(
+        auth_token=token,
+        host=bind,
+        port=port,
+        health_provider=health,
+    )
+
+
+def _build_heartbeat_sender(
+    *,
+    registry_url: str,
+    token_file,
+    user_label: str,
+    interval: float,
+):
+    """Construct the one-way outbound registry heartbeat sender
+    (Stage F/F6). Payload = identity + health ONLY (data minimization
+    TEST-ENFORCED in tests/test_monitoring_api.py)."""
+    import platform as _platform
+    import time as _time
+
+    from data_engine import __version__
+    from data_engine.runtime.heartbeat import (
+        HeartbeatSender,
+        build_heartbeat_payload,
+    )
+
+    if not token_file:
+        raise ValueError(
+            "--registry-token-file is required when --registry-url is set"
+        )
+    ingest_token = _read_token_file(token_file, "registry ingest")
+    started = _time.monotonic()
+    server_id = f"{_platform.node() or 'user-server'}:data-engine:{__version__}"
+
+    def payload() -> dict:
+        return build_heartbeat_payload(
+            user_label=user_label,
+            server_id=server_id,
+            engine_mode="PAPER_SUPERVISOR",
+            engine_version=__version__,
+            uptime_seconds=round(_time.monotonic() - started, 1),
+            feed_health="NOT_WIRED",
+            risk_state="NOT_WIRED",
+            kill_switch="NOT_WIRED_IN_BARE_CLI_PATH",
+        )
+
+    return HeartbeatSender(
+        registry_url=registry_url,
+        ingest_token=ingest_token,
+        payload_builder=payload,
+        interval_seconds=interval,
+    )
 
 
 #: Truthful status dimensions for the current repository state
@@ -128,6 +237,56 @@ def main(argv=None):
         help=(
             "bounded runtime (tests/smoke); omit to run until SIGTERM/SIGINT"
         ),
+    )
+    # -- Stage F: authenticated monitoring API (F1) + registry heartbeat (F6)
+    serve_parser.add_argument(
+        "--monitor-port",
+        type=int,
+        default=8018,
+        help="authenticated monitoring API port (read-only + kill switch)",
+    )
+    serve_parser.add_argument(
+        "--monitor-bind",
+        default="127.0.0.1",
+        help=(
+            "monitoring API bind address (loopback default; the per-user "
+            "deployment binds loopback and terminates TLS at the reverse "
+            "proxy — see deploy/server-install.sh)"
+        ),
+    )
+    serve_parser.add_argument(
+        "--monitor-token-file",
+        default=None,
+        help=(
+            "path to the monitoring API bearer token file (600 perms). "
+            "REQUIRED to enable the monitoring API; tokens are NEVER "
+            "passed as CLI arguments (shell-history hygiene)."
+        ),
+    )
+    serve_parser.add_argument(
+        "--registry-url",
+        default=None,
+        help=(
+            "owner admin-registry heartbeat URL (https://...). Optional; "
+            "enables the one-way outbound health heartbeat (graceful "
+            "degradation if the registry is unreachable)."
+        ),
+    )
+    serve_parser.add_argument(
+        "--registry-token-file",
+        default=None,
+        help="path to the registry ingest token file (required with --registry-url)",
+    )
+    serve_parser.add_argument(
+        "--user-label",
+        default="unlabeled-user-server",
+        help="heartbeat identity label for this user server",
+    )
+    serve_parser.add_argument(
+        "--heartbeat-interval",
+        type=float,
+        default=45.0,
+        help="heartbeat interval seconds (30-60 recommended)",
     )
 
     # State-store recovery tool (F-12: torn journal tail — audited,
@@ -246,6 +405,30 @@ def main(argv=None):
         elif args.command == "serve":
             from data_engine.runtime.service import PaperRuntimeService
 
+            monitoring_api = None
+            heartbeat_sender = None
+            try:
+                if args.monitor_token_file:
+                    monitoring_api = _build_monitoring_api(
+                        bind=args.monitor_bind,
+                        port=args.monitor_port,
+                        token_file=args.monitor_token_file,
+                    )
+                if args.registry_url:
+                    heartbeat_sender = _build_heartbeat_sender(
+                        registry_url=args.registry_url,
+                        token_file=args.registry_token_file,
+                        user_label=args.user_label,
+                        interval=args.heartbeat_interval,
+                    )
+            except (OSError, ValueError) as setup_error:
+                print(
+                    f"[serve] REFUSING TO START: Stage F surface setup "
+                    f"failed closed: {setup_error}",
+                    file=sys.stderr,
+                )
+                raise SystemExit(1)
+
             service = PaperRuntimeService(
                 host=args.host,
                 port=args.port,
@@ -253,6 +436,8 @@ def main(argv=None):
                 heartbeat_seconds=args.heartbeat_seconds,
                 tick_seconds=args.tick_seconds,
                 max_seconds=args.max_seconds,
+                monitoring_api=monitoring_api,
+                heartbeat_sender=heartbeat_sender,
             )
             # SystemExit propagates past the Exception handler below so
             # the documented service exit codes reach the process.
