@@ -96,6 +96,10 @@ from data_engine.runtime.sequence import (
     SequenceSpec,
     build_sequence_set,
 )
+from data_engine.runtime.submission_ledger import (
+    CapacityRefused as _LedgerCapacityRefused,
+    SubmissionLedger,
+)
 from data_engine.runtime.state import (
     EXECUTION_STATE_FIELDS,
     EXECUTION_STATE_SCHEMA_VERSION,
@@ -331,11 +335,24 @@ class TradingRuntime:
         mac_custody=None,
         wall_clock=None,
         risk_limits: Optional[RuntimeRiskLimits] = None,
+        submission_ledger: Optional["SubmissionLedger"] = None,
     ) -> None:
         if config is None or ensemble is None:
             raise RuntimeContractError(
                 "runtime requires config + fitted ensemble"
             )
+        # Milestone A B1: durable submission ledger (opt-in here; the
+        # Stage C composition root makes it MANDATORY for operational
+        # deployments). When attached, it is THE authoritative rate
+        # accounting (the volatile in-memory list is bypassed).
+        if submission_ledger is not None and not isinstance(
+            submission_ledger, SubmissionLedger
+        ):
+            raise RuntimeContractError(
+                "submission_ledger must be a SubmissionLedger "
+                "(durable, flock-protected rate accounting)"
+            )
+        self._submission_ledger = submission_ledger
         self._config = config
         self._ensemble = ensemble
         self._calibrator = calibrator
@@ -644,6 +661,34 @@ class TradingRuntime:
 
         # -- 4. recovery: LOAD → VERIFY → RESTORE → RECONCILE ----------
         self._recover_existing_state()
+
+        # Milestone A B1: conservative durable-ledger recovery —
+        # outstanding reservations are reconstructed from the ledger
+        # (journaled → SUBMITTED; unknown → PRESERVED/consumed).
+        # Never silently releases risk capacity; every decision is
+        # durable + auditable. (Venue-journal reconciliation of
+        # reservations happens at venue attach — P3.)
+        if self._submission_ledger is not None:
+            ledger_report = self._submission_ledger.recover()
+            self._ledgers.record(
+                ledger="incident",
+                event_type="SUBMISSION_LEDGER_RECOVERED",
+                correlation_id=f"session:{self._config.session_id}",
+                actor="runtime",
+                payload={
+                    "reconciled_submitted":
+                        ledger_report.reconciled_submitted,
+                    "preserved_reserved":
+                        ledger_report.preserved_reserved,
+                    "total_records": ledger_report.total_records,
+                    "action": (
+                        "durable submission ledger recovered "
+                        "conservatively — outstanding reservations "
+                        "stay consumed until venue truth resolves "
+                        "them (fail closed)"
+                    ),
+                },
+            )
 
         # A restart from a DEGRADED snapshot stays DEGRADED — data-
         # quality degradation is never cured by a restart (fail
@@ -2209,6 +2254,44 @@ class TradingRuntime:
                     },
                 )
                 return [], (block_reason,)
+            # Milestone A B1: durable reservation BEFORE any broker
+            # call — capacity/spacing refusal happens strictly
+            # earlier than the venue boundary, atomically under the
+            # ledger's exclusive flock. A failed reservation leaves
+            # no record; a successful one carries the durable order
+            # identity.
+            reservation_id = None
+            if self._submission_ledger is not None:
+                try:
+                    reservation = self._submission_ledger.reserve(
+                        client_order_id=order.order_id,
+                        governed_ts=bar["timestamp"],
+                    )
+                    reservation_id = reservation.reservation_id
+                except _LedgerCapacityRefused as exc:
+                    self._oms.reject_order(
+                        order.order_id,
+                        f"submission ledger refused ({exc.reason_code}):"
+                        f" {exc}",
+                    )
+                    self._metrics.increment("orders_capacity_refused")
+                    self._ledgers.record(
+                        ledger="incident",
+                        event_type="SUBMISSION_CAPACITY_REFUSED",
+                        correlation_id=correlation_id,
+                        actor="runtime.execution",
+                        payload={
+                            "order_id": order.order_id,
+                            "reason_code": exc.reason_code,
+                            "action": (
+                                "order rejected BEFORE any broker call "
+                                "— the durable rate ledger refused the "
+                                "reservation (owner-ratified paper "
+                                "limits; fail closed)"
+                            ),
+                        },
+                    )
+                    return [], ()
             signed_units = plan.quantity if plan.side.value == "BUY" \
                 else -plan.quantity
             reduce_only = position.quantity != 0 and (
@@ -2219,8 +2302,16 @@ class TradingRuntime:
                     order, reduce_only=reduce_only,
                     correlation_id=correlation_id,
                 )
+                if reservation_id is not None:
+                    self._submission_ledger.mark_submitted(
+                        reservation_id
+                    )
                 self._metrics.increment("orders_venue_submitted")
             except _Refused as exc:
+                if reservation_id is not None:
+                    self._submission_ledger.finalize(
+                        reservation_id, "VENUE_REFUSED"
+                    )
                 self._oms.reject_order(
                     order.order_id,
                     f"venue refused ({exc.reason_code}): {exc}",
@@ -2246,6 +2337,10 @@ class TradingRuntime:
                 # order. NEVER infer failure from a lost ack —
                 # UNKNOWN + RECONCILING + EXECUTION_UNCERTAIN until
                 # reconciliation resolves from venue truth (§28).
+                if reservation_id is not None:
+                    self._submission_ledger.finalize(
+                        reservation_id, "VENUE_UNCERTAIN"
+                    )
                 self._oms.submit(
                     order.order_id,
                     submitted_at=bar["timestamp"],
@@ -2266,12 +2361,55 @@ class TradingRuntime:
                     correlation_id,
                 )
                 return [], ()
+        # Milestone A B1 — internal path (no venue attached): the
+        # durable reservation still gates commit/ack processing —
+        # no order reaches acknowledge without a valid reservation.
+        # (Venue-success path falls through with its reservation
+        # already made BEFORE the broker call — never re-reserved.)
+        reservation_id = None
+        if self._venue is None and self._submission_ledger is not None:
+            try:
+                reservation = self._submission_ledger.reserve(
+                    client_order_id=order.order_id,
+                    governed_ts=bar["timestamp"],
+                )
+                reservation_id = reservation.reservation_id
+            except _LedgerCapacityRefused as exc:
+                self._oms.reject_order(
+                    order.order_id,
+                    f"submission ledger refused ({exc.reason_code}):"
+                    f" {exc}",
+                )
+                self._metrics.increment("orders_capacity_refused")
+                self._ledgers.record(
+                    ledger="incident",
+                    event_type="SUBMISSION_CAPACITY_REFUSED",
+                    correlation_id=correlation_id,
+                    actor="runtime.execution",
+                    payload={
+                        "order_id": order.order_id,
+                        "reason_code": exc.reason_code,
+                        "action": (
+                            "order rejected before commit/ack — the "
+                            "durable rate ledger refused the "
+                            "reservation (owner-ratified paper "
+                            "limits; fail closed)"
+                        ),
+                    },
+                )
+                return [], ()
         self._oms.submit(
             order.order_id,
             submitted_at=bar["timestamp"],
             bar_index=bar_index,
         )
         self._oms.acknowledge(order.order_id)
+        if reservation_id is not None:
+            if self._venue is None:
+                self._submission_ledger.mark_submitted(reservation_id)
+            self._submission_ledger.finalize(
+                reservation_id, "ACKNOWLEDGED"
+            )
         # D-6: gate-passed submission — occupy the rate window.
         self._record_submission(bar["timestamp"])
         if plan.stop_loss is not None or plan.take_profit is not None:
@@ -3062,12 +3200,25 @@ class TradingRuntime:
     def _record_submission(self, ts: Optional[datetime]) -> None:
         """Record a gate-passed OMS submission (governed time: the bar
         timestamp drives determinism/replay; wall clock only as a
-        fallback when a bar carries no timestamp)."""
+        fallback when a bar carries no timestamp).
+
+        Milestone A B1: when a durable SubmissionLedger is attached,
+        it is THE authoritative rate accounting — the volatile
+        in-memory list is bypassed (F-01: restart no longer wipes
+        the budget)."""
+        if self._submission_ledger is not None:
+            return  # the durable ledger already holds the record
         self._submission_times.append(
             ts if ts is not None else datetime.now(UTC)
         )
 
     def _submissions_in_window(self, now_ts: Optional[datetime]) -> int:
+        if self._submission_ledger is not None:
+            # Durable accounting (B1): the ledger counts consumed
+            # slots on the wall-clock window — cross-process and
+            # restart-stable. Governed time remains the fallback for
+            # the legacy no-ledger path below.
+            return self._submission_ledger.count_in_window()
         if now_ts is None:
             now_ts = datetime.now(UTC)
         self._prune_submissions(now_ts)
