@@ -41,6 +41,20 @@ from data_engine.runtime import freeze_strategy_boundary
 
 REPO = Path(__file__).resolve().parents[1]
 
+# Forensic git-history checks apply ONLY in a git checkout. The
+# Stage E Windows package ships the source as a git archive WITHOUT
+# .git — in that context these repo-integrity checks are inapplicable
+# and skip EXPLICITLY (skip is visible in pytest output; never a
+# silent pass). CI and every dev checkout still run them.
+GIT_CHECKOUT_AVAILABLE = (REPO / ".git").exists()
+needs_git_checkout = pytest.mark.skipif(
+    not GIT_CHECKOUT_AVAILABLE,
+    reason=(
+        "repo-integrity check requires a git checkout; "
+        "packaged-source (git archive, no .git) context"
+    ),
+)
+
 
 # ════════════════════════════════════════════════════════════════════
 # 1. The 13 deferred fields — dynamically discovered, exactly pinned
@@ -210,6 +224,7 @@ class TestRuntimeDecoupling:
             f"domain directly: {offenders}"
         )
 
+    @needs_git_checkout
     def test_frozen_strategy_package_byte_identical_to_reference(self):
         """The whole frozen strategy package is byte-identical to the
         frozen reference commit (the acceptance altered nothing)."""

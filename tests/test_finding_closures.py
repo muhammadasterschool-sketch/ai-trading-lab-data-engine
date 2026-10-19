@@ -21,6 +21,21 @@ from data_engine.risk.engine import (
     RiskViolationError,
 )
 
+# Forensic git-history checks apply ONLY in a git checkout. The
+# Stage E Windows package ships the source as a git archive WITHOUT
+# .git — in that context these repo-integrity checks are inapplicable
+# and skip EXPLICITLY (never an accidental vacuous pass). CI and every
+# dev checkout still runs them.
+REPO_ROOT_FC = Path(__file__).resolve().parents[1]
+GIT_CHECKOUT_AVAILABLE = (REPO_ROOT_FC / ".git").exists()
+needs_git_checkout = pytest.mark.skipif(
+    not GIT_CHECKOUT_AVAILABLE,
+    reason=(
+        "repo-integrity check requires a git checkout; "
+        "packaged-source (git archive, no .git) context"
+    ),
+)
+
 LIMITS = RiskLimits(
     max_position_units=Decimal("100"),
     max_leverage=Decimal("1.0"),
@@ -280,6 +295,7 @@ class TestARCHFClosures:
                     strict=True,
                 )
 
+    @needs_git_checkout
     def test_arch_f11_audit_log_not_tracked(self):
         """P1 removed src/audit.log from tracking; it must stay out."""
         result = subprocess.run(
@@ -308,6 +324,7 @@ class TestBUG008Disposition:
         original["meta"]["k"].append(99)
         assert snapshot["meta"]["k"] == [1, 2, 3]
 
+    @needs_git_checkout
     def test_bug_008_pinned_files_untouched(self):
         """The 13 deferred fields live in manifest-pinned files — those
         files must be byte-identical to the SUB-18 manifest (verified

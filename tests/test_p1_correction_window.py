@@ -53,6 +53,20 @@ from data_engine.risk import (
 D = Decimal
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
+# Forensic git-history checks apply ONLY in a git checkout. The
+# Stage E Windows package ships the source as a git archive WITHOUT
+# .git — in that context these repo-integrity checks are inapplicable
+# and skip EXPLICITLY (skip is visible in pytest output; never a
+# silent pass). CI and every dev checkout still run them.
+GIT_CHECKOUT_AVAILABLE = (REPO_ROOT / ".git").exists()
+needs_git_checkout = pytest.mark.skipif(
+    not GIT_CHECKOUT_AVAILABLE,
+    reason=(
+        "repo-integrity check requires a git checkout; "
+        "packaged-source (git archive, no .git) context"
+    ),
+)
+
 
 def utc(y, m, d, h=0, mi=0):
     return datetime(y, m, d, h, mi, tzinfo=UTC)
@@ -1195,6 +1209,7 @@ class TestRtF13Hygiene:
         dev = data["project"]["optional-dependencies"]["dev"]
         assert any(d.startswith("pytest") for d in dev)
 
+    @needs_git_checkout
     def test_src_audit_log_untracked(self):
         out = subprocess.run(
             ["git", "ls-files", "src/audit.log"],
@@ -1202,6 +1217,7 @@ class TestRtF13Hygiene:
         ).stdout.strip()
         assert out == "", "RT-F13: src/audit.log must not be tracked"
 
+    @needs_git_checkout
     def test_gitignore_covers_audit_log(self):
         out = subprocess.run(
             ["git", "check-ignore", "src/audit.log"],
@@ -1229,6 +1245,7 @@ class TestRtF13Hygiene:
 
 class TestFrozenContractsUntouched:
 
+    @needs_git_checkout
     def test_frozen_phase3_blobs_byte_identical(self):
         """P1 rule 1: the 11 frozen Phase-3 blobs are byte-identical to
         main@13fdc7e (mirrors final_gate_verify.py check 1)."""
