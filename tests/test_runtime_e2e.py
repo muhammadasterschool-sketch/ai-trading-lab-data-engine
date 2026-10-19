@@ -642,6 +642,7 @@ class TestRestartRecovery:
         journal_path.write_text("\n".join(lines) + "\n")
         # A RESTART reads the tampered file from disk with a FRESH
         # store instance (the old in-memory journal still verifies).
+        store.close()  # process death: release the lock (F-03)
         store2 = ExecutionStateStore(tmp_path / "rs2")
         ledger2 = LedgerFamily()
         from data_engine.runtime import OMS, KillSwitchManager

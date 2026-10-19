@@ -22,12 +22,32 @@ import json
 import re
 import os
 
+try:  # POSIX (deployment target: Linux/systemd)
+    import fcntl as _lock_mod
+    _HAVE_FCNTL = True
+except ImportError:  # pragma: no cover — Windows (Stage E packaging)
+    import msvcrt as _lock_mod
+    _HAVE_FCNTL = False
+
+
+class SecurityAuditError(RuntimeError):
+    """Raised when the security AUDIT channel itself fails (F-10:
+    fail-closed — an audit write failure is NEVER silently
+    swallowed; the operator must see it)."""
+
 
 class SecurityConfig(BaseModel):
     """Security configuration."""
     api_keys: Dict[str, str] = Field(default_factory=dict)  # Never stored in source
     environment_prefix: str = "DATA_ENGINE_"
     enable_audit_log: bool = True
+    # F-10: the file audit channel routes to an OPERATOR-CONFIGURED
+    # path only — never a module-relative location inside the
+    # package tree. None (default) = no file channel is configured
+    # (the hash-chained SecurityAuditTrail remains the real audit
+    # surface); a configured path that fails to write RAISES
+    # (SecurityAuditError) instead of being silently dropped.
+    audit_log_path: Optional[str] = None
     max_input_length: int = 1000000
     allowed_providers: Optional[list] = None
     require_api_key: bool = False
@@ -58,21 +78,35 @@ class SecurityConfig(BaseModel):
         return bool(re.match(self.secret_env_var_pattern, var_name))
 
     def audit_log(self, action: str, details: Dict):
-        """Log security-relevant actions."""
-        if not self.enable_audit_log:
+        """Log security-relevant actions (F-10: fail-closed).
+
+        Routes to the OPERATOR-CONFIGURED ``audit_log_path`` only.
+        With no path configured there is structurally NO file channel
+        — and NEVER a write inside the package tree. A configured
+        path that cannot be written RAISES SecurityAuditError: an
+        audit-channel failure must be LOUD, never ``pass``-swallowed
+        (the pre-B4 behavior silently lost audit events)."""
+        if not self.enable_audit_log or not self.audit_log_path:
             return
         entry = {
             "timestamp": datetime.now(UTC).isoformat(),
             "action": action,
             "details": details,
         }
-        # Append to audit log file
-        log_path = os.path.join(os.path.dirname(__file__), "..", "audit.log")
         try:
-            with open(log_path, "a") as f:
+            parent = os.path.dirname(os.path.abspath(self.audit_log_path))
+            os.makedirs(parent, exist_ok=True)
+            with open(self.audit_log_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(entry) + "\n")
-        except (IOError, OSError):
-            pass  # Audit log failure is non-critical
+                f.flush()
+                os.fsync(f.fileno())
+        except (IOError, OSError) as exc:
+            raise SecurityAuditError(
+                f"security audit log write FAILED at "
+                f"{self.audit_log_path!r}: {exc!r} — the audit channel "
+                "is fail-closed (F-10): an audit event is never "
+                "silently dropped"
+            ) from exc
 
 
 def validate_input(value, max_length: int = 1000000) -> bool:
@@ -342,22 +376,47 @@ class SecurityAuditTrail:
         ).hexdigest()
 
     def record(self, actor: str, path: str, decision: str, rule: str) -> dict:
-        """Append one audit record. Returns the recorded entry."""
-        entries = self._read_entries()
-        prev_hash = entries[-1]["entry_hash"] if entries else "GENESIS"
-        entry = {
-            "seq": len(entries) + 1,
-            "timestamp": datetime.now(UTC).isoformat(),
-            "actor": actor,
-            "path": str(path),
-            "decision": decision,   # "ALLOW" | "DENY"
-            "rule": rule,
-            "prev_hash": prev_hash,
-        }
-        entry["entry_hash"] = self._entry_digest(entry)
-        with open(self.path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, sort_keys=True) + "\n")
-        return entry
+        """Append one audit record. Returns the recorded entry.
+
+        F-11: the read-modify-write (entries → prev_hash/seq →
+        append) is serialized by an exclusive flock on a sibling
+        ``.lock`` file — two concurrent recorders can never fork the
+        chain (each waits its turn; the chain stays linear)."""
+        lock_path = self.path.with_suffix(self.path.suffix + ".lock")
+        lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            if _HAVE_FCNTL:
+                _lock_mod.flock(lock_fd, _lock_mod.LOCK_EX)
+            else:  # pragma: no cover — Windows
+                _lock_mod.locking(lock_fd, _lock_mod.LK_LOCK, 1)
+            entries = self._read_entries()
+            prev_hash = entries[-1]["entry_hash"] if entries else "GENESIS"
+            entry = {
+                "seq": len(entries) + 1,
+                "timestamp": datetime.now(UTC).isoformat(),
+                "actor": actor,
+                "path": str(path),
+                "decision": decision,   # "ALLOW" | "DENY"
+                "rule": rule,
+                "prev_hash": prev_hash,
+            }
+            entry["entry_hash"] = self._entry_digest(entry)
+            with open(self.path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, sort_keys=True) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+            return entry
+        finally:
+            try:
+                if _HAVE_FCNTL:
+                    _lock_mod.flock(lock_fd, _lock_mod.LOCK_UN)
+                else:  # pragma: no cover — Windows
+                    try:
+                        _lock_mod.locking(lock_fd, _lock_mod.LK_UNLCK, 1)
+                    except OSError:
+                        pass
+            finally:
+                os.close(lock_fd)
 
     def verify(self) -> bool:
         """Verify the full hash chain (FS-22 tamper evidence)."""

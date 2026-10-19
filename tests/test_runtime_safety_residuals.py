@@ -777,6 +777,8 @@ class TestSnapshotConfigCompat:
         rt.start()
         _run_bars(rt, _bars(30), 8)
         ens, cal = _fit_world()
+        if getattr(rt, "_store", None) is not None:
+            rt._store.close()  # process death (F-03 single-writer lock)
         rt2 = TradingRuntime(
             _op_config("snap-same"), ens, calibrator=cal,
             state_store=ExecutionStateStore(tmp_path / "state"),
@@ -794,6 +796,8 @@ class TestSnapshotConfigCompat:
         changed = _op_config("snap-shared").model_copy(
             update={"ttl_bars": 9}
         )
+        if getattr(rt, "_store", None) is not None:
+            rt._store.close()  # process death (F-03 single-writer lock)
         rt2 = TradingRuntime(
             changed, ens, calibrator=cal,
             state_store=ExecutionStateStore(tmp_path / "state"),

@@ -175,9 +175,9 @@ class TestSchemaAdversarial:
 class TestStorageImmutability:
     """Test whether retrieved objects can mutate stored data."""
 
-    def test_raw_mutation_does_not_corrupt_storage(self):
+    def test_raw_mutation_does_not_corrupt_storage(self, tmp_path):
         """Retrieved raw candles must be deep copies (frozen, immutable)."""
-        storage = DataStorage(storage_dir='/tmp/test_storage_audit_c')
+        storage = DataStorage(storage_dir=str(tmp_path / "storage"))
         now = datetime.now(UTC)
         inst = make_instrument()
         candles = [make_candle(now - timedelta(days=4-i)) for i in range(5)]
@@ -210,22 +210,22 @@ class TestStorageImmutability:
         # Verify retrieved and stored are different objects
         assert retrieved is not stored, 'Retrieved data must be a separate object from stored'
 
-    def test_raw_overwrite_rejected(self):
+    def test_raw_overwrite_rejected(self, tmp_path):
         """RAW data must not be overwritten."""
-        storage = DataStorage(storage_dir='/tmp/test_storage_audit2')
+        storage = DataStorage(storage_dir=str(tmp_path / "storage"))
         now = datetime.now(UTC)
         candles = [make_candle(now)]
         storage.store_raw('ds_1', candles, 'hash1')
         result = storage.try_overwrite_raw('ds_1')
         assert result is False, "RAW data must not be overwriteable"
 
-    def test_storage_deep_copy_identity(self):
+    def test_storage_deep_copy_identity(self, tmp_path):
         """get_processed and get_research must return distinct objects,
         not references to internal storage."""
         from data_engine.storage import DataStorage
         from data_engine.schemas import Dataset, DatasetVersion, Candle, ProvenanceRecord
         from data_engine.evidence import EvidenceProvenance as EP
-        storage = DataStorage(storage_dir='/tmp/test_storage_deep_copy')
+        storage = DataStorage(storage_dir=str(tmp_path / "storage"))
         now = datetime.now(UTC)
         inst = make_instrument()
         candles = [make_candle(now - timedelta(days=4-i)) for i in range(5)]
@@ -265,9 +265,9 @@ class TestStorageImmutability:
         assert stored_research['metrics']['return'] != -1.0, \
             'Mutating retrieved research must not mutate internal storage'
 
-    def test_raw_immutability_verified(self):
+    def test_raw_immutability_verified(self, tmp_path):
         """Immutability verification must pass."""
-        storage = DataStorage(storage_dir='/tmp/test_storage_audit3')
+        storage = DataStorage(storage_dir=str(tmp_path / "storage"))
         now = datetime.now(UTC)
         storage.store_raw('ds_1', [make_candle(now)], 'hash1')
         assert storage.verify_raw_immutability() is True

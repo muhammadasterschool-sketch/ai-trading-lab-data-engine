@@ -79,6 +79,18 @@ from data_engine.runtime.state import (
     StateStoreError,
     validate_execution_state,
 )
+from data_engine.runtime.submission_ledger import (
+    CapacityRefused,
+    LedgerRecord,
+    PRE_VENUE_OUTCOME,
+    RecoveryReport,
+    Reservation,
+    ReservationState,
+    SubmissionLedger,
+    SubmissionLedgerError,
+    SubmissionPolicy,
+    WallClockRegression,
+)
 from data_engine.runtime.ledgers import (
     LedgerEvent,
     LedgerFamily,
@@ -244,6 +256,11 @@ __all__ = [
     "ExecutionStateStore", "HashChainJournal", "StateStoreError",
     "EXECUTION_STATE_FIELDS", "EXECUTION_STATE_SCHEMA_VERSION",
     "validate_execution_state",
+    # durable submission ledger (Milestone A B1/B2)
+    "SubmissionLedger", "SubmissionPolicy", "SubmissionLedgerError",
+    "CapacityRefused", "WallClockRegression", "Reservation",
+    "ReservationState", "LedgerRecord", "RecoveryReport",
+    "PRE_VENUE_OUTCOME",
     # ledgers
     "LedgerEvent", "LedgerFamily", "LedgerError", "LEDGER_NAMES",
     "KEYED_EVENT_HASH_PREFIX", "UNKEYED_EVENT_HASH_PREFIX",

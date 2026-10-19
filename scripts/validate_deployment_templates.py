@@ -42,15 +42,27 @@ def check(name: str, ok: bool, detail: str = "") -> None:
 
 
 #: Hardening keys the unit MUST carry (mandate §8: least privilege,
-#: resource limits, restart policy, safe shutdown, no secret values).
+#: resource limits, restart policy, safe shutdown, no secret values;
+#: F-04 completion 2026-10-19: ReadWritePaths + the sandbox set).
 REQUIRED_UNIT_KEYS = (
     "User=aitl-%i",
     "Group=aitl-%i",
     "NoNewPrivileges=yes",
     "ProtectSystem=strict",
+    "ReadWritePaths=/var/lib/ai-trading-lab/%i",
+    "UMask=0027",
+    "SystemCallFilter=@system-service",
+    "SystemCallArchitectures=native",
+    "PrivateDevices=yes",
     "ProtectHome=yes",
+    "ProtectHostname=yes",
+    "ProtectClock=yes",
+    "ProtectProc=invisible",
     "PrivateTmp=yes",
+    "RestrictNamespaces=yes",
     "RestrictSUIDSGID=yes",
+    "CapabilityBoundingSet=",
+    "MemoryDenyWriteExecute=yes",
     "LockPersonality=yes",
     "RestrictRealtime=yes",
     "IPAddressDeny=any",
@@ -111,6 +123,25 @@ def main() -> int:
             if p.search(unit_text)
         ]
         check("unit contains no secret VALUES", not leaked, "name-only posture")
+        # F-04 (2026-10-19): ProtectSystem=strict WITHOUT ReadWritePaths
+        # breaks the documented state contract (every persist EROFS) —
+        # the validator previously had exactly this blind spot.
+        strict = "ProtectSystem=strict" in unit_text
+        rw_paths = [
+            ln.strip() for ln in unit_text.splitlines()
+            if ln.strip().startswith("ReadWritePaths=")
+        ]
+        check(
+            "strict sandboxing keeps the state contract writable "
+            "(ReadWritePaths present)",
+            bool(rw_paths) or not strict,
+            (
+                "ProtectSystem=strict with NO ReadWritePaths — every "
+                "state write fails EROFS (F-04)"
+                if strict and not rw_paths
+                else "; ".join(rw_paths) if rw_paths else "no strict mode"
+            ),
+        )
 
     # 2. secrets env template --------------------------------------------
     if not ENV_TEMPLATE.is_file():

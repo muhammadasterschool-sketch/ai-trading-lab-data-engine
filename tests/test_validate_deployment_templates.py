@@ -86,7 +86,11 @@ class TestShippedTemplates:
     def test_shipped_unit_reports_full_hardening_coverage(self):
         proc = _run(SCRIPT)
         assert proc.returncode == 0
-        assert "20/20" in proc.stdout
+        # F-04 completion (Stage B hardening, 2026-10-19): the mandated
+        # key set grew 20 -> 31 (ReadWritePaths, UMask, the @system-
+        # service sandbox set, ProtectClock/Hostname/Proc, Restrict-
+        # Namespaces, CapabilityBoundingSet, MemoryDenyWriteExecute).
+        assert "31/31" in proc.stdout
 
 
 class TestTamperedTemplatesFailClosed:

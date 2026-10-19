@@ -45,8 +45,14 @@ def main():
     )
     subparsers = parser.add_subparsers(dest="command")
 
-    # Validate command
-    subparsers.add_parser("validate", help="Validate a dataset")
+    # Validate command (F-21: the usage docstring always promised a
+    # dataset_id positional — the parser never registered it)
+    validate_parser = subparsers.add_parser(
+        "validate", help="Validate a dataset"
+    )
+    validate_parser.add_argument(
+        "dataset_id", help="Dataset ID to validate"
+    )
 
     # Report command
     report_parser = subparsers.add_parser("report", help="Generate quality report")
@@ -109,6 +115,29 @@ def main():
         ),
     )
 
+    # State-store recovery tool (F-12: torn journal tail — audited,
+    # explicit operator confirmation, NEVER automatic truncation)
+    recover_parser = subparsers.add_parser(
+        "recover-state",
+        help=(
+            "Inspect (and, with explicit confirmation, repair) a "
+            "state store's journal after a torn-tail crash"
+        ),
+    )
+    recover_parser.add_argument(
+        "store_dir", help="state store directory to inspect"
+    )
+    recover_parser.add_argument(
+        "--confirm-truncate",
+        action="store_true",
+        help=(
+            "EXPLICIT operator confirmation: truncate the damaged "
+            "journal tail to its longest valid chained prefix and "
+            "journal the repair (without this flag the tool only "
+            "REPORTS and exits non-zero)"
+        ),
+    )
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -117,8 +146,58 @@ def main():
 
     try:
         if args.command == "validate":
-            print("[Data Engine] Validation mode activated.")
+            print(
+                f"[Data Engine] Validation for dataset "
+                f"{args.dataset_id}."
+            )
             print("Use DataIngester to validate datasets programmatically.")
+
+        elif args.command == "recover-state":
+            # F-12: fail-closed availability recovery — REPORT first;
+            # repair ONLY on explicit operator confirmation, and the
+            # repair is itself journaled (audited, never silent).
+            from pathlib import Path as _P
+            from data_engine.runtime.state import (
+                StateStoreError as _SSE,
+                scan_journal_tail as _scan,
+                truncate_journal_tail as _trunc,
+            )
+            store_dir = _P(args.store_dir)
+            journal_path = store_dir / "journal.jsonl"
+            try:
+                report = _scan(journal_path)
+            except _SSE as exc:
+                print(f"[Recovery] ERROR: {exc}", file=sys.stderr)
+                raise SystemExit(1)
+            if report["damaged_lines"] == 0:
+                print(
+                    f"[Recovery] journal HEALTHY — "
+                    f"{report['valid_records']} valid records, "
+                    "no damaged tail."
+                )
+                raise SystemExit(0)
+            print(
+                f"[Recovery] journal at {journal_path} has a DAMAGED "
+                f"tail: {report['valid_records']} valid records, "
+                f"{report['damaged_lines']} damaged trailing line(s) "
+                f"(last valid index: {report['last_valid_index']})."
+            )
+            if not args.confirm_truncate:
+                print(
+                    "[Recovery] REFUSING to repair without explicit "
+                    "confirmation — rerun with --confirm-truncate to "
+                    "truncate the damaged tail (the repair is "
+                    "journaled and audited; state.json is never "
+                    "touched)."
+                )
+                raise SystemExit(3)
+            total = _trunc(journal_path, report)
+            print(
+                f"[Recovery] REPAIRED — journal truncated to its "
+                f"valid prefix + 1 recovery record ({total} records "
+                "total). The truncation itself is journaled."
+            )
+            raise SystemExit(0)
 
         elif args.command == "report":
             print(f"[Data Engine] Quality report for {args.dataset_id}.")

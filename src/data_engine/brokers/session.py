@@ -39,6 +39,7 @@ discipline).
 """
 
 import hashlib
+import itertools
 import json
 import os
 import time as _time
@@ -73,6 +74,22 @@ from data_engine.brokers.redaction import BrokerCredential, CredentialError
 
 #: Journal schema stamp (bump on incompatible journal format changes).
 BROKER_SESSION_JOURNAL_SCHEMA = "broker-session-journal/1.0.0"
+
+#: Unique-tmp counter (F-03): journal writes target process-unique
+#: temporary names — two writers can never share a tmp inode.
+_JOURNAL_TMP_COUNTER = itertools.count(1)
+
+
+def _fsync_dir(path: Path) -> None:
+    """Directory fsync (F-08): after ``os.replace`` the new journal
+    NAME is not durable on all filesystems until the parent directory
+    entry is synced (mirrors the runtime state-store discipline)."""
+    fd = os.open(str(path), os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
 
 
 class SessionJournalError(RuntimeError):
@@ -804,12 +821,29 @@ class BrokerSession:
 
     def _write_journal(self) -> None:
         self._journal_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self._journal_path.with_suffix(self._journal_path.suffix + ".tmp")
+        # F-03: UNIQUE tmp name (pid + counter) — two writers can
+        # never interleave on the same tmp inode.
+        tmp = self._journal_path.parent / (
+            f".{self._journal_path.name}.{os.getpid()}."
+            f"{next(_JOURNAL_TMP_COUNTER)}.tmp"
+        )
         try:
             with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump(self._journal_document(), fh, indent=1, sort_keys=True)
+                json.dump(self._journal_document(), fh, indent=1,
+                          sort_keys=True)
+                # F-08: fsync the FILE before replace — power loss
+                # can no longer lose the rename (the venue journal is
+                # the durable venue-truth record).
+                fh.flush()
+                os.fsync(fh.fileno())
             os.replace(tmp, self._journal_path)
+            _fsync_dir(self._journal_path.parent)
         except OSError as exc:
+            try:
+                if tmp.exists():
+                    tmp.unlink()
+            except OSError:
+                pass
             raise SessionJournalError(
                 f"journal write failed ({self._journal_path}): {exc!r} — "
                 "fail closed (no best-effort persistence)"

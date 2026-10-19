@@ -58,10 +58,11 @@ internals.
 """
 
 import hashlib
+from collections import deque
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Callable, Dict, List, Mapping, Optional, Tuple
+from typing import Callable, Deque, Dict, List, Mapping, Optional, Tuple
 
 from data_engine.brokers.capabilities import (
     AccountMode,
@@ -69,6 +70,7 @@ from data_engine.brokers.capabilities import (
     ExecutionMode,
     IdempotencyKeyMechanism,
     PositionMode,
+    RateLimitPolicy,
     ReconciliationStyle,
     SlTpSemantics,
 )
@@ -76,6 +78,7 @@ from data_engine.brokers.errors import (
     BrokerErrorCategory,
     BrokerExecutionError,
     OrderRefusedError,
+    RateLimitError,
 )
 from data_engine.brokers.interface import BrokerAdapter
 from data_engine.brokers.models import (
@@ -101,6 +104,7 @@ from data_engine.brokers.session import (
     BrokerSession,
     KillSwitchState,
     RiskDecision,
+    SessionJournalError,
 )
 from data_engine.runtime.contracts import (
     DecisionAction,
@@ -133,6 +137,17 @@ RUNTIME_PAPER_VENUE_CAPABILITIES = BrokerCapabilities(
     idempotency_key=IdempotencyKeyMechanism.INTERNAL_JOURNAL,
     supports_reduce_only=True,
     account_modes=(AccountMode.DEMO,),
+    # F-06 fix: the venue declares the owner-ratified PAPER submission
+    # budget (Part 3: max 5 orders per 60s) — and enforces it
+    # venue-side (RuntimePaperExecutionAdapter._enforce_order_budget)
+    # as an independent backstop behind the runtime's durable ledger
+    # + spacing governor. PAPER MODE ONLY; must be re-ratified before
+    # any future live mode.
+    rate_limit=RateLimitPolicy(
+        max_orders_per_window=5,
+        window_seconds=60.0,
+        retry_after_seconds=60.0,
+    ),
     venue_notes=(
         "Phase M2 integration venue: hosts the frozen runtime's "
         "PaperExecutionAdapter fill model over the runtime's admitted "
@@ -145,6 +160,19 @@ RUNTIME_PAPER_VENUE_CAPABILITIES = BrokerCapabilities(
 
 class BridgeContractError(RuntimeError):
     """Raised on bridge construction/contract violations."""
+
+
+#: Milestone A B3 (F-07): OMS states that prove the runtime NEVER
+#: recorded a submission for the order — yet the venue journal holds
+#: a tracked (non-refused) record for it. That combination is a
+#: durable TRUTH DIVERGENCE (crash between venue accept and
+#: OMS.submit, or a journal write that outlived the OMS transition):
+#: recovery must NEVER resume silently from it.
+_OMS_PRE_SUBMITTED_STATES = frozenset({
+    OrderLifecycle.CREATED,
+    OrderLifecycle.VALIDATED,
+    OrderLifecycle.RISK_APPROVED,
+})
 
 
 class VenueSubmissionRefused(RuntimeContractError):
@@ -464,6 +492,10 @@ class RuntimePaperExecutionAdapter(BrokerAdapter):
         self._authoritative = bool(authoritative)
         self._state = ConnectionState.DISCONNECTED
         self._orders: Dict[str, _VenueOrder] = {}
+        # F-06: venue-side order-budget window (owner-ratified paper
+        # defaults, enforced from the capability descriptor — an
+        # independent backstop behind the runtime's ledger/governor).
+        self._order_window: Deque[datetime] = deque()
 
     # -- descriptive ------------------------------------------------------
     @property
@@ -506,6 +538,39 @@ class RuntimePaperExecutionAdapter(BrokerAdapter):
             display_name="Runtime-hosted paper account (play money)",
         )
 
+    def _enforce_order_budget(self) -> None:
+        """F-06: venue-level submission backstop (defense in depth).
+
+        Enforces the owner-ratified paper budget declared in
+        ``RUNTIME_PAPER_VENUE_CAPABILITIES.rate_limit`` (Part 3: max 5
+        orders per 60s) at the VENUE boundary — behind the runtime's
+        durable submission ledger + spacing governor, but fully
+        independent of them: even a caller that bypasses every
+        runtime gate cannot exceed this budget. Idempotent duplicates
+        never reach here (they return early in ``submit_order``), so
+        retries of an already-held order are free. PAPER MODE ONLY.
+        """
+        policy = self.capabilities.rate_limit
+        cap = policy.max_orders_per_window
+        if cap <= 0:
+            return
+        now = self._clock()
+        window = policy.window_seconds
+        while self._order_window and (
+            now - self._order_window[0]
+        ).total_seconds() > window:
+            self._order_window.popleft()
+        if len(self._order_window) >= cap:
+            raise RateLimitError(
+                f"order placement budget exhausted "
+                f"({cap} orders / {window}s) at venue {self.broker_id} "
+                "(owner-ratified paper submission backstop)",
+                broker_id=self.broker_id,
+                venue_code="ORDER_RATE_LIMITED",
+                retry_after_seconds=policy.retry_after_seconds,
+            )
+        self._order_window.append(now)
+
     def instrument_spec(self, symbol: str) -> InstrumentSpec:
         spec = self._instruments.get(symbol)
         if spec is None:
@@ -534,9 +599,13 @@ class RuntimePaperExecutionAdapter(BrokerAdapter):
         prior = self._orders.get(request.client_order_id)
         if prior is not None:
             # Idempotent: the SAME client_order_id never executes twice;
-            # the CURRENT venue truth is returned.
+            # the CURRENT venue truth is returned. Duplicates consume
+            # NO order budget (the venue already holds this order).
             self._advance(prior)
             return self._ack_for(prior)
+        # F-06 backstop: venue-level order budget — enforced for NEW
+        # orders only, independent of every runtime gate.
+        self._enforce_order_budget()
         fill_window_bars = None
         fill_order_id = None
         if self._authoritative:
@@ -1273,6 +1342,20 @@ class RuntimeAuthoritativeVenue:
                 from exc
         except BrokerExecutionError as exc:
             raise VenueSubmissionUncertain(str(exc)) from exc
+        except SessionJournalError as exc:
+            # Milestone A B3 (F-07 family): the venue call SUCCEEDED
+            # (the adapter may hold a live order) but the durable
+            # session-journal write FAILED. This is AMBIGUOUS, never
+            # an inferred failure — surface it through the §28
+            # uncertainty discipline instead of an unhandled error:
+            # the runtime marks the order UNKNOWN + RECONCILING and
+            # stops (EXECUTION_UNCERTAIN) until reconciliation
+            # resolves the outcome from venue truth.
+            raise VenueSubmissionUncertain(
+                f"venue accepted the order but the session journal "
+                f"write failed: {exc} — outcome ambiguous, reconcile "
+                "from venue truth (never an inferred failure)"
+            ) from exc
         finally:
             self._active_submission = None
         self._runtime._ledgers.record(
@@ -1551,6 +1634,49 @@ class RuntimeAuthoritativeVenue:
                     + " — reconcile before any new submission",
                     correlation_id,
                 )
+        # 5. Milestone A B3 (F-07): journalled venue orders whose OMS
+        #    order NEVER reached SUBMITTED are a durable truth
+        #    divergence — the crash window between venue accept and
+        #    OMS.submit (or a journal write that outlived it). The
+        #    rebuilt venue book and the journal AGREE, so reconcile
+        #    alone cannot see it; without this check the runtime would
+        #    resume silently with a stuck pre-SUBMITTED order that is
+        #    never polled for fills. NEVER optimism: incident +
+        #    fail-closed halt; only explicit reconciliation resolves.
+        pre_submitted = [
+            record.client_order_id for record in tracked
+            if runtime._oms.order(
+                record.client_order_id
+            ).status in _OMS_PRE_SUBMITTED_STATES
+        ]
+        if pre_submitted:
+            runtime._ledgers.record(
+                ledger="incident",
+                event_type="VENUE_OMS_STATE_DIVERGENCE",
+                correlation_id=correlation_id,
+                actor="runtime.venue",
+                payload={
+                    "order_ids": pre_submitted[:10],
+                    "count": len(pre_submitted),
+                    "action": (
+                        "venue journal holds tracked orders whose OMS "
+                        "records never reached SUBMITTED — recovery "
+                        "halts (EXECUTION_UNCERTAIN); explicit "
+                        "reconciliation required, never a silent "
+                        "resume (fail closed)"
+                    ),
+                },
+            )
+            if runtime._state is RuntimeState.RUNNING:
+                runtime._flag_execution_uncertain(
+                    "venue recovery: " + str(len(pre_submitted))
+                    + " journalled venue order(s) whose OMS records "
+                    "never reached SUBMITTED ("
+                    + ", ".join(pre_submitted[:3])
+                    + ") — truth diverged; reconcile explicitly, "
+                    "never a silent resume",
+                    correlation_id,
+                )
         return report
 
 
@@ -1660,6 +1786,42 @@ def attach_authoritative_paper_venue(
         runtime, session, adapter, account_id
     )
     session.connect(credential)
+    # Milestone A B3 (P3; F-19 convergence): reconcile durable
+    # submission-ledger reservations against the venue journal — the
+    # FIRST moment venue truth is available. Journaled reservations
+    # reconcile to SUBMITTED (venue truth, durable transition);
+    # never-journaled ones stay PRESERVED/consumed (never released
+    # on absence — the venue may have seen the request).
+    ledger = getattr(runtime, "_submission_ledger", None)
+    if ledger is not None:
+        journal_cids = {
+            record.client_order_id
+            for record in session._tracked_records()
+        }
+        ledger_report = ledger.recover(
+            journal_client_order_ids=journal_cids
+        )
+        runtime._ledgers.record(
+            ledger="incident",
+            event_type="VENUE_LEDGER_RECONCILED",
+            correlation_id="venue-attach",
+            actor="runtime.venue",
+            payload={
+                "reconciled_submitted": (
+                    ledger_report.reconciled_submitted
+                ),
+                "preserved_reserved": (
+                    ledger_report.preserved_reserved
+                ),
+                "total_records": ledger_report.total_records,
+                "action": (
+                    "durable submission reservations reconciled "
+                    "against the venue journal at attach — journaled "
+                    "to SUBMITTED, never-journaled preserved consumed "
+                    "(fail closed)"
+                ),
+            },
+        )
     runtime._bind_authoritative_venue(venue)
     venue.recover()
     return venue

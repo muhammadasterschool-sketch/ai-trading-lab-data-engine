@@ -153,13 +153,23 @@ def _mk_runtime(session, store_dir, ens_cal=None, realism=None,
     return rt
 
 
+def _crash(rt):
+    """In-process emulation of process DEATH for restart doubles: the
+    old runtime releases its single-writer store lock (F-03). A real
+    crash closes the lock fd — and with it the flock — exactly the
+    same way."""
+    if getattr(rt, "_store", None) is not None:
+        rt._store.close()
+
+
 def _attach(rt, tmp_path, *, name="venue.json", instruments=None,
-            adapter_factory=None, account=ACCOUNT, secret=SECRET):
+            adapter_factory=None, account=ACCOUNT, secret=SECRET,
+            clock=None):
     return attach_authoritative_paper_venue(
         rt,
         account_id=account,
         journal_path=Path(tmp_path) / name,
-        clock=_clock(),
+        clock=_clock() if clock is None else clock,
         instruments=_specs() if instruments is None else instruments,
         credential=BrokerCredential(account, secret),
         adapter_factory=adapter_factory,
@@ -350,7 +360,13 @@ class TestAuthoritativeSubmissionPath:
         """The organic decision -> plan -> order chain flows through
         the venue: every created order is venue-acked under its OMS
         id, fills/exits fire, and the end state matches the internal
-        control run exactly."""
+        control run exactly.
+
+        Venue clock steps 61s per call: the owner-ratified venue
+        order budget (F-06 backstop — max 5 per 60s) never binds for
+        the organic chain, which legitimately spaces submissions far
+        beyond it on 5-minute bars (the 1s default clock would pack
+        every submission into one artificial 60s window)."""
         ens_cal = _fit_world()
         control = _mk_runtime("b5-organic", tmp_path / "ctl",
                               ens_cal=ens_cal, notrade=False)
@@ -359,7 +375,13 @@ class TestAuthoritativeSubmissionPath:
 
         rt = _mk_runtime("b5-organic", tmp_path / "state",
                          ens_cal=ens_cal, notrade=False)
-        venue = _attach(rt, tmp_path)
+        fast = {"t": CLOCK_BASE}
+
+        def fast_clock():
+            fast["t"] = fast["t"] + timedelta(seconds=61)
+            return fast["t"]
+
+        venue = _attach(rt, tmp_path, clock=fast_clock)
         outcomes = [rt.process_bar(b) for b in _bars(60)]
         assert any(o.orders_created for o in outcomes)
         assert any(o.fills for o in outcomes)
@@ -876,6 +898,7 @@ class TestRestartRecovery:
         pre_ack_count = len(_journal_acks(venue1))
 
         # Restart: same state store, same journal path.
+        _crash(rt1)  # process death: release the store lock (F-03)
         rt2 = _mk_runtime("b5-rst", tmp_path / "run" / "state",
                           ens_cal=ens_cal)
         assert rt2.restarted
@@ -979,6 +1002,7 @@ class TestRestartRecovery:
         # persistence step; the direct-path harness persists here).
         rt._persist_safe("corr-b5-ru")
 
+        _crash(rt)  # process death: release the store lock (F-03)
         rt2 = _mk_runtime("b5-rst-unk", tmp_path / "state",
                           ens_cal=ens_cal)
         venue2 = _attach(rt2, tmp_path,
@@ -1001,6 +1025,7 @@ class TestRestartRecovery:
         rt.halt("batch5 terminal halt fixture")
         assert rt.state is RuntimeState.HALTED
 
+        _crash(rt)  # process death: release the store lock (F-03)
         rt2 = _mk_runtime("b5-rst-halt", tmp_path / "state",
                           ens_cal=ens_cal)
         assert rt2.state is RuntimeState.HALTED

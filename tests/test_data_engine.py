@@ -414,9 +414,9 @@ class TestDatasetVersioning:
 class TestRawDataImmutability:
     """Test 13: raw-data immutability"""
 
-    def test_raw_cannot_be_overwritten(self):
+    def test_raw_cannot_be_overwritten(self, tmp_path):
         """RAW data must be immutable."""
-        storage = DataStorage(storage_dir="./test_storage")
+        storage = DataStorage(storage_dir=str(tmp_path / "storage"))
         now = datetime.now(UTC)
         candles = [make_candle(now)]
         storage.store_raw("ds_1", candles, "hash1")
@@ -430,9 +430,9 @@ class TestRawDataImmutability:
         assert raw is not None
         assert len(raw) == 1
 
-    def test_raw_immutability_verified(self):
+    def test_raw_immutability_verified(self, tmp_path):
         """Raw immutability verification must pass."""
-        storage = DataStorage(storage_dir="./test_storage")
+        storage = DataStorage(storage_dir=str(tmp_path / "storage"))
         now = datetime.now(UTC)
         candles = [make_candle(now)]
         storage.store_raw("ds_1", candles, "hash1")
@@ -609,9 +609,9 @@ class TestDownstreamRejection:
         passed, error = gate.check(ds)
         assert passed is False
 
-    def test_storage_rejects_quarantined(self):
+    def test_storage_rejects_quarantined(self, tmp_path):
         """Storage must not accept quarantined data as processed."""
-        storage = DataStorage(storage_dir="./test_storage")
+        storage = DataStorage(storage_dir=str(tmp_path / "storage"))
         now = datetime.now(UTC)
         candles = [make_candle(now)]
         ds = make_dataset(candles, dataset_id="test_proc")
@@ -742,9 +742,9 @@ class TestQualityReport:
 class TestStorageSeparation:
     """Test RAW/PROCESSED/RESEARCH separation"""
 
-    def test_three_tiers_separated(self):
+    def test_three_tiers_separated(self, tmp_path):
         """Storage must maintain three separate tiers."""
-        storage = DataStorage(storage_dir="./test_storage_tiers")
+        storage = DataStorage(storage_dir=str(tmp_path / "storage"))
         now = datetime.now(UTC)
         candles = [make_candle(now)]
         raw_id = "raw_1"
@@ -772,9 +772,9 @@ class TestStorageRegression:
     They must pass before Phase 2 can begin.
     """
 
-    def test_retrieved_objects_are_separate_from_stored(self):
+    def test_retrieved_objects_are_separate_from_stored(self, tmp_path):
         """Retrieved objects must be separate from stored objects (identity check)."""
-        storage = DataStorage(storage_dir="./test_storage_regression_a")
+        storage = DataStorage(storage_dir=str(tmp_path / "storage"))
         now = datetime.now(UTC)
         candles = [make_candle(now - timedelta(days=i)) for i in range(3)]
         storage.store_raw("ds_1", candles, "hash1")
@@ -804,9 +804,9 @@ class TestStorageRegression:
         # Verify the original value is unchanged
         assert c.open != -999, "Candle open should not have been mutated"
 
-    def test_storage_isolation_deep_copy_behavior(self):
+    def test_storage_isolation_deep_copy_behavior(self, tmp_path):
         """Independently verify that storage deep-copy behavior prevents mutation corruption."""
-        storage = DataStorage(storage_dir="./test_storage_regression_b")
+        storage = DataStorage(storage_dir=str(tmp_path / "storage"))
         now = datetime.now(UTC)
         candles = [make_candle(now - timedelta(days=i)) for i in range(5)]
         storage.store_raw("raw_1", candles, "hash1")
@@ -833,9 +833,9 @@ class TestStorageRegression:
         assert retrieved is not stored
         assert retrieved[0] is not stored[0]
 
-    def test_get_processed_returns_deep_copy(self):
+    def test_get_processed_returns_deep_copy(self, tmp_path):
         """get_processed() must return a deep copy, not a reference."""
-        storage = DataStorage(storage_dir="./test_storage_regression_c")
+        storage = DataStorage(storage_dir=str(tmp_path / "storage"))
         now = datetime.now(UTC)
         candles = [make_candle(now - timedelta(days=i)) for i in range(3)]
         ds = make_dataset(candles, dataset_id="proc_1")
@@ -857,9 +857,9 @@ class TestStorageRegression:
         stored_json = storage._processed_store["proc_1"].model_dump_json()
         assert original_hash == stored_json, "Stored data must be unchanged"
 
-    def test_get_research_returns_deep_copy(self):
+    def test_get_research_returns_deep_copy(self, tmp_path):
         """get_research() must return a deep copy, not a reference."""
-        storage = DataStorage(storage_dir="./test_storage_regression_d")
+        storage = DataStorage(storage_dir=str(tmp_path / "storage"))
         research_data = {"analysis": {"indicators": {"sma": 100.5}}, "metadata": "test"}
         storage.store_research("research_1", research_data)
 

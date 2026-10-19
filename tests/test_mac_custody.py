@@ -348,6 +348,7 @@ class TestRuntimeWithCustody:
         assert any(h.startswith(KEYED_EVENT_HASH_PREFIX)
                    for h in heads.values())
         # Restart with the SAME custody -> recovery verifies keyed chains.
+        store.close()  # process death: release the lock (F-03)
         store2 = ExecutionStateStore(tmp_path / "store")
         rt3 = TradingRuntime(
             _op_config("mac-custody-e2e"), ens, calibrator=cal,

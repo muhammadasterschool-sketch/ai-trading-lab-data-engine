@@ -376,6 +376,8 @@ class TestDeterminismAndRestartStability:
         pre_daily = rt1._daily_realized_return()
         pre_equity = rt1._current_equity(mark)
 
+        if getattr(rt1, "_store", None) is not None:
+            rt1._store.close()  # process death (F-03 single-writer lock)
         rt2 = _operational("pnl-t5", store_dir, ens_cal=ens_cal)
         rt2.start()  # full recovery chain (restore + reconcile)
         assert rt2.restarted
