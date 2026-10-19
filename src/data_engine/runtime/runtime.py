@@ -83,6 +83,8 @@ from data_engine.runtime.readiness import (
 )
 from data_engine.runtime.reconciliation import RuntimeReconciliation
 from data_engine.runtime.risk_gate import (
+    GateCeilings,
+    GateContextDefaults,
     RiskContext,
     RiskGate,
     RuntimeRiskLimits,
@@ -336,6 +338,9 @@ class TradingRuntime:
         wall_clock=None,
         risk_limits: Optional[RuntimeRiskLimits] = None,
         submission_ledger: Optional["SubmissionLedger"] = None,
+        portfolio_limits: Optional[RiskLimits] = None,
+        gate_ceilings: Optional[GateCeilings] = None,
+        gate_context: Optional[GateContextDefaults] = None,
     ) -> None:
         if config is None or ensemble is None:
             raise RuntimeContractError(
@@ -358,6 +363,36 @@ class TradingRuntime:
         self._calibrator = calibrator
         self._store = state_store
         self._readiness_gate = readiness_gate
+        # Stage C (F-14): config-injected portfolio limits / gate
+        # ceilings / gate context. None keeps the legacy provisional
+        # wiring below (backward compatible for the deterministic
+        # replay fixtures); the OPERATIONAL composition root always
+        # injects explicit values from validated config (test-pinned:
+        # composed runtime carries the CONFIG objects by identity).
+        if portfolio_limits is not None and not isinstance(
+            portfolio_limits, RiskLimits
+        ):
+            raise RuntimeContractError(
+                "portfolio_limits must be a risk.engine.RiskLimits "
+                "(config-injected portfolio risk limits — F-14)"
+            )
+        if gate_ceilings is not None and not isinstance(
+            gate_ceilings, GateCeilings
+        ):
+            raise RuntimeContractError(
+                "gate_ceilings must be a GateCeilings (config-injected "
+                "volatility/spread ceilings — F-14)"
+            )
+        if gate_context is not None and not isinstance(
+            gate_context, GateContextDefaults
+        ):
+            raise RuntimeContractError(
+                "gate_context must be a GateContextDefaults "
+                "(config-injected market/model context — F-14)"
+            )
+        self._portfolio_limits_injected = portfolio_limits
+        self._gate_ceilings = gate_ceilings or GateCeilings()
+        self._gate_context = gate_context or GateContextDefaults()
         # Governed RL advisor (mandate §28/§44): DISABLED by default —
         # None means the RL layer is not part of this session. When
         # enabled it is ADVISORY-ONLY: proposals are recorded to the
@@ -398,7 +433,12 @@ class TradingRuntime:
         self._ledgers = LedgerFamily(mac_custody=mac_custody)
         self._oms = OMS(self._ledgers)
         self._kill_switch = KillSwitchManager(self._ledgers)
-        limits = RiskLimits(
+        # Stage C (F-14): injected portfolio limits win wholesale; the
+        # fallback keeps the reconstruction D-6 provisional defaults
+        # (owner-ratified for paper mode; provenance in GateCeilings/
+        # composition.py). max_position_units stays config-sourced in
+        # the fallback path exactly as before.
+        limits = portfolio_limits if portfolio_limits is not None else RiskLimits(
             max_position_units=config.max_position_units,
             max_leverage=Decimal("1.0"),
             max_single_asset_weight=Decimal("0.30"),
@@ -512,6 +552,24 @@ class TradingRuntime:
         seam — the broker-neutral session's injectable central risk
         gate binds to THIS instance, never a copy)."""
         return self._risk_gate
+
+    @property
+    def portfolio_limits(self) -> Optional[RiskLimits]:
+        """Config-injected portfolio limits, or None when the legacy
+        provisional wiring is in force (Stage C, F-14)."""
+        return self._portfolio_limits_injected
+
+    @property
+    def gate_ceilings(self) -> GateCeilings:
+        """The risk-gate ceilings in force (Stage C, F-14: injected by
+        the operational composition root; defaults preserve the
+        reconstruction D-6 provisional values)."""
+        return self._gate_ceilings
+
+    @property
+    def gate_context(self) -> GateContextDefaults:
+        """The gate context values in force (Stage C, F-14)."""
+        return self._gate_context
 
     @property
     def memory(self) -> TradingMemory:
@@ -1096,9 +1154,12 @@ class TradingRuntime:
             reference_price=reference,
             bar_volume=Decimal(str(latest_bar.get("volume") or 0)),
             last_bar_age_bars=0,
-            market_open=True,
+            # Stage C (F-14): market/model context injected from the
+            # validated gate context (structural paper_mode stays a
+            # literal — see GateContextDefaults provenance).
+            market_open=self._gate_context.market_open,
             paper_mode=True,
-            model_valid=True,
+            model_valid=self._gate_context.model_valid,
             uncertainty=plan.uncertainty,
             crash_probability=0.0,
             max_drawdown_fraction=self._window_drawdown(),
@@ -1107,7 +1168,7 @@ class TradingRuntime:
                 self._config.max_account_drawdown_fraction
             ),
             volatility=self._window_volatility(),
-            max_volatility=0.10,
+            max_volatility=self._gate_ceilings.max_volatility,
             daily_realized_return=self._daily_realized_return(),
             half_spread=self._realism.half_spread,
         )
@@ -2167,9 +2228,12 @@ class TradingRuntime:
             reference_price=reference_price,
             bar_volume=Decimal(str(bar.get("volume") or 0)),
             last_bar_age_bars=0,
-            market_open=True,
+            # Stage C (F-14): config-injected context + ceilings
+            # (structural paper_mode stays a literal — provenance in
+            # GateContextDefaults/GateCeilings).
+            market_open=self._gate_context.market_open,
             paper_mode=True,
-            model_valid=True,
+            model_valid=self._gate_context.model_valid,
             uncertainty=plan.uncertainty,
             crash_probability=float(plan.crash_risk.get("probability", 1.0)),
             max_acceptable_crash_probability=self._config.max_crash_probability,
@@ -2179,10 +2243,10 @@ class TradingRuntime:
                 self._config.max_account_drawdown_fraction
             ),
             volatility=self._window_volatility(),
-            max_volatility=0.10,
+            max_volatility=self._gate_ceilings.max_volatility,
             daily_realized_return=self._daily_realized_return(),
             half_spread=self._realism.half_spread,
-            max_spread_fraction=Decimal("0.01"),
+            max_spread_fraction=self._gate_ceilings.max_spread_fraction,
             duplicate_order_id=duplicate,
             # D-6 measured order-limit state (fail-closed when unknown;
             # measured fresh for EVERY order — no stale snapshots).
@@ -3269,9 +3333,12 @@ class TradingRuntime:
             # age is 0 — honest within the replay frame, where bar
             # timestamps legitimately trail the wall clock.
             last_bar_age_bars=self._bridge_bar_age(latest_bar),
-            market_open=True,
+            # Stage C (F-14): config-injected context + ceilings
+            # (structural paper_mode stays a literal — provenance in
+            # GateContextDefaults/GateCeilings).
+            market_open=self._gate_context.market_open,
             paper_mode=True,
-            model_valid=True,
+            model_valid=self._gate_context.model_valid,
             uncertainty=plan.uncertainty,
             crash_probability=0.0,
             max_acceptable_crash_probability=(
@@ -3283,10 +3350,10 @@ class TradingRuntime:
                 self._config.max_account_drawdown_fraction
             ),
             volatility=self._window_volatility(),
-            max_volatility=0.10,
+            max_volatility=self._gate_ceilings.max_volatility,
             daily_realized_return=self._daily_realized_return(),
             half_spread=self._realism.half_spread,
-            max_spread_fraction=Decimal("0.01"),
+            max_spread_fraction=self._gate_ceilings.max_spread_fraction,
             # D-6 measured order-limit state (fail-closed when unknown;
             # measured fresh for EVERY order — no stale snapshots).
             open_order_count=self._open_order_count(),

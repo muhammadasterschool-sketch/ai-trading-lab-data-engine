@@ -654,19 +654,23 @@ class TestBug006CliStatusTruthfulness:
         return capsys.readouterr().out
 
     def test_status_reports_seven_truthful_dimensions(self):
-        """§5.6: seven distinct dimensions with truthful values; the
-        single blanket 'OPERATIONAL' claim is gone."""
+        """§5.6: distinct dimensions with truthful values; the
+        single blanket 'OPERATIONAL' claim is gone. Stage C (F-05)
+        extended the set with the composition-root availability
+        dimension — a deliberate, reviewable diff."""
         import pytest as _pytest
         captured = {}
         # run through monkeypatch-free invocation for simplicity:
         from data_engine.cli import STATUS_DIMENSIONS, main
         assert set(STATUS_DIMENSIONS) == {
-            "LIBRARY_HEALTH", "RUNTIME_HEALTH", "PAPER_READINESS",
+            "LIBRARY_HEALTH", "RUNTIME_HEALTH", "COMPOSITION_ROOT",
+            "PAPER_READINESS",
             "LIVE_AUTHORIZATION", "DATA_READINESS", "MODEL_READINESS",
             "RECONCILIATION_HEALTH",
         }
         assert STATUS_DIMENSIONS["LIBRARY_HEALTH"] == "OK"
         assert STATUS_DIMENSIONS["RUNTIME_HEALTH"] == "ABSENT"
+        assert STATUS_DIMENSIONS["COMPOSITION_ROOT"] == "AVAILABLE"
         assert STATUS_DIMENSIONS["PAPER_READINESS"] == "BLOCKED"
         assert STATUS_DIMENSIONS["LIVE_AUTHORIZATION"] == "NOT_AUTHORIZED"
         assert STATUS_DIMENSIONS["DATA_READINESS"] == "SYNTHETIC_ONLY/REAL_BLOCKED"

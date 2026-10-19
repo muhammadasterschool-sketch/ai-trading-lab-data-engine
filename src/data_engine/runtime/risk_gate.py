@@ -26,7 +26,7 @@ from datetime import datetime, UTC
 from decimal import Decimal
 from typing import Any, Mapping, Optional, Sequence
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, StrictBool, field_validator
 
 from data_engine.risk.engine import (
     KillSwitchActiveError,
@@ -108,6 +108,85 @@ class RuntimeRiskLimits(BaseModel):
                 "runtime risk limits: window_seconds must be positive"
             )
         return float(v)
+
+
+class GateCeilings(BaseModel):
+    """Config-injected risk-gate ceilings (Stage C, finding F-14).
+
+    Until Stage C these values were HARDCODED literals inside the
+    runtime's ``RiskContext`` wiring (``max_volatility=0.10`` /
+    ``max_spread_fraction=Decimal("0.01")``) — honest only within the
+    deterministic replay frame. The Stage C composition root
+    (:mod:`data_engine.runtime.composition`) injects them from the
+    validated operational config; the values below are the
+    reconstruction D-6 provisional defaults, owner-ratified for
+    PAPER MODE ONLY (Part 3) — they must be re-ratified before any
+    future live mode and carry this provenance wherever they travel.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    #: Provenance: reconstruction D-6 provisional volatility ceiling,
+    #: owner-ratified for paper mode (Part 3).
+    max_volatility: float = 0.10
+    #: Provenance: reconstruction D-6 provisional max spread as a
+    #: fraction of reference price, owner-ratified for paper mode.
+    max_spread_fraction: Decimal = Decimal("0.01")
+
+    @field_validator("max_volatility")
+    @classmethod
+    def _validate_volatility(cls, v: float) -> float:
+        if (
+            v is None or not isinstance(v, (int, float))
+            or isinstance(v, bool) or not (0 < float(v) <= 1)
+        ):
+            raise RiskGateError(
+                "max_volatility must be a finite fraction in (0, 1] "
+                "(fail closed on misconfiguration)"
+            )
+        return float(v)
+
+    @field_validator("max_spread_fraction")
+    @classmethod
+    def _validate_spread(cls, v: Decimal) -> Decimal:
+        if v is None or not isinstance(v, Decimal) or \
+                not (Decimal("0") < v <= Decimal("1")):
+            raise RiskGateError(
+                "max_spread_fraction must be a Decimal fraction in "
+                "(0, 1] (fail closed on misconfiguration)"
+            )
+        return v
+
+
+class GateContextDefaults(BaseModel):
+    """Config-injected gate context values (Stage C, finding F-14).
+
+    ``market_open`` and ``model_valid`` were previously hardcoded
+    literals in the runtime's order-path context wiring. The Stage C
+    composition root injects them from the validated operational
+    config with explicit provenance:
+
+    - ``market_open=True`` — the paper venue session is open for the
+      composed session's deterministic replay frame (owner-ratified
+      posture; a future operational mode would source this from the
+      venue session status seam).
+    - ``model_valid=True`` — legitimate ONLY because the operational
+      config REQUIRES ``pinned_model_hashes`` and the runtime refuses
+      to start an unpinned/tampered model (BLOCKER 21); the pin
+      verification is the provenance of this value.
+
+    ``paper_mode`` stays a STRUCTURAL literal (the runtime is
+    paper-only — verified by 4 independent refusal layers, never a
+    config decision), and ``last_bar_age_bars`` stays a MEASURED
+    value (computed per bar, never a config constant).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    #: Owner-ratified paper posture (provenance in the class doc).
+    market_open: StrictBool = True
+    #: Legitimate only with pinned + verified models (BLOCKER 21).
+    model_valid: StrictBool = True
 
 
 MANDATORY_CHECKS = (
