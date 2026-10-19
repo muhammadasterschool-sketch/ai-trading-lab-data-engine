@@ -8,7 +8,8 @@ Payload discipline — TEST-ENFORCED (tests/test_monitoring_api.py):
 the payload contains ONLY identity + health/status fields:
 
     schema, user_label, server_id, engine_mode, engine_version,
-    uptime_seconds, feed_health, risk_state, kill_switch, timestamp
+    uptime_seconds, feed_health, risk_state, kill_switch,
+    prediction_status, timestamp
 
 NEVER: positions, PnL, orders, broker details, keys, credentials.
 
@@ -61,6 +62,7 @@ def build_heartbeat_payload(
     feed_health: str,
     risk_state: str,
     kill_switch: str,
+    prediction_status: str = "NOT_WIRED",
     now: Optional[float] = None,
 ) -> dict:
     """Build the minimal heartbeat payload.
@@ -84,6 +86,7 @@ def build_heartbeat_payload(
         "feed_health": str(feed_health),
         "risk_state": str(risk_state),
         "kill_switch": str(kill_switch),
+        "prediction_status": str(prediction_status),
         "timestamp": moment,
     }
     extra = set(payload) - set(HEARTBEAT_ALLOWED_FIELDS)

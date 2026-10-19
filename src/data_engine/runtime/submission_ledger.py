@@ -392,6 +392,28 @@ class SubmissionLedger:
                     last = created
         return count, last
 
+    def _latest_fill_confirmation(self, doc: dict) -> Optional[datetime]:
+        """G1: the latest durably CONFIRMED TRADE time across records.
+
+        A confirmed trade (fill) RE-ARMS the submission spacing clock:
+        the owner-ratified rule is a minimum 1 second between a
+        CONFIRMED TRADE and the NEXT SUBMISSION, in addition to the
+        submission-to-submission spacing. Missing/invalid entries are
+        IGNORED (never fatal — the submission spacing still applies).
+        """
+        latest: Optional[datetime] = None
+        for rec in doc["records"]:
+            raw = rec.get("fill_confirmed_at")
+            if not raw:
+                continue
+            try:
+                stamp = _parse_ts(raw)
+            except (TypeError, ValueError):
+                continue
+            if latest is None or stamp > latest:
+                latest = stamp
+        return latest
+
     # -- protocol ---------------------------------------------------------
 
     def reserve(
@@ -419,19 +441,32 @@ class SubmissionLedger:
         with self._locked():
             doc = self._load()
             _count, last = self._capacity_view(doc, now)
-            if last is not None:
-                regression = (last - now).total_seconds()
+            # G1: the spacing reference is the LATER of the last
+            # durable submission and the last CONFIRMED TRADE (fill) —
+            # a confirmed trade re-arms the minimum spacing clock.
+            last_fill = self._latest_fill_confirmation(doc)
+            reference = last
+            if last_fill is not None and (reference is None or last_fill > reference):
+                reference = last_fill
+            if reference is not None:
+                regression = (reference - now).total_seconds()
                 if regression > tol:
                     raise WallClockRegression(
                         f"wall clock regressed {regression:.1f}s behind "
-                        f"the last durable submission at {last.isoformat()}"
+                        f"the last durable submission/confirmed trade "
+                        f"at {reference.isoformat()}"
                         f" — spacing model unevaluable (fail closed)"
                     )
-                spacing = (now - last).total_seconds()
+                spacing = (now - reference).total_seconds()
                 if spacing < self._policy.min_spacing_seconds:
+                    source = (
+                        "confirmed trade"
+                        if last_fill is not None and reference == last_fill
+                        else "durable submission"
+                    )
                     raise CapacityRefused(
-                        f"submission spacing refused: last durable "
-                        f"submission was {spacing:.3f}s ago "
+                        f"submission spacing refused: last {source} "
+                        f"was {spacing:.3f}s ago "
                         f"(min {self._policy.min_spacing_seconds}s)",
                         reason_code="SPACING",
                         retry_after_seconds=(
@@ -533,6 +568,65 @@ class SubmissionLedger:
             note="venue submission dispatched (durable record)",
             now=now,
         )
+
+    def record_fill_confirmation(
+        self,
+        reservation_id: str,
+        *,
+        now: Optional[datetime] = None,
+        quantity: Optional[str] = None,
+    ) -> None:
+        """G1: durably record a CONFIRMED TRADE (fill) on a reservation.
+
+        A confirmed trade RE-ARMS the submission-spacing clock: the
+        next submission must respect the minimum spacing measured
+        from THIS confirmation (owner-ratified rule: min 1s between a
+        confirmed trade and the next submission). The confirmation is
+        durable (append-only transition + ``fill_confirmed_at``
+        reference) so the spacing model survives restarts
+        conservatively.
+
+        Fail-closed: the reservation must EXIST and must not be
+        ABANDONED (an abandoned attempt never had a venue side to
+        confirm). Recording on RESERVED/SUBMITTED/FINALIZED is legal
+        — fills may arrive while an order rests or after the attempt
+        finalized with an acknowledgement.
+        """
+        if not isinstance(reservation_id, str) or not reservation_id.strip():
+            raise SubmissionLedgerError(
+                "reservation_id must be non-empty (fail closed)"
+            )
+        now = self._now(now)
+        with self._locked():
+            doc = self._load()
+            rec = None
+            for candidate in doc["records"]:
+                if candidate.get("reservation_id") == reservation_id:
+                    rec = candidate
+                    break
+            if rec is None:
+                raise SubmissionLedgerError(
+                    f"reservation {reservation_id!r} not found in the "
+                    f"durable ledger (fill confirmation refused — no "
+                    f"fabricated facts)"
+                )
+            current = ReservationState(rec["state"])
+            if current is ReservationState.ABANDONED:
+                raise SubmissionLedgerError(
+                    f"reservation {reservation_id!r} is ABANDONED — an "
+                    f"abandoned attempt has no venue side to confirm "
+                    f"(fill confirmation refused, fail closed)"
+                )
+            note = "confirmed trade (fill) — spacing clock re-armed (G1)"
+            if quantity is not None:
+                note += f"; quantity={quantity}"
+            rec["fill_confirmed_at"] = now.isoformat()
+            rec.setdefault("transitions", []).append({
+                "state": current.value,  # fills do not change the state
+                "at": now.isoformat(),
+                "note": note,
+            })
+            self._save(doc)
 
     def finalize(
         self,
