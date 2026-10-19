@@ -117,7 +117,7 @@ jobs:
           # pin, which is exactly how FIX-5 failed CI). Every
           # real-shaped credential still fails the scan.
           HITS=$(git grep -nE "github_pat_[A-Za-z0-9_]{20,}|ghp_[A-Za-z0-9]{30,}|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{20,}|AIza[0-9A-Za-z_-]{35}|-----BEGIN (RSA |EC |OPENSSH |DSA |ENCRYPTED )?PRIVATE KEY-----" $(git rev-list --all) || true)
-          REAL=$(printf '%s\n' "$HITS" | grep -vF -e 'github_pat_11AAAA' -e '11REALcredentialDATAhere' | grep -v '^$' || true)$
+          REAL=$(printf '%s\n' "$HITS" | grep -vF -e 'github_pat_11AAAA' -e '11REALcredentialDATAhere' | grep -v '^$' || true)
           if [ -n "$REAL" ]; then
             echo "::error::Secret scan found non-allowlisted credential-shaped hits"
             printf '%s\n' "$REAL"
