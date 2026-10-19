@@ -471,17 +471,41 @@ class TestCIHardening:
 
     def test_secret_scan_covers_key_families(self):
         ci = CI_FILE.read_text(encoding="utf-8")
-        scan = None
-        for line in ci.splitlines():
-            if "git grep" in line and "rev-list" in line:
-                scan = line
-                break
-        assert scan is not None, "the history secret-scan step must exist"
-        assert "PRIVATE KEY" in scan, (
+        lines = ci.splitlines()
+        scan = [
+            line for line in lines
+            if "git grep" in line and "rev-list" in line
+        ]
+        # F-18b (2026-10-19): the scan moved from a bare '! git grep'
+        # one-liner to EXPLICIT fail-closed logic — a PATTERN= variable
+        # carries the families, tool errors FAIL the step, and the one
+        # documented synthetic-fixture baseline (github_pat_11AAAA,
+        # introduced by the Stage F delivery) is filtered by its exact
+        # marker. Coverage intent unchanged; every family must still
+        # be present, and the baseline must stay exact + the tool-error
+        # path fail-closed (pinned below).
+        assert scan, "the history secret-scan invocation must exist"
+        pattern_lines = [
+            line for line in lines
+            if line.strip().startswith("PATTERN=")
+        ]
+        assert pattern_lines, "the scan pattern must be a named variable"
+        joined = " ".join(scan + pattern_lines)
+        assert "PRIVATE KEY" in joined, (
             "the scan must cover PEM/OPENSSH private keys (F-18)"
         )
-        assert "xox" in scan, "the scan must cover Slack tokens (F-18)"
-        assert "AIza" in scan, "the scan must cover Google keys (F-18)"
+        assert "xox" in joined, "the scan must cover Slack tokens (F-18)"
+        assert "AIza" in joined, "the scan must cover Google keys (F-18)"
+        assert "github_pat_" in joined and "ghp_" in joined and (
+            "AKIA" in joined and "sk-" in joined
+        ), "the original four families must remain covered"
+        assert 'BASELINE="github_pat_11AAAA"' in ci, (
+            "the F-18b baseline must be the EXACT synthetic marker — "
+            "never a broad path or pattern exclusion"
+        )
+        assert "fail closed" in ci, (
+            "a git-grep tool error must fail the step (F-18b)"
+        )
 
     def test_lint_sast_coverage_steps_exist(self):
         ci = CI_FILE.read_text(encoding="utf-8")
