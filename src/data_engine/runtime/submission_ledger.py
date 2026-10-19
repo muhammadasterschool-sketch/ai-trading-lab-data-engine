@@ -279,6 +279,17 @@ class SubmissionLedger:
 
     # -- locking ----------------------------------------------------------
 
+    @property
+    def path(self) -> Path:
+        """The durable ledger location (public: the Stage C
+        composition root cites it in readiness evidence)."""
+        return self._path
+
+    @property
+    def policy(self) -> SubmissionPolicy:
+        """The governed submission policy in force (B2)."""
+        return self._policy
+
     @contextmanager
     def _locked(self):
         """Exclusive flock on ``<path>.lock`` — the actual filesystem,

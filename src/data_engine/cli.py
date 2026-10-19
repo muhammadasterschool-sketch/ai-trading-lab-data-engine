@@ -27,10 +27,15 @@ from data_engine.quant_boundary import LLMBoundary, CalculationType
 
 #: Truthful status dimensions for the current repository state
 #: (BUG-006). Updated only when the underlying reality changes —
-#: never a single blanket "OPERATIONAL" claim.
+#: never a single blanket "OPERATIONAL" claim. Stage C (F-05)
+#: adds the composition-root availability dimension: the explicit
+#: production assembly EXISTS (runtime/composition.py) even while
+#: no session is composed in THIS process (RUNTIME_HEALTH stays
+#: honestly ABSENT for the bare CLI invocation).
 STATUS_DIMENSIONS = {
     "LIBRARY_HEALTH": "OK",
     "RUNTIME_HEALTH": "ABSENT",
+    "COMPOSITION_ROOT": "AVAILABLE",
     "PAPER_READINESS": "BLOCKED",
     "LIVE_AUTHORIZATION": "NOT_AUTHORIZED",
     "DATA_READINESS": "SYNTHETIC_ONLY/REAL_BLOCKED",
@@ -39,7 +44,7 @@ STATUS_DIMENSIONS = {
 }
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(
         description="AI Trading Lab Data Engine CLI"
     )
@@ -62,7 +67,17 @@ def main():
     subparsers.add_parser("storage-report", help="Show storage status")
 
     # Status
-    subparsers.add_parser("status", help="Show engine status")
+    status_parser = subparsers.add_parser("status", help="Show engine status")
+    status_parser.add_argument(
+        "--gates",
+        action="store_true",
+        help=(
+            "list every paper-readiness gate with its honest evidence-"
+            "supplier disposition (F-05: supplied by the composition "
+            "root / operator-recorded evidence required / human action "
+            "required)"
+        ),
+    )
 
     # Boundary check
     boundary_parser = subparsers.add_parser("check-boundary", help="Verify LLM/quant boundary")
@@ -138,7 +153,7 @@ def main():
         ),
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.command is None:
         parser.print_help()
@@ -215,6 +230,18 @@ def main():
             print(f"  Timestamp: {datetime.now(UTC).isoformat()}")
             for dimension, value in STATUS_DIMENSIONS.items():
                 print(f"  {dimension}: {value}")
+            if getattr(args, "gates", False):
+                # Stage C (F-05 acceptance): every readiness gate has
+                # an evidence supplier or is explicitly NOT supplyable
+                # by code — the honest per-gate disposition.
+                from data_engine.runtime.composition import (
+                    GATE_SUPPLIER_DISPOSITION,
+                )
+                print("  Readiness-gate supplier disposition:")
+                for gate in sorted(GATE_SUPPLIER_DISPOSITION):
+                    print(
+                        f"    {gate}: {GATE_SUPPLIER_DISPOSITION[gate]}"
+                    )
 
         elif args.command == "serve":
             from data_engine.runtime.service import PaperRuntimeService
