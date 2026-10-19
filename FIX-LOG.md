@@ -63,3 +63,46 @@ continuing. No red suite ever advanced.
 None to date in this run (no BUGS replies received; the run was
 pre-approved for all stages). The log above is kept in the
 mandated format and will be extended for any future owner reports.
+
+---
+
+## FIX-5 — CI secret scan false positive on synthetic test fixture (final-stage)
+
+- **Owner report:** none (self-caught from CI's all-history secret
+  scan failing on 041ea30).
+- **Diagnosis:** the Stage F redaction test carried a SYNTHETIC
+  token-shaped fixture as a contiguous string literal
+  (`tests/test_monitoring_api.py:370`). CI scans ALL immutable
+  history (`git grep ... $(git rev-list --all)`), so commits
+  ddb4a2b..bab12c7 match forever. History rewrite is FORBIDDEN by
+  the project rules, so the literal cannot be excised from the past.
+- **Fix (two parts):**
+  1. b2e1879: the redaction test now ASSEMBLES its synthetic input
+     from pieces at runtime (no contiguous scanner-shaped literal in
+     any current tree);
+  2. the CI scan step filters EXACTLY that one documented synthetic
+     substring (grep -vF) — pinned by
+     `tests/test_secret_scan_allowlist.py` (4 tests): exactly ONE
+     filter line; current tree carries zero contiguous literals; the
+     scan pattern still catches real-shaped credentials (control NOT
+     weakened).
+- **Re-test evidence:** local simulation of the exact CI command:
+  7 total history hits → 7 allowlisted (all the same synthetic
+  fixture) → 0 non-allowlisted (scripts/simulate_ci_secret_scan.sh);
+  allowlist pin tests 4/4 green; full suite re-run before push.
+
+## FIX-6 — mobile widget test scaffold (final-stage)
+
+- **Owner report:** none (self-caught from CI build-apk failures).
+- **Diagnosis:** (a) `FlutterSecureStorage(AndroidOptions(...))`
+  passed a positional argument to a named-only constructor
+  (flutter analyze error); (b) `flutter create` scaffolds a default
+  `test/widget_test.dart` referencing a nonexistent `MyApp`.
+- **Fix:** (a) plain `const FlutterSecureStorage()` (v9 enables
+  encrypted SharedPreferences on Android by default) — 9ba341f;
+  (b) committed real client tests (TLS-only normalization refusals,
+  profile-dialog validation + save flow) replacing the broken
+  scaffold — bab12c7.
+- **Re-test evidence:** build-apk workflow completed SUCCESS on
+  bab12c7; APK published as release `apk-bab12c7aa768` (21,156,320
+  bytes) with SHA256SUMS.
