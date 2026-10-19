@@ -126,3 +126,48 @@ the release batch ledger).
 
 No Windows artifact was built or tested in the agent environment —
 no such claim is made anywhere.
+
+---
+
+# STAGE E ADDENDUM — Windows zip package (Part 8, E1-E3, 2026-10-20)
+
+The Batch 18 procedure above (wheel + governed install) is EXTENDED —
+not replaced — by the Stage E zip package:
+
+## E.1 Package layout + build
+
+`scripts/build_windows_package.py` builds a DETERMINISTIC zip from the
+exact commit (dirty tree refused):
+
+```
+<package>/install.ps1, run-tests.ps1, run-paper.ps1, README-WINDOWS-PACKAGE.md
+          requirements-windows.txt   (uv export --frozen --no-dev, hash-pinned)
+          dist/<wheel>               (uv build from the same commit)
+          source/                    (git archive of HEAD)
+          SHA256SUMS.txt             (sha256 of every packaged file)
+```
+
+Contract pinned by `tests/test_windows_package.py` (13 tests):
+components present; builder fail-closed on dirty tree; NO secret
+material embedded anywhere (env-var-only handling); README documents
+state/log layout, secrets, backup/restore, safe shutdown, firewall/AV;
+`run-paper.ps1` refuses without `-Confirm` AND without
+`RUNTIME_LEDGER_MAC_KEY[_FILE]`; install uses `--require-hashes`.
+
+## E.2 Validation evidence (this run)
+
+- Locked deps install into a FRESH venv with `--require-hashes`:
+  VERIFIED (Linux, Python 3.12.15) — see the Stage E report for the
+  exact command transcript.
+- Full suite green from the packaged source tree: VERIFIED (Linux,
+  same interpreter family as the CI matrix).
+- PowerShell scripts ON A WINDOWS HOST: **NOT VERIFIED in this run**
+  (no Windows VM in the build environment) — the operator runs
+  `install.ps1` → `run-tests.ps1` and records the output as final
+  packaging evidence. This is the SAME honest posture as Batch 18 §5.
+- Required Python: >=3.11 (declared runtime 3.14; 3.12+ recommended).
+
+## E.3 Release
+
+The zip + its SHA256 are published as a GitHub Release asset of this
+repository (release link recorded in PROJECT-STATE-REPORT.md).
