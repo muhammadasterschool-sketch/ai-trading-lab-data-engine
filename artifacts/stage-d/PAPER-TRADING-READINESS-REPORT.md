@@ -76,12 +76,16 @@ Per-gate DISPOSITION reflects what THIS DEV RUN can honestly verify:
 | 29 | OBSERVABILITY_READY | VERIFIED_IN_CODE | test_runtime_metrics.py; test_dashboard_mobile_view.py | metrics + mobile dashboard view |
 | 30 | SECURITY_READY | VERIFIED_IN_CODE | test_redteam.py; test_tenancy_security.py; test_finding_closures.py | redteam matrix + tenancy isolation |
 | 31 | TESTS_READY | VERIFIED_IN_CODE | the suite itself (§6) | full suite green on this tree |
-| 32 | GOVERNANCE_READY | VERIFIED_IN_CODE | test_research_governance.py; test_evaluation_graduation.py | governance + graduation discipline |
+| 32 | GOVERNANCE_READY | PENDING_OPERATIONAL_EVIDENCE | test_research_governance.py (machinery); docs/READINESS_EVIDENCE_INVENTORY.md §4 (GOV-03/GOV-04/GOV-05 OPEN) | governance MACHINERY verified in code, but the gate requires recorded human decisions (composition.HUMAN_EVIDENCE_GATES) — OPEN per the evidence inventory |
 
-**Summary: 30 VERIFIED_IN_CODE, 2 PENDING_OPERATIONAL_EVIDENCE
-(REAL_DATA_READY, OPERATIONAL_FEED_READY — both by design: they
-require live market-feed evidence no dev run can produce). Zero gates
-failed.**
+**Summary: 29 VERIFIED_IN_CODE, 3 PENDING_OPERATIONAL_EVIDENCE
+(REAL_DATA_READY, OPERATIONAL_FEED_READY, GOVERNANCE_READY — the
+three HUMAN_EVIDENCE_GATES of the composition root; each requires
+recorded human/operational evidence no dev run can produce; see
+docs/READINESS_EVIDENCE_INVENTORY.md for the per-item status). Zero
+gates failed. FIX-11 (B-P0-02, 2026-10-20): this summary previously
+miscounted GOVERNANCE_READY as VERIFIED_IN_CODE — reconciled to the
+code's own gate classification.**
 
 ## 2. D1 — paper-only selection proof
 

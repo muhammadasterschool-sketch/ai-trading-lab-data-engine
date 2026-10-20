@@ -82,8 +82,11 @@ below lists its merge commit.
 - D4: artifacts/stage-d/PAPER-SOAK-PROCEDURE.md — documented, NOT
   STARTED.
 - D5: artifacts/stage-d/PAPER-TRADING-READINESS-REPORT.md — 32-gate
-  matrix: 30 VERIFIED_IN_CODE, 2 PENDING_OPERATIONAL_EVIDENCE
-  (REAL_DATA_READY, OPERATIONAL_FEED_READY), zero failed.
+  matrix: 29 VERIFIED_IN_CODE, 3 PENDING_OPERATIONAL_EVIDENCE
+  (REAL_DATA_READY, OPERATIONAL_FEED_READY, GOVERNANCE_READY — the
+  three HUMAN_EVIDENCE_GATES; reconciled by FIX-11/B-P0-02 on
+  2026-10-20 to match the code's own gate classification and
+  docs/READINESS_EVIDENCE_INVENTORY.md), zero failed.
   **PAPER_READY = FALSE.**
 - Suite: 2501 passed + 1 skipped.
 
@@ -217,3 +220,48 @@ ruff, bandit, pip-audit, secret-scan) runs on every push.
    feature verification matrix.
 5. Live trading is PERMANENTLY out of scope; no live path exists in
    this repository (four-layer enforcement, test-pinned).
+
+
+## 11. P0-P3 Master Read+Write Audit (2026-10-20, this task)
+
+Baseline audited: main @ 1e66d5a (clean tree; suite 2735 + 1 skipped
+re-executed this run). Every candidate B-P0-01 … B-P3-16 was
+investigated against current source; the full register with
+dispositions lives in `artifacts/p0-p3/01-BUG-AND-GAP-REGISTER.md`.
+
+Fixed this task (each with regression tests, details in FIX-LOG):
+
+- FIX-9 (B-P0-03, CRITICAL): human-gate evidence trust boundary —
+  signed operator approvals (typed records + HMAC + re-verification
+  in the composition root); fabricated passed=True free-text
+  evidence is refused end-to-end. runtime/operator_approval.py + 43
+  adversarial tests.
+- FIX-10 (B-P0-01, HIGH): REAL session wiring —
+  runtime/session_launch.py + `cli serve --session-launch` (exit 4
+  refusals); 24 integration tests prove the supervisor loop drives a
+  composed paper session (deterministic advancement, paper-venue-only
+  routing, kill-switch no-new-orders).
+- FIX-11 (B-P0-02): reports reconciled to the code's gate
+  classification — 29 VERIFIED_IN_CODE + 3 PENDING (§4 D5 above);
+  pinned by 9 executable consistency tests.
+- FIX-12 (B-P1-09): submission_ledger conditional fcntl import —
+  documented fail-closed refusal on non-POSIX hosts instead of an
+  import crash.
+- FIX-13 (B-P1-10): run-paper.ps1 — status-tool failure aborts;
+  -SessionPlan passthrough; exit codes propagate verbatim.
+- FIX-14 (B-P2-16): executable soak preflight (runtime/soak_preflight
+  .py + `cli soak-preflight`, exit 0/6, CI-irrelevant by structure) +
+  deterministic MOCK DRY RUN. NO soak started.
+
+Deliverables: artifacts/p0-p3/00…08 (audit report, bug register,
+remediation plan, canonical gate matrix, market support matrix,
+secrets/governance checklist, Windows platform report, soak dry-run
+report, owner action checklist).
+
+Readiness after this task (unchanged verdicts, now machine-guarded):
+PAPER_READY = FALSE (REAL_DATA_READY, OPERATIONAL_FEED_READY,
+GOVERNANCE_READY — owner-side provisioning; human gates now require
+SIGNED approvals); LIVE_TRADING = NOT AUTHORIZED; historical/
+backtest data work remained excluded and no data gate was flipped.
+Final decision: `BLOCKED — DO NOT START PAPER TRADING` until the
+owner-side checklist closes (artifacts/p0-p3/08).
