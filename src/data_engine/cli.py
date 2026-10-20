@@ -8,6 +8,12 @@ Usage:
     data-engine check-boundary <calc_type>
     data-engine serve [--host H] [--port P] [--no-dashboard]
                       [--max-seconds S]   (long-running paper supervisor)
+                      [--session-launch PLAN_JSON]
+                                          (compose + start one operational
+                                           PAPER session, FIX-10)
+    data-engine soak-preflight PLAN_JSON [--soak-days N]
+                                          (fail-closed soak preflight,
+                                           FIX-14 — starts nothing)
 
 BUG-006 correction: ``status`` reports seven DISTINCT health
  dimensions with truthful values for the current repository state
@@ -264,6 +270,21 @@ def main(argv=None):
         ),
     )
     serve_parser.add_argument(
+        "--session-launch",
+        default=None,
+        metavar="PLAN_JSON",
+        help=(
+            "EXPLICIT session launch plan (FIX-10/B-P0-01): compose "
+            "and start one operational PAPER session through the "
+            "composition root and wire its REAL tick into this "
+            "supervisor loop. The plan carries the session config, "
+            "durable-state paths, instrument specs, SIGNED operator "
+            "approvals (FIX-9) and the bar source (deterministic "
+            "replay file or a proven provider adapter). Refused "
+            "fail-closed with exit code 4 on any gap."
+        ),
+    )
+    serve_parser.add_argument(
         "--registry-url",
         default=None,
         help=(
@@ -287,6 +308,30 @@ def main(argv=None):
         type=float,
         default=45.0,
         help="heartbeat interval seconds (30-60 recommended)",
+    )
+
+    # Soak preflight (FIX-14 / B-P2-16 + Task 12): the EXECUTABLE
+    # fail-closed check that must run BEFORE any separately
+    # authorized 30-day soak start. Reads no CI status — a green CI
+    # run alone can never start a soak.
+    soak_parser = subparsers.add_parser(
+        "soak-preflight",
+        help=(
+            "Run the fail-closed paper-soak preflight over a session "
+            "launch plan (refuses with exit 6 unless every "
+            "non-component gate carries passing evidence, the human "
+            "gates carry SIGNED approvals, and every approval covers "
+            "the full soak window)"
+        ),
+    )
+    soak_parser.add_argument(
+        "plan", help="path to the session launch plan JSON",
+    )
+    soak_parser.add_argument(
+        "--soak-days",
+        type=int,
+        default=30,
+        help="planned soak duration in days (default 30)",
     )
 
     # State-store recovery tool (F-12: torn journal tail — audited,
@@ -373,6 +418,50 @@ def main(argv=None):
             )
             raise SystemExit(0)
 
+        elif args.command == "soak-preflight":
+            # FIX-14 (B-P2-16 / Task 12): the preflight that must run
+            # before ANY separately authorized soak start. PASS =>
+            # exit 0 with the verdict record; refusal => exit 6 with
+            # the stable reason code and the exact remediation.
+            from data_engine.runtime.soak_preflight import (
+                SOAK_PREFLIGHT_EXIT_CODE,
+                SoakPreflightError,
+                run_soak_preflight,
+            )
+
+            try:
+                preflight = run_soak_preflight(
+                    args.plan, soak_duration_days=args.soak_days,
+                )
+            except SoakPreflightError as exc:
+                print(
+                    f"[soak-preflight] REFUSED: {exc}",
+                    file=sys.stderr,
+                )
+                raise SystemExit(SOAK_PREFLIGHT_EXIT_CODE)
+            print("[soak-preflight] PASS — the evidence chain admits a")
+            print("separately AUTHORIZED soak start (this preflight")
+            print("starts nothing; CI status is irrelevant here):")
+            print(f"  plan session: {preflight.plan_session_id}")
+            print(f"  as_of: {preflight.as_of.isoformat()}")
+            print(f"  soak end: {preflight.soak_end.isoformat()}")
+            print(
+                f"  bundle-covered gates: {len(preflight.gates_covered)}"
+            )
+            print(
+                "  human gates verified (signed): "
+                ", ".join(preflight.human_gates_verified)
+            )
+            print(
+                "  pending first-hand verification at launch: "
+                ", ".join(preflight.pending_launch_verification)
+            )
+            print(
+                "  approval records: "
+                ", ".join(preflight.approval_ids)
+            )
+            raise SystemExit(0)
+
         elif args.command == "report":
             print(f"[Data Engine] Quality report for {args.dataset_id}.")
             print("Use dataset.quality_report() programmatically.")
@@ -407,6 +496,7 @@ def main(argv=None):
 
             monitoring_api = None
             heartbeat_sender = None
+            launched = None
             try:
                 if args.monitor_token_file:
                     monitoring_api = _build_monitoring_api(
@@ -429,6 +519,46 @@ def main(argv=None):
                 )
                 raise SystemExit(1)
 
+            # FIX-10 (B-P0-01): the EXPLICIT session-launch wiring —
+            # without this flag the supervisor runs as an honest
+            # supervisor-only shell (no session is composed, no
+            # tick_fn is fabricated); with it, a REAL operational
+            # paper session is composed through the composition root
+            # and its tick drives the supervised loop.
+            tick_fn = None
+            readiness_fn = None
+            if args.session_launch:
+                from data_engine.runtime.session_launch import (
+                    SESSION_LAUNCH_EXIT_CODE,
+                    SessionLaunchError,
+                    launch_paper_session,
+                    load_launch_plan,
+                )
+
+                try:
+                    plan = load_launch_plan(args.session_launch)
+                    launched = launch_paper_session(plan)
+                except SessionLaunchError as launch_error:
+                    print(
+                        f"[serve] SESSION LAUNCH REFUSED (exit "
+                        f"{SESSION_LAUNCH_EXIT_CODE}): {launch_error}",
+                        file=sys.stderr,
+                    )
+                    raise SystemExit(SESSION_LAUNCH_EXIT_CODE)
+                tick_fn = launched.tick
+                readiness_fn = (
+                    lambda: launched.composed.readiness_gate
+                    .evaluate().paper_ready
+                )
+                print(
+                    "[serve] operational PAPER session composed and "
+                    "started via the composition root; the supervisor "
+                    f"loop now drives its tick (source: "
+                    f"{launched.tick.source_name})",
+                    file=sys.stdout,
+                    flush=True,
+                )
+
             service = PaperRuntimeService(
                 host=args.host,
                 port=args.port,
@@ -436,6 +566,8 @@ def main(argv=None):
                 heartbeat_seconds=args.heartbeat_seconds,
                 tick_seconds=args.tick_seconds,
                 max_seconds=args.max_seconds,
+                tick_fn=tick_fn,
+                readiness_fn=readiness_fn,
                 monitoring_api=monitoring_api,
                 heartbeat_sender=heartbeat_sender,
             )

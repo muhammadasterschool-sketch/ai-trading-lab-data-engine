@@ -115,3 +115,41 @@ green full suites).
   pandas/openpyxl only).
 - New DEV dependencies: none beyond the declared pytest (Stage B
   added ruff config per its changelog entry).
+
+
+## P0-P3 Master Read+Write Audit (2026-10-20, this task)
+
+- FIX-9: runtime/operator_approval.py — TRUSTED operator-approval
+  evidence for the three human gates (typed records: principal,
+  decision, scope, validity window, artifact digest, reason;
+  HMAC-SHA256 signing; composition-root re-verification; stable
+  reason codes E_APPROVAL_*/E_EVIDENCE_UNTRUSTED). Plain
+  passed=True free-text evidence for human gates is refused
+  end-to-end (B-P0-03 closed). 43 adversarial tests.
+- FIX-10: runtime/session_launch.py + `cli serve --session-launch` —
+  the REAL session wiring (typed launch plan, deterministic replay /
+  provider bar sources, SessionTick driven by the supervisor loop,
+  exit-code-4 refusals). 24 integration tests prove loop
+  advancement, determinism, paper-venue-only routing and
+  kill-switch no-new-orders (B-P0-01 closed).
+- FIX-11: reports reconciled to the code's own gate classification —
+  29 VERIFIED_IN_CODE + 3 PENDING_OPERATIONAL_EVIDENCE
+  (REAL_DATA/OPERATIONAL_FEED/GOVERNANCE); 9 executable drift-pin
+  tests (B-P0-02 closed).
+- FIX-12: submission_ledger.py conditional fcntl import — module
+  imports on Windows; constructor refuses with the documented
+  fail-closed message (B-P1-09 closed). 4 simulated-absence tests.
+- FIX-13: run-paper.ps1 hardening — -SessionPlan passthrough, status
+  tool-failure abort, verbatim exit-code propagation (B-P1-10
+  closed). +2 contract tests.
+- FIX-14: runtime/soak_preflight.py + `cli soak-preflight` —
+  executable fail-closed soak preflight (CI-irrelevant by
+  structure); 17 tests incl. the MOCK DRY RUN; PAPER-SOAK-PROCEDURE
+  updated (B-P2-16 closed). NO soak started.
+- artifacts/p0-p3/: the 12-task deliverable set (master audit
+  report, bug register, remediation plan, canonical gate matrix,
+  market support matrix, secrets/governance checklist, Windows
+  platform report, soak dry-run report, owner action checklist).
+- PAPER_READY stays FALSE (3 human gates open, owner-side);
+  LIVE_TRADING remains NOT AUTHORIZED; historical/backtest data work
+  remained excluded throughout.

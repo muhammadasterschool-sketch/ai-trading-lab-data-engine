@@ -111,6 +111,12 @@ from data_engine.runtime.broker_execution import (
 )
 from data_engine.runtime.contracts import OrderLifecycle, RuntimeContractError
 from data_engine.runtime.mac_custody import MacCustody, MacCustodyError
+from data_engine.runtime.operator_approval import (
+    OperatorApprovalError,
+    OperatorApprovalKey,
+    TrustedGateEvidence,
+    verify_human_gate_evidence,
+)
 from data_engine.runtime.readiness import (
     GATE_NAMES,
     GateEvidence,
@@ -151,6 +157,7 @@ __all__ = [
     "VenuePlan",
     "build_readiness_evidence",
     "compose_operational_session",
+    "_session_config_digest",
 ]
 
 
@@ -172,6 +179,7 @@ class CompositionStartRefused(CompositionError):
 CONSTRUCTION_ORDER = (
     "config",
     "mac_custody",
+    "operator_approvals",
     "state_store",
     "submission_ledger",
     "governor",
@@ -621,13 +629,16 @@ class ReservationReconciler:
 # ---------------------------------------------------------------------------
 
 def build_readiness_evidence(
-    *,
     runtime: TradingRuntime,
     ledger: SubmissionLedger,
     mac_custody: Optional[MacCustody],
     state_dir: Path,
     reconciliation_report: Optional[ReservationReconciliationReport] = None,
     operator_evidence: Sequence[GateEvidence] = (),
+    operator_approval_key: Optional[OperatorApprovalKey] = None,
+    approval_as_of: Optional["datetime"] = None,
+    session_scope: str = "*",
+    expected_digest: str = "",
 ) -> tuple:
     """Build the composed session's readiness evidence chain.
 
@@ -636,8 +647,43 @@ def build_readiness_evidence(
     for the gates this root constructed and verified, then explicit
     FALSE blockers for human gates the operator bundle did NOT
     cover (recorded human decisions are never stomped by code).
+
+    FIX-9 (B-P0-03): every ``operator_evidence`` entry that targets a
+    HUMAN gate must be a verified :class:`TrustedGateEvidence` — a
+    signed ``OperatorApprovalRecord` re-verified here against the
+    operator approval key (expiry, scope, decision, digest,
+    signature). Plain caller-supplied ``GateEvidence`` with
+    ``passed=True`` free text is REFUSED fail-closed with the stable
+    reason code ``E_EVIDENCE_UNTRUSTED`` — no path forces a human
+    gate TRUE without the operator's key.
     """
-    out = list(operator_evidence)
+    from datetime import UTC as _UTC
+    from datetime import datetime as _dt
+
+    as_of = approval_as_of if approval_as_of is not None else _dt.now(_UTC)
+
+    vetted = []
+    for ev in operator_evidence:
+        if ev.gate in HUMAN_EVIDENCE_GATES:
+            try:
+                vetted.append(verify_human_gate_evidence(
+                    ev,
+                    key=operator_approval_key,
+                    as_of=as_of,
+                    expected_scope=session_scope,
+                    expected_digest=expected_digest,
+                ))
+            except OperatorApprovalError as exc:
+                raise CompositionError(
+                    "FIX-9 (B-P0-03): human-gate evidence refused "
+                    f"for gate {ev.gate!r}: {exc} — supply SIGNED "
+                    "operator approval records (see runtime/"
+                    "operator_approval.py)"
+                ) from exc
+        else:
+            vetted.append(ev)
+
+    out = list(vetted)
 
     custody_note = (
         f"keyed-MAC custody OPERATIONAL (key_id="
@@ -946,6 +992,18 @@ class ComposedSession:
         return self._start_report
 
 
+def _session_config_digest(config: OperationalSessionConfig) -> str:
+    """SHA-256 over the canonical JSON of the operational session
+    config — the artifact digest a pinned operator approval must
+    match (FIX-9: an approval recorded for one config cannot be
+    replayed against a different one)."""
+    import hashlib
+
+    return hashlib.sha256(
+        config.model_dump_json().encode("utf-8")
+    ).hexdigest()
+
+
 def compose_operational_session(
     *,
     config: OperationalSessionConfig,
@@ -959,6 +1017,8 @@ def compose_operational_session(
     instruments: Mapping,
     venue_clock: Callable[[], datetime],
     operator_evidence: Sequence[GateEvidence] = (),
+    operator_approval_key: Optional[OperatorApprovalKey] = None,
+    approval_as_of: Optional[datetime] = None,
     mac_custody: Optional[MacCustody] = None,
     wall_clock=None,
     venue_currency: str = "USD",
@@ -1022,6 +1082,30 @@ def compose_operational_session(
                 "composition root never falls back to unkeyed chains"
             ) from exc
     executed.append("mac_custody")
+
+    # -- 1b. trusted operator approvals (FIX-9 / B-P0-03) ------------------
+    # Human-gate evidence must be SIGNED approval records re-verified
+    # against the operator approval key. The key enters EITHER by
+    # explicit injection (tests / operator launchers that already hold
+    # it) or through the environment channel (the same discipline as
+    # keyed-MAC custody, F-25). Absent key + present human evidence =>
+    # fail closed; absent key + NO human evidence => the human gates
+    # simply stay FALSE (the pre-existing fail-closed path).
+    human_evidence_present = any(
+        ev.gate in HUMAN_EVIDENCE_GATES for ev in operator_evidence
+    )
+    approval_key = operator_approval_key
+    if human_evidence_present and approval_key is None:
+        try:
+            approval_key = OperatorApprovalKey.from_environment()
+        except OperatorApprovalError as exc:
+            raise CompositionError(
+                "FIX-9 (B-P0-03): human-gate evidence was supplied but "
+                f"no operator approval key could be provisioned: {exc} "
+                "— a human-dependency gate cannot pass on unverified "
+                "evidence (fail closed)"
+            ) from exc
+    executed.append("operator_approvals")
 
     # -- 3. state store (F-03 single-writer flock) --------------------------
     if not isinstance(state_dir, Path):
@@ -1095,7 +1179,7 @@ def compose_operational_session(
         )
     executed.append("reconciliation_driver")
 
-    # -- 9. readiness evidence (C2) ------------------------------------------
+    # -- 9. readiness evidence (C2 + FIX-9 trusted approvals) --------------
     evidence = build_readiness_evidence(
         runtime=runtime,
         ledger=ledger,
@@ -1103,6 +1187,10 @@ def compose_operational_session(
         state_dir=state_dir,
         reconciliation_report=pre_start,
         operator_evidence=operator_evidence,
+        operator_approval_key=approval_key,
+        approval_as_of=approval_as_of,
+        session_scope=config.session.session_id,
+        expected_digest=_session_config_digest(config),
     )
     for ev in evidence:
         readiness_gate.submit(ev)

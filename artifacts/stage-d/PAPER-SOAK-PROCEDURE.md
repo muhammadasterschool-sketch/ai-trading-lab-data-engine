@@ -4,6 +4,18 @@ Status: DOCUMENTED, **NOT STARTED**. This file defines the procedure
 the owner's separate "start paper trading" authorization will trigger.
 Nothing in the current run executes it. PAPER_READY stays FALSE.
 
+> **FIX-14 update (2026-10-20):** the preflight below is now
+> EXECUTABLE (and test-pinned): run
+> `data-engine soak-preflight <launch-plan.json> --soak-days 30`
+> (module `runtime/soak_preflight.py`; tests
+> `tests/test_soak_preflight.py`, including a deterministic MOCK DRY
+> RUN of this procedure — no soak was started). The preflight REFUSES
+> (exit 6, stable reason codes) unless every non-component gate
+> carries passing evidence, the three human gates carry SIGNED
+> operator approvals (FIX-9 trust boundary), and every approval's
+> validity window covers the FULL soak duration. It reads NO CI
+> status: a green CI run alone can never admit a soak.
+
 ---
 
 ## 1. Preconditions (all must be TRUE before the clock starts)
@@ -14,13 +26,22 @@ Nothing in the current run executes it. PAPER_READY stays FALSE.
 2. `PAPER-TRADING-READINESS-REPORT.md` gate matrix reviewed by the
    owner; every gate either VERIFIED or explicitly accepted-as-risk
    by the owner in writing.
-3. Engine deployed via the per-user server install
+3. **Executable soak preflight PASSES**: `data-engine
+   soak-preflight <launch-plan.json> --soak-days 30` exits 0 with the
+   verdict record (FIX-14). Refusal reasons are stable codes:
+   `E_SOAK_PLAN_INVALID`, `E_SOAK_EVIDENCE_MISSING`,
+   `E_SOAK_GATES_FALSE`, `E_SOAK_EVIDENCE_UNTRUSTED`,
+   `E_SOAK_APPROVALS_EXPIRE_BEFORE_SOAK_END`,
+   `E_SOAK_APPROVAL_KEY_UNAVAILABLE`.
+4. Engine deployed via the per-user server install
    (`deploy/server-install.sh`, Stage F) on the operator's own VPS;
    monitoring API reachable; APK connected and showing live health.
-4. MAC custody key provisioned through the operator channel
+5. MAC custody key provisioned through the operator channel
    (`RUNTIME_LEDGER_MAC_KEY[_FILE]`); `LEDGER_READY` evidence cites
-   the key id.
-5. A validated configuration snapshot (hash recorded) is committed to
+   the key id. The OPERATOR APPROVAL signing key
+   (`OPERATOR_APPROVAL_MAC_KEY[_FILE]`, FIX-9) is provisioned the
+   same way — the signed approvals must cover the full soak window.
+6. A validated configuration snapshot (hash recorded) is committed to
    the operator runbook BEFORE the soak begins; any config change
    during the soak requires a recorded decision and restarts the
    clock for the affected window.
