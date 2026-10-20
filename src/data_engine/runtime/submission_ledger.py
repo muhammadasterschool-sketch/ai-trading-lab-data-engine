@@ -53,9 +53,13 @@ seconds; max 10 open orders (open-order cap enforced by the runtime
 risk gate; carried here for policy documentation). These are PAPER
 MODE ONLY and must be re-ratified before any future live mode.
 
-PLATFORM NOTE: locking uses ``fcntl.flock`` (POSIX). On platforms
-without ``fcntl`` the ledger REFUSES to construct (fail closed);
-the Stage E Windows package documents the platform story.
+PLATFORM NOTE (FIX-12 / B-P1-09, 2026-10-20): locking uses
+``fcntl.flock`` (POSIX). The import is CONDITIONAL at module level
+(same pattern as ``runtime/state.py``) so the module itself imports
+ everywhere (Windows included); on platforms without ``fcntl`` the
+ ledger REFUSES TO CONSTRUCT with this documented error (fail
+closed at the constructor — never an opaque import-time crash); the
+ Stage E Windows package documents the platform story.
 
 All venues used with this ledger are paper/mock. LIVE TRADING
 REMAINS NOT AUTHORIZED. PAPER_READY stays FALSE.
@@ -63,7 +67,13 @@ REMAINS NOT AUTHORIZED. PAPER_READY stays FALSE.
 
 from __future__ import annotations
 
-import fcntl
+try:  # POSIX (deployment target: Linux/systemd)
+    import fcntl
+    _HAVE_FCNTL = True
+except ImportError:  # pragma: no cover — Windows (Stage E packaging)
+    fcntl = None  # type: ignore[assignment]
+    _HAVE_FCNTL = False
+
 import json
 import os
 import uuid
@@ -252,13 +262,14 @@ class SubmissionLedger:
             raise SubmissionLedgerError(
                 "policy must be a SubmissionPolicy (fail closed)"
             )
-        try:
-            import fcntl  # noqa: F401  (platform gate)
-        except ImportError as exc:  # pragma: no cover - non-POSIX
+        if not _HAVE_FCNTL:  # pragma: no cover - non-POSIX
             raise SubmissionLedgerError(
                 "SubmissionLedger requires POSIX flock support "
-                "(fail closed on this platform; see Stage E notes)"
-            ) from exc
+                "(fail closed on this platform — Windows hosts must "
+                "run the ledger-bearing runtime on WSL/Linux; see "
+                "deploy/windows/README-WINDOWS-PACKAGE.md and the "
+                "P0-P3 Windows platform report)"
+            )
         self._path = path
         self._lock_path = path.with_name(path.name + ".lock")
         self._policy = policy or SubmissionPolicy()
