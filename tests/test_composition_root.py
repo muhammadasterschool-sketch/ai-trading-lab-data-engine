@@ -31,7 +31,10 @@ PAPER_READY stays FALSE until the recorded human dependencies close.
 
 import io
 import secrets as _secrets
+from datetime import UTC as _UTC
+from datetime import datetime as _dt
 from datetime import timedelta
+from datetime import timedelta as _td
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -57,6 +60,13 @@ from data_engine.runtime.composition import (
     OperationalSessionConfig,
     ReservationReconciler,
     compose_operational_session,
+)
+from data_engine.runtime.operator_approval import (
+    OperatorApprovalKey,
+    OperatorApprovalRecord,
+    TrustedGateEvidence,
+    build_trusted_evidence,
+    sign_approval,
 )
 from data_engine.runtime.contracts import OrderLifecycle
 from data_engine.runtime.risk_gate import (
@@ -114,11 +124,64 @@ def _mac_env(monkeypatch):
     return key
 
 
-def _operator_evidence(passed=True, gates=None):
+def _approval_key():
+    """FIX-9: the operator approval signing key (test fixture — the
+    composition root still re-verifies signatures against it)."""
+    return OperatorApprovalKey(_secrets.token_bytes(32))
+
+
+def _signed_human_evidence(key, *, gates, as_of=None):
+    """FIX-9: build SIGNED, trusted evidence for human gates (the
+    operator records the decision and signs it; the old free-text
+    ``passed=True`` bundle is refused — see
+    ``test_operator_approval.py`` for the adversarial proof)."""
+    from datetime import UTC as _UTC
+    from datetime import datetime as _dt
+
+    as_of = as_of if as_of is not None else _dt.now(_UTC)
+    out = []
+    for name in gates:
+        if name not in HUMAN_EVIDENCE_GATES:
+            continue
+        record = OperatorApprovalRecord(
+            record_id=f"approval-{name.lower()}-1",
+            approval_kind="RECORDED_EVIDENCE",
+            principal="operator-test",
+            decision="APPROVE",
+            gate=name,
+            scope="*",
+            issued_at=as_of - _td(hours=1),
+            expires_at=as_of + _td(days=30),
+            artifact_digest="",
+            reason=f"recorded operator evidence for {name}",
+        )
+        signature = sign_approval(record, key)
+        out.append(build_trusted_evidence(
+            record, signature, key, as_of=as_of,
+        ))
+    return tuple(out)
+
+
+def _operator_evidence(passed=True, gates=None, key=None):
     """The operator's recorded-evidence bundle (the ONLY legitimate
-    source for recorded/human gates — tests act as the operator)."""
+    source for recorded/human gates — tests act as the operator and
+    SIGN the records, FIX-9). Non-human gates still carry plain
+    recorded evidence (the composition root's first-hand component
+    evidence overrides those where applicable)."""
     names = gates if gates is not None else GATE_NAMES
-    return tuple(
+    as_of = _dt.now(_UTC)
+    human = tuple(
+        g for g in names if g in HUMAN_EVIDENCE_GATES
+    )
+    non_human = tuple(
+        g for g in names if g not in HUMAN_EVIDENCE_GATES
+    )
+    bundle = _signed_human_evidence(
+        key if key is not None else _approval_key(),
+        gates=human,
+        as_of=as_of,
+    )
+    bundle += tuple(
         GateEvidence(
             gate=name,
             component=f"operator-recorded:{name.lower()}",
@@ -130,8 +193,9 @@ def _operator_evidence(passed=True, gates=None):
             ),
             passed=passed,
         )
-        for name in names
+        for name in non_human
     )
+    return bundle
 
 
 def _specs():
@@ -145,19 +209,22 @@ def _compose(tmp_path, monkeypatch, *, session="stage-c",
     ens, cal = _fit_world()
     if set_mac_env:
         _mac_env(monkeypatch)
+    approval_key = _approval_key()
     cfg = config if config is not None else _op_config(
         _session_config(session),
     )
     if operator_evidence == "full":
-        bundle = _operator_evidence()
+        bundle = _operator_evidence(key=approval_key)
     elif operator_evidence == "no-human":
         bundle = _operator_evidence(
             gates=tuple(g for g in GATE_NAMES
                         if g not in HUMAN_EVIDENCE_GATES),
+            key=approval_key,
         )
     elif operator_evidence == "drop-data-ready":
         bundle = _operator_evidence(
             gates=tuple(g for g in GATE_NAMES if g != "DATA_READY"),
+            key=approval_key,
         )
     else:
         bundle = ()
@@ -173,6 +240,7 @@ def _compose(tmp_path, monkeypatch, *, session="stage-c",
         instruments=_specs(),
         venue_clock=_clock(),
         operator_evidence=bundle,
+        operator_approval_key=approval_key,
         venue_sleeper=lambda s: None,
         started=started,
     )
@@ -388,13 +456,19 @@ class TestReadinessEvidenceSuppliers:
     ):
         """The composition root NEVER overrides operator-supplied
         human-gate evidence — code cannot fabricate or veto recorded
-        human decisions."""
+        human decisions. FIX-9: the operator's human-gate evidence is
+        the SIGNED, re-verified approval bundle (component
+        ``operator-approval``), and it survives composition untouched."""
         composed = _compose(tmp_path, monkeypatch,
                             operator_evidence="full")
         ev = {e.gate: e for e in composed.evidence}
         for gate in HUMAN_EVIDENCE_GATES:
             assert ev[gate].passed
-            assert "operator-recorded" in ev[gate].component
+            # FIX-9: human-gate evidence is the trusted approval
+            # bundle (never plain recorded text, never stomped).
+            assert isinstance(ev[gate], TrustedGateEvidence)
+            assert ev[gate].component == "operator-approval"
+            assert ev[gate].approval_record.decision == "APPROVE"
 
     def test_flip_matrix_every_gate_decides_the_verdict(self):
         """Over ALL 32 gates: one FALSE gate ⇒ PAPER_READY = FALSE
