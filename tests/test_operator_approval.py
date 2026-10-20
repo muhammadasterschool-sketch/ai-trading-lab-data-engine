@@ -140,13 +140,13 @@ class TestUntrustedEvidenceRefused:
         from data_engine.runtime.composition import (
             compose_operational_session,
         )
-        from tests.test_composition_root import (
+        from test_composition_root import (
             _fit_world,
             _op_config,
             _session_config,
             _specs,
         )
-        from tests.test_runtime_authoritative_venue import _clock
+        from test_runtime_authoritative_venue import _clock
 
         monkeypatch.setenv("RUNTIME_LEDGER_MAC_KEY", secrets.token_hex(32))
         ens, cal = _fit_world()
@@ -560,7 +560,7 @@ class TestTrustedPath:
         """The legitimate operator path: SIGNED approvals for the three
         human gates + plain recorded evidence for the rest compose and
         start successfully (paper/mock venue, no network)."""
-        from tests.test_composition_root import _compose
+        from test_composition_root import _compose
         composed = _compose(tmp_path, monkeypatch, started=True)
         report = composed.start_report
         assert report is not None and report.post_start_verified
@@ -577,13 +577,13 @@ class TestTrustedPath:
         from data_engine.runtime.composition import (
             compose_operational_session,
         )
-        from tests.test_composition_root import (
+        from test_composition_root import (
             _fit_world,
             _op_config,
             _session_config,
             _specs,
         )
-        from tests.test_runtime_authoritative_venue import _clock
+        from test_runtime_authoritative_venue import _clock
 
         monkeypatch.setenv("RUNTIME_LEDGER_MAC_KEY", secrets.token_hex(32))
         attacker_key = _key()
@@ -638,7 +638,7 @@ class TestNoEnvironmentBypass:
         """Env vars claiming approvals do nothing without the SIGNED
         bundle — the composed session's human gates stay FALSE and
         start() refuses."""
-        from tests.test_composition_root import _compose
+        from test_composition_root import _compose
         monkeypatch.setenv("OPERATOR_APPROVALS_JSON", '{"all": true}')
         monkeypatch.setenv("GOVERNANCE_APPROVED", "1")
         composed = _compose(tmp_path, monkeypatch,

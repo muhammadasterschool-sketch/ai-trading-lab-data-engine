@@ -83,7 +83,7 @@ def _ensemble_bundle():
 
 def _ensemble_factory():
     """Operator-style ensemble factory (referenced by the CLI-level
-    plan as 'tests.test_session_launch:_ensemble_factory' — the
+    plan as 'test_session_launch:_ensemble_factory' — the
     operator's own fitted-model loader stand-in). Returns
     (ensemble, calibrator)."""
     ens, cal, _pins = _ensemble_bundle()
@@ -213,7 +213,7 @@ def _plan_dict(bars_file, approvals_file, *, session_id="launch-test",
         "approvals_file": approvals_file,
         "recorded_evidence": _recorded_evidence_entries(),
         "bar_source": {"mode": "replay", "bars_file": bars_file},
-        "ensemble_factory": "tests.test_session_launch:_ensemble_factory",
+        "ensemble_factory": "test_session_launch:_ensemble_factory",
     }
 
 

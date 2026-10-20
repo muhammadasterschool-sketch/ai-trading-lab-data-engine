@@ -179,7 +179,7 @@ def _plan_dict(tmp_path, *, approvals_name="approvals.json",
         "approvals_file": approvals_file,
         "recorded_evidence": entries,
         "bar_source": {"mode": "replay", "bars_file": bars_file},
-        "ensemble_factory": "tests.test_session_launch:_ensemble_factory",
+        "ensemble_factory": "test_session_launch:_ensemble_factory",
     }
 
 
@@ -452,7 +452,7 @@ class TestSoakProcedureDryRun:
         loaded = load_launch_plan(plan_path)
         launched = launch_paper_session(
             loaded,
-            ensemble=None,   # plan factory: tests.test_session_launch
+            ensemble=None,   # plan factory: test_session_launch (pytest-importable)
             approval_key=KEY,
         )
         assert launched.composed.start_report.post_start_verified
