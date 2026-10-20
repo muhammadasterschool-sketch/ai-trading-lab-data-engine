@@ -162,3 +162,132 @@ mandated format and will be extended for any future owner reports.
   modified install.ps1 fails BOTH the digest mismatch and the
   posture pins; validation tests 29/29 green; full suite 2735
   passed + 1 skipped.
+
+
+---
+
+## FIX-9 — human-gate evidence trust boundary (P0-P3 audit / B-P0-03)
+
+- **Owner report:** audit prompt B-P0-03 ("caller-supplied passed=True,
+  arbitrary free-text evidence may satisfy trust-dependent gates").
+- **Diagnosis:** CONFIRMED. GateEvidence.passed is caller-supplied;
+  compose_operational_session accepted plain operator_evidence for
+  the three human gates (REAL_DATA / OPERATIONAL_FEED / GOVERNANCE).
+  The old test helper literally fabricated passed=True free-text for
+  all 32 gates and sessions started — any in-process caller could
+  self-satisfy the human-dependency gates.
+- **Fix:** runtime/operator_approval.py (typed OperatorApprovalRecord,
+  OperatorApprovalKey env/file channels ≥ 32 bytes, HMAC-SHA256
+  sign/verify, TrustedGateEvidence, stable fail-closed reason codes)
+  + composition-root re-verification (expiry, scope, digest,
+  signature) of every human-gate evidence at compose time; plain
+  evidence refused with E_EVIDENCE_UNTRUSTED; session-config digest
+  pinning (_session_config_digest) prevents cross-config replay;
+  CONSTRUCTION_ORDER extended with the operator_approvals step.
+- **Re-test evidence:** tests/test_operator_approval.py 43 passed
+  (fabricated bundle E2E refusal, forged signature, tampered record,
+  expired/not-yet-valid, scope/digest mismatch, hand-crafted subclass,
+  wrong-key re-verification, env-bypass impossibility, drift pins);
+  test_composition_root.py migrated to the SIGNED operator path —
+  29 passed; wider regression batch 141 passed.
+
+## FIX-10 — real session wiring for the CLI supervisor (B-P0-01)
+
+- **Owner report:** audit prompt B-P0-01 ("CLI/service may supervise a
+  process without wiring a real operational session tick loop").
+- **Diagnosis:** CONFIRMED. cli.py serve constructed
+  PaperRuntimeService with NO tick_fn and never called
+  compose_operational_session — no operator path could run a paper
+  session; the supervisor was an honest but empty shell.
+- **Fix:** runtime/session_launch.py — SessionLaunchPlan (typed,
+  extra=forbid, eager RuntimeConfig validation), ReplayBarSource /
+  ProviderBarSource (known-provider inventory: binance_public only;
+  feed errors fail closed, never fabricated), SessionTick (honest
+  tick/bar/refusal/feed-error counters), launch_paper_session
+  (compose via the C1 root + explicit start; ensemble strictly
+  operator-supplied module:function, never defaulted). CLI:
+  `serve --session-launch PLAN` with exit code 4 refusals; the
+  supervisor-only default stays honest (exit 2 readiness refusal).
+- **Re-test evidence:** tests/test_session_launch.py 24 passed —
+  launch+start verified, tick consumes bars and advances metrics,
+  deterministic across two launches, submitted orders present ONLY in
+  the paper venue journal, kill switch produces no new orders, 9
+  refusal paths, CLI exit codes 4/0/2, bounded CLI run advances the
+  session. BUG-008 boundary incident (direct schemas import) caught
+  by the existing pin test and fixed via the provider bridge.
+
+## FIX-11 — gate-count report reconciliation (B-P0-02)
+
+- **Owner report:** audit prompt B-P0-02 ("readiness gates and project
+  reports may disagree on mandatory gate count/status" — one report
+  said two pending items, others three unresolved gates).
+- **Diagnosis:** CONFIRMED. Stage-D report + PROJECT-STATE-REPORT
+  said "30 VERIFIED_IN_CODE, 2 PENDING (REAL_DATA, OPERATIONAL_FEED)"
+  while the code's HUMAN_EVIDENCE_GATES and
+  docs/READINESS_EVIDENCE_INVENTORY.md track THREE unresolved human
+  gates (GOVERNANCE_READY was misclassified as code-verified).
+- **Fix:** both reports reconciled to "29 VERIFIED_IN_CODE, 3
+  PENDING_OPERATIONAL_EVIDENCE (REAL_DATA_READY,
+  OPERATIONAL_FEED_READY, GOVERNANCE_READY)" with a FIX-11 note; the
+  Stage-D GOVERNANCE_READY row now cites the open GOV-03/04/05
+  inventory items.
+- **Re-test evidence:** tests/test_report_gate_consistency.py 9
+  passed — executable pins that the reports must agree with the
+  code's classification (a human gate can never again be classified
+  VERIFIED_IN_CODE in any tracked report).
+
+## FIX-12 — Windows import discipline for the submission ledger (B-P1-09)
+
+- **Owner report:** audit prompt B-P1-09 ("fcntl.flock POSIX-only lock
+  code may conflict with claimed Windows support").
+- **Diagnosis:** CONFIRMED. submission_ledger.py had a TOP-LEVEL
+  `import fcntl` — on Windows CPython the module failed at import
+  (ModuleNotFoundError), making the documented constructor-level
+  fail-closed refusal dead code and breaking every importer
+  (composition root, CLI).
+- **Fix:** conditional import (the runtime/state.py pattern):
+  module imports everywhere; the constructor refuses with the
+  documented message + WSL/Linux guidance when flock is unavailable.
+- **Re-test evidence:** tests/test_platform_fcntl_import.py 4 passed
+  (simulated fcntl absence via blocked import: module imports,
+  constructor refuses, POSIX path unchanged, state.py pattern pin).
+  Windows-host runs remain honestly NOT VERIFIED (see the platform
+  report — this fix makes the failure mode documented, not the host
+  tested).
+
+## FIX-13 — run-paper.ps1 exit-code hardening + session plan (B-P1-10)
+
+- **Owner report:** audit prompt B-P1-10 ("Windows/CLI deployment
+  script may report success despite failed preflight or missing
+  session loop").
+- **Diagnosis:** PARTIALLY CONFIRMED. The engine exit code was
+  propagated, but a failing `status --gates` tool invocation was
+  ignored, and the script had no path to launch a session (tied to
+  B-P0-01).
+- **Fix:** status-tool failure aborts (exit 5); -SessionPlan
+  passthrough to `serve --session-launch` (missing plan refuses with
+  exit 4); engine exit code propagates verbatim in all paths.
+- **Re-test evidence:** tests/test_windows_package.py +2 contract
+  tests (16 total passed).
+
+## FIX-14 — executable soak preflight + mock dry run (B-P2-16 / Task 12)
+
+- **Owner report:** audit prompt Task 12 / B-P2-16 ("add an explicit
+  preflight that refuses to start if any mandatory gate is false or
+  evidence is stale; a soak cannot begin from a green CI run alone").
+- **Diagnosis:** CONFIRMED GAP. The soak procedure was document-only;
+  no executable preflight or dry run existed.
+- **Fix:** runtime/soak_preflight.py — run_soak_preflight (plan
+  validity; every non-component gate passing in the bundle; human
+  gates SIGNED-only; approvals covering the FULL soak window; reads
+  no CI input) + `cli soak-preflight` (exit 0 pass / 6 refusal,
+  stable reason codes); PAPER-SOAK-PROCEDURE.md precondition #3 now
+  the executable preflight.
+- **Re-test evidence:** tests/test_soak_preflight.py 17 passed —
+  all refusal paths (missing gate, failing gate, unsigned human
+  evidence, expired approval, approval-expiring-before-soak-end,
+  forged signature, missing key), env-var irrelevance, CI-irrelevance
+  structural pin, CLI exit codes, and the MOCK DRY RUN
+  (preflight → authorized launch → bounded 80-bar tick loop →
+  quiescence; procedure order enforced). NO soak was started.
+
