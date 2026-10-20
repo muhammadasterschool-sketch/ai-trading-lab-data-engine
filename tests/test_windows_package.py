@@ -64,6 +64,28 @@ class TestWindowsPackageComponents:
         assert "RUNTIME_LEDGER_MAC_KEY" in ps1
         assert "explicit confirmation required" in ps1
 
+    def test_run_paper_session_plan_passthrough(self):
+        """FIX-13 (B-P1-10) + FIX-10 (B-P0-01): the script supports the
+        explicit session-launch plan, refuses a missing plan file with
+        exit code 4 (the session-launch refusal code), and propagates
+        the engine's exit code verbatim."""
+        ps1 = (WINDOWS_DIR / "run-paper.ps1").read_text(encoding="utf-8")
+        assert "-SessionPlan" in ps1
+        assert "--session-launch" in ps1
+        assert "session launch plan not found" in ps1
+        # missing-plan refusal exits 4 (the documented launch code)
+        assert "4" in ps1
+        # engine exit code propagates verbatim
+        assert "exit $LASTEXITCODE" in ps1
+
+    def test_run_paper_gates_command_failure_blocks_startup(self):
+        """FIX-13 (B-P1-10): a failing `status --gates` invocation (the
+        status TOOL crashing) must abort the script with a non-zero
+        exit — never continue to a green-looking startup."""
+        ps1 = (WINDOWS_DIR / "run-paper.ps1").read_text(encoding="utf-8")
+        assert "if ($LASTEXITCODE -ne 0)" in ps1
+        assert "gate disposition command failed" in ps1
+
     def test_install_ps1_installs_locked_hash_pinned_deps(self):
         ps1 = (WINDOWS_DIR / "install.ps1").read_text(encoding="utf-8")
         assert "--require-hashes" in ps1
