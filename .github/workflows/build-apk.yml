@@ -63,7 +63,7 @@ jobs:
             --project-name ai_trading_lab_monitor \
             --description "AI Trading Lab monitoring client (paper-only engine)"
 
-      - name: Patch Android manifest (v4.0: network + multicast)
+      - name: "Patch Android manifest (v4.0: network + multicast)"
         # Additive + idempotent: ensure the RELEASE manifest carries
         # INTERNET (networking client) and CHANGE_WIFI_MULTICAST_STATE
         # (mDNS auto-discovery, P5). mDNS remains a graceful
