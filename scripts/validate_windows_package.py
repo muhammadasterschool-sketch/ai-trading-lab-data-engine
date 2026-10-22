@@ -31,6 +31,8 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
+import os
 import re
 import sys
 import zipfile
@@ -46,6 +48,8 @@ REQUIRED_SUFFIXES = (
     "install.ps1",
     "run-tests.ps1",
     "run-paper.ps1",
+    "run-monitor.ps1",
+    "local-monitor-config.template.json",
     "README-WINDOWS-PACKAGE.md",
     "requirements-windows.txt",
     "SHA256SUMS.txt",
@@ -53,6 +57,8 @@ REQUIRED_SUFFIXES = (
     "source/uv.lock",
     "source/src/data_engine/__init__.py",
     "source/src/data_engine/cli.py",
+    "source/src/data_engine/runtime/pairing.py",
+    "source/src/data_engine/runtime/announce.py",
     "source/scripts/windows_smoke_test.py",
 )
 
@@ -85,11 +91,24 @@ CREDENTIAL_CONTENT = re.compile(
 
 TEXT_SUFFIXES = (
     ".py", ".ps1", ".md", ".txt", ".toml", ".json", ".yml", ".yaml",
-    ".cfg", ".ini", ".lock", ".example", ".sums",
+    ".cfg", ".ini", ".lock", ".example", ".sums", ".dart", ".yaml-pinned",
 )
 
 MAX_TOTAL_UNCOMPRESSED = 4 * 1024 * 1024 * 1024  # 4 GiB (full source pkg)
 MAX_MEMBER_RATIO = 200
+
+#: v4.0: the invitation-code plaintext probe. When the owner-side
+#: validation run exports AITL_INVITE_PROBE (the real local default
+#: code), the validator asserts the probe appears in NO text member —
+#: the strongest possible no-plaintext-in-package pin. CI runs
+#: WITHOUT the probe (structural checks only): an honest, recorded
+#: limitation, since committing the probe string would itself be a
+#: plaintext leak.
+INVITE_PROBE_ENV = "AITL_INVITE_PROBE"
+
+#: v4.0: shape pins for the committed local-monitor config template
+#: (salted-hash invitation storage — never plaintext).
+_HEX_RE = re.compile(r"^[0-9a-f]+$")
 
 
 @dataclass
@@ -261,6 +280,81 @@ def validate_zip(zip_path: Path) -> ValidationReport:
         else:
             report.passed("no credential-shaped content in text members")
 
+        # -- 3c. v4.0 invitation-plaintext probe (owner-side, env-gated) --
+        probe = os.environ.get(INVITE_PROBE_ENV, "").strip()
+        if probe:
+            probe_offenders = [
+                info.filename
+                for info in infos
+                if info.file_size <= 2 * 1024 * 1024
+                and Path(info.filename).suffix.lower() in TEXT_SUFFIXES
+                and probe in zf.read(info).decode("utf-8", errors="ignore")
+            ]
+            if probe_offenders:
+                report.fail(
+                    f"invitation-code PLAINTEXT found in: "
+                    f"{probe_offenders[:10]}"
+                )
+            else:
+                report.passed(
+                    f"invitation-code plaintext absent from all text "
+                    f"members (probe: {len(probe)} chars)"
+                )
+        else:
+            report.passed(
+                "invitation-plaintext probe NOT SET "
+                f"({INVITE_PROBE_ENV}) — structural checks only (CI posture)"
+            )
+
+        # -- 3d. v4.0 local-monitor template shape -----------------------
+        template_name = f"{pkg_root}/local-monitor-config.template.json"
+        if template_name in names:
+            template_failures = []
+            try:
+                template = json.loads(
+                    zf.read(template_name).decode("utf-8")
+                )
+            except (ValueError, UnicodeDecodeError) as exc:
+                template_failures.append(f"template unreadable: {exc}")
+                template = None
+            if isinstance(template, dict):
+                if template.get("version") != 1:
+                    template_failures.append("template version != 1")
+                if not isinstance(template.get("enabled"), bool):
+                    template_failures.append("template enabled not boolean")
+                salt = template.get("salt_hex")
+                if not (
+                    isinstance(salt, str)
+                    and len(salt) == 32
+                    and _HEX_RE.fullmatch(salt)
+                ):
+                    template_failures.append("template salt_hex not 32-hex")
+                digest = template.get("code_sha256_hex")
+                if not (
+                    isinstance(digest, str)
+                    and len(digest) == 64
+                    and _HEX_RE.fullmatch(digest)
+                ):
+                    template_failures.append(
+                        "template code_sha256_hex not 64-hex"
+                    )
+                cap = template.get("max_attempts_per_minute")
+                if not isinstance(cap, int) or isinstance(cap, bool) or not 1 <= cap <= 1000:
+                    template_failures.append("template attempts cap invalid")
+            elif template is None and not template_failures:
+                template_failures.append("template is not a JSON object")
+            if not isinstance(template, dict) and not template_failures:
+                template_failures.append("template is not a JSON object")
+            if template_failures:
+                report.fail(
+                    f"local-monitor template invalid: {template_failures}"
+                )
+            else:
+                report.passed(
+                    "local-monitor template carries a valid salted hash "
+                    "(no plaintext code anywhere in it)"
+                )
+
         # -- 4. version agreement --------------------------------------
         version_failures = []
         wheels = [
@@ -309,7 +403,12 @@ def validate_zip(zip_path: Path) -> ValidationReport:
 
         # -- 5. posture pins -------------------------------------------
         posture_failures = []
-        for script in ("install.ps1", "run-tests.ps1", "run-paper.ps1"):
+        for script in (
+            "install.ps1",
+            "run-tests.ps1",
+            "run-paper.ps1",
+            "run-monitor.ps1",
+        ):
             member = f"{pkg_root}/{script}"
             if member not in names:
                 continue

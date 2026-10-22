@@ -64,9 +64,11 @@ def _fixture_members() -> dict:
     root = f"ai-trading-lab-data-engine-windows-v{version}"
     members: dict = {}
 
-    # deploy/windows components (the REAL shipped scripts + readme)
+    # deploy/windows components (the REAL shipped scripts + readme +
+    # the v4.0 local-monitor entrypoint + salted-hash template)
     for comp in (
         "install.ps1", "run-tests.ps1", "run-paper.ps1",
+        "run-monitor.ps1", "local-monitor-config.template.json",
         "README-WINDOWS-PACKAGE.md",
     ):
         members[f"{root}/{comp}"] = (
@@ -81,10 +83,13 @@ def _fixture_members() -> dict:
     members[f"{root}/dist/ai_trading_lab_data_engine-{version}-py3-none-any.whl"] = (
         b"PK-fixture-wheel-not-a-real-wheel"
     )
-    # source/ (representative REAL files)
+    # source/ (representative REAL files — incl. the v4.0 pairing +
+    # mDNS modules, so the validator's presence pins are exercised)
     for rel in (
         "pyproject.toml", "uv.lock",
         "src/data_engine/__init__.py", "src/data_engine/cli.py",
+        "src/data_engine/runtime/pairing.py",
+        "src/data_engine/runtime/announce.py",
         "scripts/windows_smoke_test.py",
     ):
         members[f"{root}/source/{rel}"] = (REPO_ROOT / rel).read_bytes()
@@ -241,6 +246,116 @@ class TestTamperResistance:
     def test_missing_zip_refused(self, validator, tmp_path):
         report = validator.validate_zip(tmp_path / "nonexistent.zip")
         assert not report.ok
+
+
+# ---------------------------------------------------------------------------
+# 2b. v4.0 pins — local-monitor components, template shape, probe
+# ---------------------------------------------------------------------------
+class TestV4LocalMonitorPins:
+    def test_missing_run_monitor_refused(self, validator, tmp_path):
+        def mutate(members):
+            del members[
+                next(n for n in members if n.endswith("run-monitor.ps1"))
+            ]
+
+        report = validator.validate_zip(_build_fixture(tmp_path, mutate))
+        assert not report.ok
+        assert any("missing required components" in f for f in report.failures)
+
+    def test_missing_pairing_module_refused(self, validator, tmp_path):
+        def mutate(members):
+            del members[
+                next(
+                    n for n in members
+                    if n.endswith("runtime/pairing.py")
+                )
+            ]
+
+        report = validator.validate_zip(_build_fixture(tmp_path, mutate))
+        assert not report.ok
+        assert any("missing required components" in f for f in report.failures)
+
+    def test_missing_mdns_module_refused(self, validator, tmp_path):
+        def mutate(members):
+            del members[
+                next(
+                    n for n in members
+                    if n.endswith("runtime/announce.py")
+                )
+            ]
+
+        report = validator.validate_zip(_build_fixture(tmp_path, mutate))
+        assert not report.ok
+        assert any("missing required components" in f for f in report.failures)
+
+    def test_template_plaintext_shape_refused(self, validator, tmp_path):
+        """A template whose 'hash' is not 64-hex (e.g. a plaintext-ish
+        value) must be refused — the template carries a salted hash
+        ONLY."""
+        import json as _json
+
+        def mutate(members):
+            key = next(
+                n for n in members
+                if n.endswith("local-monitor-config.template.json")
+            )
+            payload = _json.loads(members[key].decode("utf-8"))
+            payload["code_sha256_hex"] = "not-a-hash-plaintext-shape"
+            members[key] = _json.dumps(payload).encode("utf-8")
+
+        report = validator.validate_zip(_build_fixture(tmp_path, mutate))
+        assert not report.ok
+        assert any("template" in f.lower() for f in report.failures)
+
+    def test_run_monitor_posture_strip_refused(self, validator, tmp_path):
+        def mutate(members):
+            key = next(n for n in members if n.endswith("run-monitor.ps1"))
+            members[key] = members[key].replace(
+                b'$ErrorActionPreference = "Stop"',
+                b'$ErrorActionPreference = "Continue"',
+            )
+
+        report = validator.validate_zip(_build_fixture(tmp_path, mutate))
+        assert not report.ok
+        assert any("posture" in f.lower() for f in report.failures)
+
+    def test_probe_plaintext_refused_when_env_set(self, validator, tmp_path,
+                                                  monkeypatch):
+        """Owner-side pin: with AITL_INVITE_PROBE set, a package whose
+        README contains the plaintext invitation code is REFUSED.
+        (Runs everywhere: the probe value here is a SYNTHETIC string
+        that is injected into the fixture, never a real code.)"""
+        synthetic_probe = "synthetic-probe-code-42"
+        monkeypatch.setenv("AITL_INVITE_PROBE", synthetic_probe)
+
+        def mutate(members):
+            key = next(
+                n for n in members
+                if n.endswith("README-WINDOWS-PACKAGE.md")
+            )
+            members[key] = members[key] + (
+                f"\nthe code is {synthetic_probe}\n"
+            ).encode("utf-8")
+
+        report = validator.validate_zip(_build_fixture(tmp_path, mutate))
+        assert not report.ok
+        assert any("PLAINTEXT" in f for f in report.failures)
+
+    def test_probe_clean_package_passes_when_env_set(
+        self, validator, tmp_path, monkeypatch
+    ):
+        synthetic_probe = "synthetic-probe-code-42"
+        monkeypatch.setenv("AITL_INVITE_PROBE", synthetic_probe)
+        report = validator.validate_zip(_build_fixture(tmp_path))
+        assert report.ok, report.failures
+        assert any("plaintext absent" in c for c in report.checks)
+
+    def test_probe_absent_records_honest_note(self, validator, tmp_path,
+                                              monkeypatch):
+        monkeypatch.delenv("AITL_INVITE_PROBE", raising=False)
+        report = validator.validate_zip(_build_fixture(tmp_path))
+        assert report.ok, report.failures
+        assert any("probe NOT SET" in c for c in report.checks)
 
 
 # ---------------------------------------------------------------------------
