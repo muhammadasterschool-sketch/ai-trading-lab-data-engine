@@ -218,9 +218,11 @@ void main() {
               store: _NoopStore(),
               discoverHost: () async => '192.168.1.50:8018')));
       await tester.pumpAndSettle();
-      // PC address is the THIRD TextField (name, email, PC, code)
-      final app.TextField pcField =
-          tester.widget<app.TextField>(find.byType(app.TextField).at(2));
+      // PC address is the THIRD TextField (name, email, PC, code);
+      // TextField comes from package:flutter/material (not re-exported
+      // through the app library — use the direct material import).
+      final TextField pcField =
+          tester.widget<TextField>(find.byType(TextField).at(2));
       expect(pcField.controller!.text, '192.168.1.50:8018');
     });
   });

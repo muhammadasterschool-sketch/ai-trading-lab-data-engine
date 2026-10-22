@@ -348,6 +348,9 @@ class _ProfileGatePageState extends State<ProfileGatePage> {
       return;
     }
     await _store.saveOnboardingMode(mode);
+    if (!mounted) {
+      return;
+    }
     final ServerProfile? saved = await showDialog<ServerProfile>(
       context: context,
       builder: (_) => mode == 'local'
@@ -494,8 +497,17 @@ class _ProfileEditDialogState extends State<ProfileEditDialog> {
       TextEditingController(text: widget.initial?.token ?? '');
   late final TextEditingController _email =
       TextEditingController(text: widget.initial?.email ?? '');
-  bool _isLocal = widget.initial?.isLocal ?? false;
+  bool _isLocal = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    // `widget` cannot be referenced in a field initializer (Dart
+    // analyzer: implicit_this_reference_in_initializer) — initialize
+    // the per-profile transport flag here instead.
+    _isLocal = widget.initial?.isLocal ?? false;
+  }
 
   @override
   void dispose() {
