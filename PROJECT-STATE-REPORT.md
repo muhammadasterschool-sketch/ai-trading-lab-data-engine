@@ -265,3 +265,67 @@ SIGNED approvals); LIVE_TRADING = NOT AUTHORIZED; historical/
 backtest data work remained excluded and no data gate was flipped.
 Final decision: `BLOCKED — DO NOT START PAPER TRADING` until the
 owner-side checklist closes (artifacts/p0-p3/08).
+
+---
+
+# v4.0 SUPPLEMENT — LOCAL-FIRST ONBOARDING, DUAL-MODE APK, WINDOWS MONITOR (2026-10-23)
+
+Scope: AI_TRADING_LAB_LOCAL_FIRST_UPGRADE_PROMPT_v4.0.md (owner-ratified
+P1–P10; P8 plan posted in-session and approved BEFORE any
+implementation code). This task changed ONBOARDING and MONITORING
+packaging only. **It did NOT touch any trading-readiness surface.**
+
+## What v4.0 added (feature branch → main; per-stage commits with green suites)
+
+- Engine: runtime/pairing.py (salted-hash invitation pairing,
+  constant-time, per-IP rate limit, fail-closed reason codes, email
+  redaction), POST /api/pair (pre-token-auth onboarding endpoint;
+  absent config = 503 disabled), runtime/announce.py (mDNS
+  `_aitl-monitor._tcp.local.`, graceful fallback), CLI `pair-status`
+  + serve flags (`--pairing-config`, `--mdns-announce/--mdns-instance`).
+- Cloud: `server-install.sh --invitation-code <code>` →
+  /etc/ai-trading-lab/invitation.hash (salted hash only, 0640).
+- APK: two-option first-run (CLOUD/LOCAL), compulsory invitation-code
+  pairing per mode, per-profile `isLocal` transport flag (CLOUD TLS-only
+  posture UNCHANGED; local http explicitly scoped + one-time warning),
+  mDNS prefill with manual fallback, profile badges + Switch (nothing
+  deleted), v0.3.x profile backward compatibility, mobile tests.
+- Windows package: run-monitor.ps1 (monitor-only; loopback default;
+  -AllowLan with honest warning), salted-hash template, install.ps1
+  component check + beginner flow, builder/validator pins incl.
+  owner-side AITL_INVITE_PROBE plaintext scans; package v0.4.0 built +
+  validated 10/10 locally (Windows-host run remains operator evidence).
+- Docs: README-APK.md (two-mode), MULTI-USER-DEPLOYMENT-GUIDE.md §0
+  ("CLOUD IS OPTIONAL" + issuance/rotation), LOCAL-MONITOR-RUNBOOK.md,
+  CHANGELOG/FIX-LOG entries, this supplement.
+
+## Secrets posture (v4.0 additions)
+
+- Invitation codes: salted SHA-256 hashes ONLY (committed template +
+  cloud install path); plaintext never in git, never in the APK, never
+  in logs; repo-wide and whole-package probe scans test-enforced
+  (owner-side env AITL_INVITE_PROBE; CI runs the structural subset —
+  honest, recorded).
+- The owner's GitHub PAT used for push/release was provided in-chat
+  (contrary to P9 transport guidance): stored only OUTSIDE the repo
+  (workspace credential file, 0600), never committed, remote URL
+  sanitized. Rotation recommended post-task.
+- The APK binary contains ZERO secrets, ZERO code values, ZERO
+  default addresses (unchanged).
+
+## Readiness statuses — UNCHANGED (verified, not assumed)
+
+| Status | Value |
+| --- | --- |
+| PAPER_READY | **FALSE** (unchanged — the 3 human gates remain open: REAL_DATA_READY, OPERATIONAL_FEED_READY, GOVERNANCE_READY) |
+| LIVE_TRADING | **NOT AUTHORIZED — permanently out of scope** (four-layer enforcement untouched) |
+| ONBOARDING | local-first + cloud dual-mode shipped (this task) |
+
+## Honest NOT-RUN / limitations record (v4.0)
+
+- Flutter tests + APK build: CI only (no Flutter toolchain locally).
+- Windows-host execution of the .ps1 scripts: operator evidence.
+- mDNS on Android: graceful degradation assumed; manual entry always
+  documented.
+- APK remains debug-signed; release signing documented-only. No iOS
+  (P10).

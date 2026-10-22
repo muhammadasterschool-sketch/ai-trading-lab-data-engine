@@ -153,3 +153,84 @@ green full suites).
 - PAPER_READY stays FALSE (3 human gates open, owner-side);
   LIVE_TRADING remains NOT AUTHORIZED; historical/backtest data work
   remained excluded throughout.
+
+---
+
+# v4.0 — LOCAL-FIRST ONBOARDING, DUAL-MODE APK + WINDOWS MONITOR (2026-10-23)
+
+Owner-ratified pre-decisions P1–P10 (AI_TRADING_LAB_LOCAL_FIRST_UPGRADE_PROMPT_v4.0.md).
+P8 plan approved in-session before implementation. History preserved
+throughout (no reset, no rebase, no force-push).
+
+## v4-Stage B — engine pairing + mDNS + CLI
+
+- runtime/pairing.py (NEW): salted-SHA-256 invitation verification
+  (constant-time, per-config random salt, committed template carries
+  hash ONLY — never a plaintext code), per-IP pairing rate limiter
+  (5/min default), stable reason codes (E_PAIRING_DISABLED /
+  E_PAIRING_CODE_INVALID / E_PAIRING_RATE_LIMITED), email redaction
+  (***@domain), audit lines that NEVER carry code or token.
+- runtime/monitoring.py: POST /api/pair — the ONE onboarding endpoint
+  handled BEFORE token auth, wired only when a PairingService is
+  injected; absent = 503 fail-closed (cloud default). Every other
+  route unchanged (token-first; kill-switch 503 honesty preserved).
+- runtime/announce.py (NEW): `_aitl-monitor._tcp.local.` mDNS
+  announcement via zeroconf; graceful no-mDNS fallback; never fatal.
+- cli.py: serve `--pairing-config` / `--mdns-announce` /
+  `--mdns-instance`; new `pair-status` subcommand (B4 — prints
+  enabled/disabled + attempt cap, never the code); malformed pairing
+  config at an explicitly-given path REFUSES startup (token-file
+  posture).
+- deploy/server-install.sh: `--invitation-code <code>` → salted hash
+  at /etc/ai-trading-lab/invitation.hash (0640 root:engine; never
+  plaintext, never logged); no flag = pairing disabled; systemd unit
+  wired when present.
+- Version 0.4.0; NEW runtime dependency `zeroconf` (+`ifaddr` transitively)
+  — the only engine-side dependency additions in this release.
+
+## v4-Stage C — APK dual-mode onboarding
+
+- mobile/lib/pairing.dart (NEW): pairWithEngine() client + mDNS
+  discovery with graceful manual fallback.
+- mobile/lib/main.dart: first-run mode choice (exactly TWO options,
+  P2), cloud form (name/https-URL/code, TLS-only), local form
+  (name/email/code/PC-address, one-time unencrypted-LAN warning),
+  per-profile isLocal transport flag (cloud TLS-only posture
+  UNCHANGED), profile mode badges, dashboard Switch action (P6 —
+  never deletes profiles/tokens), v0.3.x profile backward compat.
+- mobile/pubspec.yaml: version 0.4.0+1; + multicast_dns (only new
+  mobile dependency).
+- mobile/test/pairing_test.dart (NEW): transport-policy matrix, model
+  round-trip, form validation, mDNS prefill seam, pairing client
+  contract (MockClient). CI runs `flutter test`; NOT RUN locally (no
+  Flutter toolchain — honest).
+- .github/workflows/build-apk.yml: idempotent release-manifest patch
+  (INTERNET + CHANGE_WIFI_MULTICAST_STATE).
+
+## v4-Stage D — Windows local monitor + packaging pins
+
+- deploy/windows/run-monitor.ps1 (NEW): monitor-only entrypoint; first
+  run creates local-monitor.json (salted-hash template) +
+  monitor-token.txt; loopback default; -AllowLan = explicit bind +
+  UNENCRYPTED-LAN warning + LAN IP + firewall hint + mDNS on.
+- deploy/windows/install.ps1: +step 6 component presence check +
+  beginner what-next (local-first path documented first).
+- build/validate scripts: new required components (run-monitor.ps1,
+  local-monitor-config.template.json, source pairing.py + announce.py),
+  run-monitor posture pin, strict template shape check, and the
+  AITL_INVITE_PROBE owner-side whole-package plaintext scan (structural
+  when unset — honest CI posture). Local validation: BUILD-OK +
+  VALIDATION OK 10/10 with the probe set (562 packaged files, zero
+  plaintext).
+- Windows-host execution remains operator evidence (unchanged).
+
+## v4-Stage E — docs replacement
+
+- mobile/README-APK.md: rewritten two-mode onboarding (E1).
+- deploy/MULTI-USER-DEPLOYMENT-GUIDE.md: §0 "CLOUD IS OPTIONAL" +
+  invitation issuance/rotation/status (E2).
+- deploy/windows/LOCAL-MONITOR-RUNBOOK.md (NEW): beginner runbook
+  (E3) incl. the code-rotation command.
+- Readiness statuses UNTOUCHED: PAPER_READY = FALSE; the 3 human
+  gates open; LIVE_TRADING = NOT AUTHORIZED (this task changed
+  ONBOARDING, not trading readiness).
