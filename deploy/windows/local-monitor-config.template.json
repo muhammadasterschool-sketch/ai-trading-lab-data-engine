@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "enabled": true,
+  "salt_hex": "60b67c81d07813d2b9a9f2d99b629a0b",
+  "code_sha256_hex": "bdbc68cfbcab89ce2e91335be58340caa02180cb81b12c4ec31f6f13a05c17a6",
+  "max_attempts_per_minute": 5
+}

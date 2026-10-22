@@ -57,13 +57,23 @@ def _read_token_file(path: str, purpose: str) -> str:
     return token
 
 
-def _build_monitoring_api(*, bind: str, port: int, token_file: str):
+def _build_monitoring_api(
+    *,
+    bind: str,
+    port: int,
+    token_file: str,
+    pairing_service=None,
+):
     """Construct the authenticated monitoring API (Stage F/F1) with
     HONEST providers: the health endpoint reflects the supervisor's
     own process state; every not-yet-composed dimension reports
     ABSENT. The kill-switch activator stays UNWIRED in the bare CLI
     path (fail closed: POST returns 503 until an operational session
-    composition injects the real activator)."""
+    composition injects the real activator).
+
+    v4.0: an OPTIONAL ``pairing_service`` (runtime.pairing.PairingService)
+    wires the ``POST /api/pair`` onboarding endpoint; absent = pairing
+    disabled (503 fail-closed)."""
     import time as _time
 
     from data_engine import __version__
@@ -90,6 +100,7 @@ def _build_monitoring_api(*, bind: str, port: int, token_file: str):
         host=bind,
         port=port,
         health_provider=health,
+        pairing_service=pairing_service,
     )
 
 
@@ -309,6 +320,47 @@ def main(argv=None):
         default=45.0,
         help="heartbeat interval seconds (30-60 recommended)",
     )
+    # -- v4.0 (B1/B3/P5): invitation-code pairing + mDNS announcement
+    serve_parser.add_argument(
+        "--pairing-config",
+        default=None,
+        help=(
+            "path to the invitation-pairing config JSON (salted hash, "
+            "version 1). Required to enable POST /api/pair; absent = "
+            "pairing DISABLED (fail-closed). Malformed/missing file at "
+            "the given path REFUSES startup."
+        ),
+    )
+    serve_parser.add_argument(
+        "--mdns-announce",
+        action="store_true",
+        help=(
+            "announce the monitoring API on the LAN as "
+            "_aitl-monitor._tcp.local. (mDNS; graceful fallback to the "
+            "manual PC-address entry if zeroconf is unavailable)"
+        ),
+    )
+    serve_parser.add_argument(
+        "--mdns-instance",
+        default=None,
+        help="mDNS instance name (default: aitl-monitor)",
+    )
+
+    # Pairing status probe (v4.0 B4): prints whether invitation
+    # pairing is enabled and the configured attempt cap — NEVER the
+    # code itself.
+    pair_status_parser = subparsers.add_parser(
+        "pair-status",
+        help=(
+            "Show invitation-pairing configuration status (enabled/"
+            "disabled, attempt cap) — never the invitation code"
+        ),
+    )
+    pair_status_parser.add_argument(
+        "--config",
+        required=True,
+        help="path to the pairing config JSON to inspect",
+    )
 
     # Soak preflight (FIX-14 / B-P2-16 + Task 12): the EXECUTABLE
     # fail-closed check that must run BEFORE any separately
@@ -491,19 +543,99 @@ def main(argv=None):
                         f"    {gate}: {GATE_SUPPLIER_DISPOSITION[gate]}"
                     )
 
+        elif args.command == "pair-status":
+            # v4.0 (B4): fail-closed, one-shot, NO code material.
+            # A missing file is honestly reported as "disabled";
+            # a malformed file is a LOUD error (operator misconfig).
+            from pathlib import Path as _P
+            from data_engine.runtime.pairing import (
+                PairingConfigError as _PCE,
+                format_pairing_status as _fmt,
+                load_pairing_config as _load,
+            )
+
+            if not _P(args.config).is_file():
+                print(
+                    "[pair-status] invitation pairing: DISABLED "
+                    f"(no config file at {args.config})"
+                )
+                print(
+                    "[pair-status] note: the code itself is never "
+                    "displayed; the serving process console shows live "
+                    "attempt outcomes."
+                )
+                raise SystemExit(0)
+            try:
+                pairing_cfg = _load(args.config)
+            except _PCE as exc:
+                print(f"[pair-status] CONFIG ERROR: {exc}", file=sys.stderr)
+                raise SystemExit(1)
+            print(_fmt(pairing_cfg))
+            raise SystemExit(0)
+
         elif args.command == "serve":
             from data_engine.runtime.service import PaperRuntimeService
 
             monitoring_api = None
             heartbeat_sender = None
+            pairing_service = None
+            mdns_announcement = None
             launched = None
             try:
+                pairing_service = None
+                if args.pairing_config:
+                    from data_engine.runtime.pairing import (
+                        PairingConfigError,
+                        PairingService,
+                        load_pairing_config,
+                    )
+
+                    # Fail-closed startup posture (mirrors the monitor
+                    # token file): a malformed/missing config at the
+                    # EXPLICITLY given path refuses to serve.
+                    try:
+                        pairing_service = PairingService(
+                            load_pairing_config(args.pairing_config)
+                        )
+                    except PairingConfigError as pairing_error:
+                        print(
+                            f"[serve] REFUSING TO START: pairing config "
+                            f"failed closed: {pairing_error}",
+                            file=sys.stderr,
+                        )
+                        raise SystemExit(1)
+                    print(
+                        "[serve] invitation pairing ENABLED from "
+                        f"{args.pairing_config} (POST /api/pair; the "
+                        "code is never logged)"
+                    )
                 if args.monitor_token_file:
                     monitoring_api = _build_monitoring_api(
                         bind=args.monitor_bind,
                         port=args.monitor_port,
                         token_file=args.monitor_token_file,
+                        pairing_service=pairing_service,
                     )
+                if args.mdns_announce:
+                    if monitoring_api is None:
+                        print(
+                            "[serve] --mdns-announce requires the "
+                            "monitoring API (pass --monitor-token-file); "
+                            "skipping announcement (honest no-op)",
+                            file=sys.stderr,
+                        )
+                    else:
+                        from data_engine.runtime.announce import (
+                            DEFAULT_INSTANCE,
+                            try_announce_mdns,
+                        )
+
+                        mdns_announcement = try_announce_mdns(
+                            instance=args.mdns_instance or DEFAULT_INSTANCE,
+                            host=args.monitor_bind,
+                            port=args.monitor_port,
+                        )
+                        print(f"[serve] {mdns_announcement.status}")
                 if args.registry_url:
                     heartbeat_sender = _build_heartbeat_sender(
                         registry_url=args.registry_url,
@@ -571,9 +703,14 @@ def main(argv=None):
                 monitoring_api=monitoring_api,
                 heartbeat_sender=heartbeat_sender,
             )
-            # SystemExit propagates past the Exception handler below so
-            # the documented service exit codes reach the process.
-            raise SystemExit(service.run())
+            try:
+                # SystemExit propagates past the Exception handler below so
+                # the documented service exit codes reach the process.
+                raise SystemExit(service.run())
+            finally:
+                # v4.0: best-effort mDNS teardown (never masks the exit code)
+                if mdns_announcement is not None:
+                    mdns_announcement.stop()
 
         elif args.command == "check-boundary":
             calc_type = CalculationType(args.calc_type.lower()) if args.calc_type else None

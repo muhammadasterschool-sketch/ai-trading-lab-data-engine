@@ -21,6 +21,11 @@ Contract (fail-closed at every boundary):
 - **Rate limiting**: fixed-window per-client cap (default 60
   requests/minute, injectable); exceeded → 429. Applies to
   authenticated AND unauthenticated requests (brute-force friction).
+- **Pairing (v4.0)**: ``POST /api/pair`` is the ONE onboarding
+  endpoint reachable BEFORE token auth (invitation code → token),
+  gated by an injected :class:`~data_engine.runtime.pairing.PairingService`
+  with its own stricter per-IP limiter; not wired → 503 fail-closed.
+  Every other route is unchanged and stays token-first.
 - **Loopback default**: binds 127.0.0.1 unless an EXPLICIT bind
   address is injected (the documented per-user deployment binds the
   engine-side API on loopback and lets nginx terminate TLS on the
@@ -48,6 +53,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable, Optional
 
 from data_engine.runtime.contracts import RuntimeContractError
+from data_engine.runtime.pairing import E_PAIRING_DISABLED
 from data_engine.runtime.strategy_activation import ActivationDecision
 
 #: Fields a heartbeat payload may contain (Stage F / F6 data
@@ -156,6 +162,7 @@ class MonitoringAPI:
         strategy_gate: Optional[Any] = None,
         rate_limit_max: int = 60,
         rate_limit_window: float = 60.0,
+        pairing_service: Optional[Any] = None,
     ) -> None:
         if not auth_token or not isinstance(auth_token, str):
             raise MonitoringAPIError(
@@ -183,6 +190,7 @@ class MonitoringAPI:
         self._killswitch_activator = killswitch_activator
         self._prediction_provider = prediction_provider
         self._strategy_gate = strategy_gate  # StrategyActivationGate (G6)
+        self._pairing_service = pairing_service  # PairingService (v4.0 B1)
         self._limiter = _RateLimiter(rate_limit_max, rate_limit_window)
         self._server: Optional[ThreadingHTTPServer] = None
         self._started_at: Optional[float] = None
@@ -297,6 +305,7 @@ class MonitoringAPI:
                                 "/api/orders", "/api/pnl", "/api/feed",
                                 "/api/risk", "/api/events",
                                 "/api/killswitch", "/api/prediction",
+                                "POST /api/pair (onboarding; invitation code)",
                                 "POST /api/killswitch/activate",
                                 "POST /api/strategy/submit",
                                 "GET /api/strategy/{id}",
@@ -312,6 +321,63 @@ class MonitoringAPI:
 
             def do_POST(self) -> None:  # noqa: N802
                 client = self.client_address[0]
+                route = self.path.split("?", 1)[0].rstrip("/")
+
+                # -- v4.0 B1: POST /api/pair — the ONE onboarding
+                # endpoint handled BEFORE token auth (invitation code
+                # is the onboarding secret; the service enforces its own
+                # STRICTER per-IP pairing rate limit internally).
+                # Everything else below is unchanged and token-first.
+                if route == "/api/pair":
+                    if api._pairing_service is None:
+                        self._json(
+                            HTTPStatus.SERVICE_UNAVAILABLE,
+                            {"error": E_PAIRING_DISABLED},
+                        )
+                        return
+                    length = int(
+                        self.headers.get("Content-Length", "0") or 0
+                    )
+                    if length <= 0 or length > 8192:
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": "JSON body required (max 8 KiB)"},
+                        )
+                        return
+                    try:
+                        pair_body = json.loads(
+                            self.rfile.read(length).decode("utf-8")
+                        )
+                    except (ValueError, UnicodeDecodeError):
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": "invalid JSON body"},
+                        )
+                        return
+                    if not isinstance(pair_body, dict):
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": "JSON object required"},
+                        )
+                        return
+                    status, payload = api._pairing_service.attempt(
+                        client_ip=client,
+                        payload=pair_body,
+                        token=api._token,
+                        health_provider=api._provider("health"),
+                    )
+                    self._json(
+                        HTTPStatus(status) if status in (
+                            HTTPStatus.OK.value,
+                            HTTPStatus.BAD_REQUEST.value,
+                            HTTPStatus.FORBIDDEN.value,
+                            HTTPStatus.TOO_MANY_REQUESTS.value,
+                            HTTPStatus.SERVICE_UNAVAILABLE.value,
+                        ) else HTTPStatus.INTERNAL_SERVER_ERROR,
+                        payload,
+                    )
+                    return
+
                 if not api._limiter.allow(client):
                     self._json(
                         HTTPStatus.TOO_MANY_REQUESTS,
@@ -324,7 +390,6 @@ class MonitoringAPI:
                         {"error": "invalid or missing bearer token"},
                     )
                     return
-                route = self.path.split("?", 1)[0].rstrip("/")
                 if route == "/api/strategy/submit":
                     """G6 chat-form submission: structured spec + free
                     text (LLM assist allowed for PARSING ONLY, never

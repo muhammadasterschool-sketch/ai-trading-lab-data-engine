@@ -16,7 +16,18 @@
 #       [--repo-ref main] \
 #       [--registry-url https://registry.example.com/heartbeat] \
 #       [--registry-token-file /path/to/ingest-token] \
-#       [--user-label "alice-primary"]
+#       [--user-label "alice-primary"] \
+#       [--invitation-code <code>]
+#
+# v4.0 --invitation-code (OPTIONAL, owner-issued): enables APK
+# invitation pairing on this server (POST /api/pair). The code is
+# stored ONLY as a salted SHA-256 hash at /etc/ai-trading-lab/
+# invitation.hash (0640, root:engine — never plaintext, never
+# logged). WITHOUT the flag the server keeps pairing DISABLED
+# (fail-closed: the APK cannot onboard; token entry still works).
+# NOTE: the code value transits the installer's environment — run
+# from a root shell and rotate it after distribution (documented in
+# deploy/MULTI-USER-DEPLOYMENT-GUIDE.md).
 #
 # Secrets are GENERATED on this host (openssl rand) and stored ONLY in
 # /etc/ai-trading-lab/ with root:aitl 0640. Nothing secret is embedded
@@ -34,6 +45,7 @@ REPO_REF="main"
 REGISTRY_URL=""
 REGISTRY_TOKEN_FILE=""
 USER_LABEL=""
+INVITATION_CODE=""
 ENGINE_USER="aitl"
 INSTALL_ROOT="/opt/ai-trading-lab"
 ETC_DIR="/etc/ai-trading-lab"
@@ -49,6 +61,7 @@ while [[ $# -gt 0 ]]; do
     --registry-url) REGISTRY_URL="$2"; shift 2 ;;
     --registry-token-file) REGISTRY_TOKEN_FILE="$2"; shift 2 ;;
     --user-label) USER_LABEL="$2"; shift 2 ;;
+    --invitation-code) INVITATION_CODE="$2"; shift 2 ;;
     --engine-user) ENGINE_USER="$2"; shift 2 ;;
     *) echo "unknown option: $1" >&2; exit 1 ;;
   esac
@@ -67,6 +80,11 @@ echo "== AI Trading Lab — per-user server install =="
 echo "   domain:            $DOMAIN"
 echo "   engine user:       $ENGINE_USER"
 echo "   registry heartbeat: ${REGISTRY_URL:-DISABLED (pass --registry-url to enable)}"
+if [[ -n "$INVITATION_CODE" ]]; then
+  echo "   invitation pairing: ENABLED (stored as salted hash only)"
+else
+  echo "   invitation pairing: DISABLED (pass --invitation-code to enable)"
+fi
 echo "   user label:        ${USER_LABEL:-n/a}"
 
 # -- 1. system packages ----------------------------------------------------
@@ -111,6 +129,23 @@ fi
 if [[ -n "$REGISTRY_URL" ]]; then
   install -m 0640 -o root -g "$ENGINE_USER" "$REGISTRY_TOKEN_FILE" "$ETC_DIR/registry.token"
 fi
+# v4.0: invitation pairing — salted SHA-256 ONLY (B2). The plaintext
+# code never touches disk, logs, or the systemd unit.
+if [[ -n "$INVITATION_CODE" ]]; then
+  PAIRING_SALT="$(openssl rand -hex 16)"
+  PAIRING_HASH="$(PAIRING_SALT="$PAIRING_SALT" PAIRING_CODE="$INVITATION_CODE" \
+    python3 -c 'import hashlib, os; print(hashlib.sha256((os.environ["PAIRING_SALT"] + os.environ["PAIRING_CODE"]).encode("utf-8")).hexdigest())')"
+  umask 077
+  printf '{"version": 1, "enabled": true, "salt_hex": "%s", "code_sha256_hex": "%s", "max_attempts_per_minute": 5}\n' \
+    "$PAIRING_SALT" "$PAIRING_HASH" > "$ETC_DIR/invitation.hash"
+  chown root:"$ENGINE_USER" "$ETC_DIR/invitation.hash"
+  chmod 0640 "$ETC_DIR/invitation.hash"
+  unset PAIRING_HASH PAIRING_SALT INVITATION_CODE
+  echo "[ok] invitation pairing ENABLED (salted hash in $ETC_DIR/invitation.hash; code never stored plaintext)"
+else
+  rm -f "$ETC_DIR/invitation.hash"
+  echo "[ok] invitation pairing DISABLED (no --invitation-code; APK onboarding refused, fail-closed)"
+fi
 echo "[ok] secrets generated in $ETC_DIR (root:$ENGINE_USER 0640; never logged, never committed)"
 
 # -- 5. state + log dirs -------------------------------------------------------
@@ -122,6 +157,10 @@ chmod 0750 "$STATE_DIR" "$LOG_DIR"
 REGISTRY_ARGS=""
 if [[ -n "$REGISTRY_URL" ]]; then
   REGISTRY_ARGS="--registry-url $REGISTRY_URL --registry-token-file $ETC_DIR/registry.token --user-label $(printf '%q' "$USER_LABEL")"
+fi
+PAIRING_ARGS=""
+if [[ -f "$ETC_DIR/invitation.hash" ]]; then
+  PAIRING_ARGS="--pairing-config $ETC_DIR/invitation.hash"
 fi
 cat > "/etc/systemd/system/ai-trading-lab.service" <<UNIT
 [Unit]
@@ -136,7 +175,7 @@ Group=$ENGINE_USER
 Environment=RUNTIME_LEDGER_MAC_KEY_FILE=$ETC_DIR/mac.key
 ExecStart=$INSTALL_ROOT/venv/bin/python -m data_engine.cli serve \\
     --monitor-bind 127.0.0.1 --monitor-port $MONITOR_PORT \\
-    --monitor-token-file $ETC_DIR/monitor.token $REGISTRY_ARGS
+    --monitor-token-file $ETC_DIR/monitor.token $REGISTRY_ARGS $PAIRING_ARGS
 Restart=on-failure
 RestartSec=10
 
