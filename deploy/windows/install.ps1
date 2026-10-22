@@ -1,6 +1,7 @@
 # install.ps1 — AI Trading Lab Data Engine, Windows package installer
-# Stage E (Part 8, E1). Fail-closed: ANY error stops the script with a
-# non-zero exit. No secrets are read, written, or embedded here.
+# Stage E (Part 8, E1; upgraded v4.0, PART 7 D1).
+# Fail-closed: ANY error stops the script with a non-zero exit. No
+# secrets are read, written, or embedded here.
 #
 # Usage (from the extracted package root, in PowerShell):
 #   powershell -ExecutionPolicy Bypass -File .\install.ps1
@@ -11,6 +12,7 @@
 #   3. installs the LOCKED runtime dependencies (hash-pinned)
 #   4. installs the engine wheel from .\dist\
 #   5. runs the fail-closed packaging smoke test
+#   6. verifies the v4.0 local-monitor components are present
 #
 # LIVE TRADING IS NOT AUTHORIZED. PAPER_READY stays FALSE.
 # Secrets are handled ONLY via environment variables at runtime.
@@ -81,10 +83,32 @@ if ($LASTEXITCODE -ne 0) {
     Fail "SMOKE TEST FAILED — the packaged application is NOT fit. Do not proceed; report the output above."
 }
 
+# -- 6. v4.0 local-monitor components (fail-closed package check) -------------
+foreach ($component in @("run-monitor.ps1", "local-monitor-config.template.json")) {
+    if (-not (Test-Path ".\$component")) {
+        Fail "required v4.0 component missing from the package: $component (tampered/incomplete package?)"
+    }
+}
+Write-Host "[ok] v4.0 local-monitor components present (run-monitor.ps1 + invitation hash template)."
+
 Write-Host ""
 Write-Host "[INSTALL-OK] Engine installed into .\.venv"
-Write-Host "Next steps:"
-Write-Host "  .\run-tests.ps1      - run the full test suite"
-Write-Host "  .\run-paper.ps1      - start the paper-mode supervisor (fail-closed; see README)"
-Write-Host "Secrets: ONLY environment variables (see README-WINDOWS-PACKAGE.md). Never files in the package."
+Write-Host ""
+Write-Host "What next (beginner path — rent NOTHING):"
+Write-Host "  1. .\run-monitor.ps1            - start the LOCAL monitor on this PC"
+Write-Host "     (first run creates local-monitor.json + monitor-token.txt; the monitor"
+Write-Host "      binds loopback; add -AllowLan to connect your phone over Wi-Fi —"
+Write-Host "      LAN traffic is UNENCRYPTED, see LOCAL-MONITOR-RUNBOOK.md)"
+Write-Host "  2. install the APK on your phone, choose LOCAL COMPUTER, and pair"
+Write-Host "     with your invitation code (issued to you out-of-band; the engine"
+Write-Host "      stores only a salted hash of it)"
+Write-Host "  3. .\run-tests.ps1            - run the full engine test suite"
+Write-Host "  4. .\run-paper.ps1            - LATER: paper-mode supervisor (needs your"
+Write-Host "     explicit -Confirm + MAC key; see README-WINDOWS-PACKAGE.md)"
+Write-Host ""
+Write-Host "Prefer a cloud server instead (https, remote access)? The APK also"
+Write-Host "supports CLOUD SERVER mode — see deploy/MULTI-USER-DEPLOYMENT-GUIDE.md."
+Write-Host "You can keep BOTH profiles on the phone and switch any time."
+Write-Host ""
+Write-Host "Secrets: ONLY environment variables at runtime (see README-WINDOWS-PACKAGE.md)."
 exit 0

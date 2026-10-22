@@ -291,3 +291,41 @@ mandated format and will be extended for any future owner reports.
   (preflight → authorized launch → bounded 80-bar tick loop →
   quiescence; procedure order enforced). NO soak was started.
 
+
+---
+
+# FIX-LOG — v4.0 local-first run (2026-10-23)
+
+Same protocol: full suite re-run before advancing; no red suite advanced.
+
+## FIX-15 — hardcoded engine-version pin in the monitoring CLI test
+
+- **Owner report:** none (self-caught by the v4.0 Stage B suite run).
+- **Diagnosis:** `tests/test_monitoring_api.py` pinned
+  `body["engine_version"] == "0.3.0"`, which the 0.4.0 version bump
+  (required by the package validator's version-agreement check)
+  legitimately broke — a magic string where a version-AGREEMENT pin
+  was intended.
+- **Fix:** assert against `data_engine.__version__` (the contract:
+  health reports the ACTUAL engine version), preserving the pin's
+  intent without a per-release edit.
+- **Re-test evidence:** affected files green (142 passed), full suite
+  green (recorded in the v4.0 final response).
+
+## FIX-16 — pre-commit catch: invitation-plaintext sentinel drafted into a Flutter test
+
+- **Owner report:** none (self-caught during authoring, NEVER
+  committed).
+- **Diagnosis:** an early draft of `mobile/test/pairing_test.dart`
+  contained a "sentinel" string equal to the local default invitation
+  code — committing it would have violated Rule 3/P4/C6 (no code
+  plaintext anywhere in `mobile/`) in the very test meant to guard it.
+  A literal guard is self-defeating: absence of a string cannot be
+  tested by naming the string inside the shipped tree.
+- **Fix:** removed the sentinel entirely; the no-plaintext property is
+  enforced where it is actually testable — the owner-side
+  AITL_INVITE_PROBE scans (tests/test_pairing.py repo-wide +
+  validate_windows_package.py whole-package), which never name the
+  value in any committed file.
+- **Re-test evidence:** `rg -l "2991474" mobile/` → empty; package
+  probe scan PASS (562 files, probe set).

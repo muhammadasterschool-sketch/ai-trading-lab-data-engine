@@ -1,17 +1,28 @@
-// AI Trading Lab — Android monitoring client (Stage F, Part 9 F2).
+// AI Trading Lab — Android monitoring client (Stage F, Part 9 F2;
+// v4.0 dual-mode onboarding — PART 6 Stage C).
 //
 // Role (owner mandate): monitoring + control client, server-
 // authenticated. The trading engine NEVER runs on the phone.
 //
-// Security contract:
-//  - Login = SERVER URL + PERSONAL TOKEN: each user points the app
-//    at their OWN dedicated server. There is NO default server
-//    address and NO shared account anywhere in this codebase.
-//  - TLS ONLY: http:// URLs are refused before any request.
+// Security contract (v4.0, two modes — P2/P3/P4/P5/P6/P7):
+//  - First run offers exactly TWO options: CLOUD SERVER (your own
+//    VPS over https) or LOCAL COMPUTER (the engine on your Windows
+//    PC — no server rental; loopback by default, explicit -AllowLan
+//    + honest unencrypted-LAN warning on the PC side).
+//  - CLOUD profiles are TLS ONLY: http:// URLs are refused before any
+//    request (unchanged v0.3.0 posture).
+//  - LOCAL profiles may use http:// ONLY via an explicit PER-PROFILE
+//    isLocal flag — never a global downgrade; cloud profiles still
+//    refuse http. A one-time warning states the LAN is unencrypted.
+//  - Onboarding (both modes) uses the owner-issued INVITATION CODE
+//    via POST /api/pair; the returned token lands in
+//    flutter_secure_storage. The code itself is typed, used ONCE,
+//    and NEVER stored, logged, or embedded in the APK.
 //  - The token lives ONLY in flutter_secure_storage (Android
 //    Keystore-backed). It is never logged and never rendered.
-//  - Multi-profile: several server profiles can be stored, but only
-//    ONE is active at a time.
+//  - Multi-profile: several server profiles (mixed cloud/local) can
+//    be stored, but only ONE is active at a time. Switching NEVER
+//    deletes profiles, tokens, or local state (P6).
 //  - The ONLY mutating action is the kill switch, gated by an
 //    explicit confirmation dialog with a mandatory reason; it POSTs
 //    to the server's /api/killswitch/activate endpoint, which itself
@@ -26,8 +37,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
+import 'pairing.dart';
+
 const String _storageProfilesKey = 'atl_monitor_profiles';
 const String _storageActiveKey = 'atl_monitor_active_profile';
+const String _storageOnboardingModeKey = 'atl_onboarding_mode';
+const String _storageLanWarningKey = 'atl_local_lan_warning_ack';
 
 /// One saved server profile (exactly one is active at a time).
 class ServerProfile {
@@ -36,6 +51,8 @@ class ServerProfile {
     required this.label,
     required this.serverUrl,
     required this.token,
+    this.isLocal = false,
+    this.email,
   });
 
   final String id;
@@ -43,11 +60,24 @@ class ServerProfile {
   final String serverUrl;
   final String token;
 
+  /// v4.0: LOCAL mode is an explicit PER-PROFILE flag. A local profile
+  /// may use http:// on the user's own LAN; a CLOUD profile never can
+  /// (TLS-only posture unchanged for cloud). This is the ONLY switch
+  /// for transport policy — there is no global downgrade anywhere.
+  final bool isLocal;
+
+  /// v4.0 (P7): identity-only field for LOCAL profiles — audit-log
+  /// entry at pairing + display in the app. No OAuth, no Google
+  /// sign-in, no network call to anyone. Redacted server-side.
+  final String? email;
+
   Map<String, dynamic> toJson() => <String, dynamic>{
         'id': id,
         'label': label,
         'serverUrl': serverUrl,
         'token': token,
+        'isLocal': isLocal,
+        if (email != null) 'email': email,
       };
 
   static ServerProfile fromJson(Map<String, dynamic> json) => ServerProfile(
@@ -55,6 +85,9 @@ class ServerProfile {
         label: json['label'] as String,
         serverUrl: json['serverUrl'] as String,
         token: json['token'] as String,
+        // backward compatibility: v0.3.x profiles load as CLOUD profiles
+        isLocal: (json['isLocal'] as bool?) ?? false,
+        email: json['email'] as String?,
       );
 }
 
@@ -119,6 +152,20 @@ class ProfileStore {
       await _storage.write(key: _storageActiveKey, value: id);
     }
   }
+
+  // -- v4.0: onboarding-mode memory + one-time LAN warning ack (C1/C3)
+
+  Future<void> saveOnboardingMode(String mode) =>
+      _storage.write(key: _storageOnboardingModeKey, value: mode);
+
+  Future<String?> loadOnboardingMode() =>
+      _storage.read(key: _storageOnboardingModeKey);
+
+  Future<void> acknowledgeLocalLanWarning() =>
+      _storage.write(key: _storageLanWarningKey, value: '1');
+
+  Future<bool> localLanWarningAcknowledged() async =>
+      await _storage.read(key: _storageLanWarningKey) == '1';
 }
 
 // ---------------------------------------------------------------------------
@@ -140,8 +187,13 @@ class EngineApiClient {
   final String serverUrl;
   final String token;
 
-  /// TLS-only: plain http:// is refused before any request is made.
-  static String normalizeServerUrl(String raw) {
+  /// Transport policy (v4.0, scoped PER PROFILE — never global):
+  ///  - CLOUD (isLocal == false): TLS ONLY — http:// is refused and a
+  ///    bare host assumes https:// (exactly the v0.3.0 posture).
+  ///  - LOCAL (isLocal == true): http:// is allowed on the user's own
+  ///    LAN and a bare host (e.g. 127.0.0.1 or the PC's IP) assumes
+  ///    http://. NEVER applies to cloud profiles.
+  static String normalizeServerUrl(String raw, {bool isLocal = false}) {
     var url = raw.trim();
     if (url.endsWith('/')) {
       url = url.substring(0, url.length - 1);
@@ -150,14 +202,17 @@ class EngineApiClient {
       return url;
     }
     if (url.startsWith('http://')) {
-      throw ApiException(
-        0,
-        'TLS only: http:// is refused. Use https:// (your server\'s '
-            'nginx certificate).',
-      );
+      if (!isLocal) {
+        throw ApiException(
+          0,
+          'TLS only: http:// is refused for cloud servers. Use https:// '
+              '(your server\'s nginx certificate).',
+        );
+      }
+      return url;
     }
-    // bare host: assume https (never silently downgrade to http)
-    return 'https://$url';
+    // bare host: NEVER silently downgrade a cloud profile
+    return isLocal ? 'http://$url' : 'https://$url';
   }
 
   Map<String, String> get _headers => <String, String>{
@@ -264,7 +319,7 @@ class _ProfileGatePageState extends State<ProfileGatePage> {
       _loading = false;
     });
     if (profiles.isEmpty) {
-      await _openEditor(initial: null);
+      await _openModeChoice();
     } else if (active != null && profiles.any((p) => p.id == active)) {
       if (!mounted) {
         return;
@@ -277,14 +332,36 @@ class _ProfileGatePageState extends State<ProfileGatePage> {
     }
   }
 
-  Future<void> _openEditor({ServerProfile? initial}) async {
-    final saved = await showDialog<ServerProfile>(
+  /// v4.0 (P2/C1): first-run + add-profile flow — exactly TWO options,
+  /// plus the advanced manual-token path. The choice is persisted and
+  /// changeable at any time (adding a profile of the other kind).
+  Future<void> _openModeChoice() async {
+    final String? mode = await showDialog<String>(
       context: context,
-      builder: (_) => ProfileEditDialog(initial: initial),
+      builder: (_) => const ModeChoiceDialog(),
     );
-    if (saved == null) {
+    if (mode == null) {
       return;
     }
+    if (mode == 'advanced') {
+      await _openEditor(initial: null);
+      return;
+    }
+    await _store.saveOnboardingMode(mode);
+    final ServerProfile? saved = await showDialog<ServerProfile>(
+      context: context,
+      builder: (_) => mode == 'local'
+          ? LocalPairingFormDialog(store: _store)
+          : const CloudPairingFormDialog(),
+    );
+    if (saved != null) {
+      await _saveProfile(saved);
+    }
+  }
+
+  /// Shared persistence: keep every profile, exactly one active (P6 —
+  /// switching/adding NEVER deletes profiles, tokens, or state).
+  Future<void> _saveProfile(ServerProfile saved) async {
     final next = List<ServerProfile>.from(_profiles)
       ..removeWhere((p) => p.id == saved.id)
       ..add(saved);
@@ -300,6 +377,17 @@ class _ProfileGatePageState extends State<ProfileGatePage> {
     Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
       builder: (_) => DashboardPage(profile: saved),
     ));
+  }
+
+  Future<void> _openEditor({ServerProfile? initial}) async {
+    final saved = await showDialog<ServerProfile>(
+      context: context,
+      builder: (_) => ProfileEditDialog(initial: initial),
+    );
+    if (saved == null) {
+      return;
+    }
+    await _saveProfile(saved);
   }
 
   Future<void> _activate(ServerProfile profile) async {
@@ -320,15 +408,15 @@ class _ProfileGatePageState extends State<ProfileGatePage> {
         actions: <Widget>[
           IconButton(
             icon: const Icon(Icons.add),
-            tooltip: 'Add server profile',
-            onPressed: () => _openEditor(initial: null),
+            tooltip: 'Add server profile (cloud or local)',
+            onPressed: () => _openModeChoice(),
           ),
         ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _profiles.isEmpty
-              ? const _EmptyProfiles()
+              ? _EmptyProfiles(onAdd: () => _openModeChoice())
               : ListView(
                   children: _profiles
                       .map((p) => ListTile(
@@ -338,7 +426,9 @@ class _ProfileGatePageState extends State<ProfileGatePage> {
                                   : Icons.radio_button_off,
                             ),
                             title: Text(p.label),
-                            subtitle: Text(p.serverUrl),
+                            subtitle: Text(p.isLocal
+                                ? '${p.serverUrl}  ·  LOCAL${p.email != null && p.email!.isNotEmpty ? '  ·  ${p.email}' : ''}'
+                                : '${p.serverUrl}  ·  CLOUD'),
                             onTap: () => _activate(p),
                             trailing: IconButton(
                               icon: const Icon(Icons.edit),
@@ -352,7 +442,9 @@ class _ProfileGatePageState extends State<ProfileGatePage> {
 }
 
 class _EmptyProfiles extends StatelessWidget {
-  const _EmptyProfiles();
+  const _EmptyProfiles({required this.onAdd});
+
+  final Future<void> Function() onAdd;
 
   @override
   Widget build(BuildContext context) {
@@ -365,10 +457,17 @@ class _EmptyProfiles extends StatelessWidget {
             const Icon(Icons.dns_outlined, size: 56),
             const SizedBox(height: 12),
             Text(
-              'No server profiles yet.\nAdd YOUR dedicated server:\n'
-              'server URL + personal token.',
+              'No server profiles yet.\n'
+              'Connect a CLOUD server (https) or pair with the\n'
+              'engine on your LOCAL Windows computer.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              icon: const Icon(Icons.add),
+              label: const Text('Add server profile'),
+              onPressed: () => onAdd(),
             ),
           ],
         ),
@@ -393,6 +492,9 @@ class _ProfileEditDialogState extends State<ProfileEditDialog> {
       TextEditingController(text: widget.initial?.serverUrl ?? '');
   late final TextEditingController _token =
       TextEditingController(text: widget.initial?.token ?? '');
+  late final TextEditingController _email =
+      TextEditingController(text: widget.initial?.email ?? '');
+  bool _isLocal = widget.initial?.isLocal ?? false;
   String? _error;
 
   @override
@@ -400,6 +502,7 @@ class _ProfileEditDialogState extends State<ProfileEditDialog> {
     _label.dispose();
     _url.dispose();
     _token.dispose();
+    _email.dispose();
     super.dispose();
   }
 
@@ -407,6 +510,7 @@ class _ProfileEditDialogState extends State<ProfileEditDialog> {
     final label = _label.text.trim();
     final rawUrl = _url.text.trim();
     final token = _token.text.trim();
+    final email = _email.text.trim();
     if (label.isEmpty) {
       setState(() => _error = 'a profile label is required');
       return;
@@ -417,9 +521,15 @@ class _ProfileEditDialogState extends State<ProfileEditDialog> {
     }
     String url;
     try {
-      url = EngineApiClient.normalizeServerUrl(rawUrl);
+      // v4.0: per-profile transport policy — a LOCAL profile may use
+      // http:// on the user's own LAN; a CLOUD profile never can.
+      url = EngineApiClient.normalizeServerUrl(rawUrl, isLocal: _isLocal);
     } on ApiException catch (exc) {
       setState(() => _error = exc.message);
+      return;
+    }
+    if (_isLocal && email.isNotEmpty && !email.contains('@')) {
+      setState(() => _error = 'enter a valid email (identity only — no sign-in happens)');
       return;
     }
     Navigator.of(context).pop(ServerProfile(
@@ -428,6 +538,8 @@ class _ProfileEditDialogState extends State<ProfileEditDialog> {
       label: label,
       serverUrl: url,
       token: token,
+      isLocal: _isLocal,
+      email: _isLocal && email.isNotEmpty ? email : null,
     ));
   }
 
@@ -448,9 +560,11 @@ class _ProfileEditDialogState extends State<ProfileEditDialog> {
           TextField(
             controller: _url,
             keyboardType: TextInputType.url,
-            decoration: const InputDecoration(
-              labelText: 'Server URL (https://…)',
-              hintText: 'https://engine.example.com',
+            decoration: InputDecoration(
+              labelText: _isLocal
+                  ? 'PC address (http://… or 127.0.0.1)'
+                  : 'Server URL (https://…)',
+              hintText: _isLocal ? 'http://192.168.1.5:8018' : 'https://engine.example.com',
             ),
           ),
           TextField(
@@ -461,6 +575,21 @@ class _ProfileEditDialogState extends State<ProfileEditDialog> {
               helperText: 'stored in secure storage only',
             ),
           ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text(
+                'Local computer profile (http allowed on my own LAN)'),
+            value: _isLocal,
+            onChanged: (value) => setState(() => _isLocal = value),
+          ),
+          if (_isLocal)
+            TextField(
+              controller: _email,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(
+                labelText: 'Email (identity only, optional here)',
+              ),
+            ),
           if (_error != null)
             Padding(
               padding: const EdgeInsets.only(top: 8),
@@ -478,6 +607,405 @@ class _ProfileEditDialogState extends State<ProfileEditDialog> {
           child: const Text('Cancel'),
         ),
         FilledButton(onPressed: _save, child: const Text('Save')),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// v4.0 dual-mode onboarding dialogs (P2/P3/P4/C1–C4)
+// ---------------------------------------------------------------------------
+
+/// First screen of the flow: EXACTLY two options (P2) + the advanced
+/// manual-token escape (C4). The returned string is 'cloud', 'local',
+/// 'advanced', or null (dismissed).
+class ModeChoiceDialog extends StatelessWidget {
+  const ModeChoiceDialog({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('How will you run?'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          const Text(
+            'Cloud needs your own server (https). Local pairs with the '
+            'engine on your Windows PC — rent nothing.',
+          ),
+          const SizedBox(height: 14),
+          FilledButton.icon(
+            icon: const Icon(Icons.cloud_outlined),
+            label: const Text('CLOUD SERVER'),
+            onPressed: () => Navigator.of(context).pop('cloud'),
+          ),
+          const SizedBox(height: 10),
+          FilledButton.icon(
+            icon: const Icon(Icons.computer),
+            label: const Text('LOCAL COMPUTER'),
+            onPressed: () => Navigator.of(context).pop('local'),
+          ),
+        ],
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop('advanced'),
+          child: const Text('Advanced: paste token manually'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Cloud onboarding (P3/C2): Name + Server URL + Invitation Code —
+/// all compulsory. Strict TLS-only normalization; the invitation
+/// code is sent ONCE to POST /api/pair and never stored.
+class CloudPairingFormDialog extends StatefulWidget {
+  const CloudPairingFormDialog({super.key});
+
+  @override
+  State<CloudPairingFormDialog> createState() => _CloudPairingFormDialogState();
+}
+
+class _CloudPairingFormDialogState extends State<CloudPairingFormDialog> {
+  final TextEditingController _name = TextEditingController();
+  final TextEditingController _url = TextEditingController();
+  final TextEditingController _code = TextEditingController();
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _url.dispose();
+    _code.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pair() async {
+    final name = _name.text.trim();
+    final rawUrl = _url.text.trim();
+    final code = _code.text.trim();
+    if (name.isEmpty || rawUrl.isEmpty || code.isEmpty) {
+      setState(() => _error =
+          'name, server URL and invitation code are all required');
+      return;
+    }
+    String url;
+    try {
+      url = EngineApiClient.normalizeServerUrl(rawUrl, isLocal: false);
+    } on ApiException catch (exc) {
+      setState(() => _error = exc.message);
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final token = await pairWithEngine(
+        baseUri: Uri.parse(url),
+        name: name,
+        email: '',
+        invitationCode: code,
+        mode: 'cloud',
+      );
+      if (!mounted) {
+        return;
+      }
+      Navigator.of(context).pop(ServerProfile(
+        id: DateTime.now().microsecondsSinceEpoch.toRadixString(36),
+        label: name,
+        serverUrl: url,
+        token: token,
+        isLocal: false,
+      ));
+    } on PairingException catch (exc) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _busy = false;
+        _error = exc.message;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Connect your cloud server'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          TextField(
+            controller: _name,
+            decoration: const InputDecoration(
+                labelText: 'Name (e.g. alice-primary)'),
+          ),
+          TextField(
+            controller: _url,
+            keyboardType: TextInputType.url,
+            decoration: const InputDecoration(
+              labelText: 'Server URL (https://…)',
+              hintText: 'https://engine.example.com',
+            ),
+          ),
+          TextField(
+            controller: _code,
+            obscureText: true,
+            decoration: const InputDecoration(
+              labelText: 'Invitation code (owner-issued, compulsory)',
+              helperText: 'sent once — never stored',
+            ),
+          ),
+          if (_error != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                _error!,
+                style:
+                    TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+          if (_busy)
+            const Padding(
+              padding: EdgeInsets.only(top: 10),
+              child: LinearProgressIndicator(),
+            ),
+        ],
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: _busy ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _busy ? null : _pair,
+          child: const Text('Pair'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Local onboarding (P4/C3): Name + Gmail/email + Invitation Code +
+/// PC address (mDNS auto-discovered with manual fallback; 127.0.0.1
+/// allowed for same-device). http:// is permitted ONLY via the
+/// per-profile isLocal flag, after a one-time honest unencrypted-LAN
+/// warning. The email is identity-only (P7) — no OAuth, no sign-in.
+class LocalPairingFormDialog extends StatefulWidget {
+  const LocalPairingFormDialog({required this.store, this.discoverHost, super.key});
+
+  final ProfileStore store;
+
+  /// Test seam: injectable mDNS discovery (defaults to the real LAN
+  /// lookup). Tests inject an offline double for determinism.
+  final Future<String?> Function()? discoverHost;
+
+  @override
+  State<LocalPairingFormDialog> createState() => _LocalPairingFormDialogState();
+}
+
+class _LocalPairingFormDialogState extends State<LocalPairingFormDialog> {
+  final TextEditingController _name = TextEditingController();
+  final TextEditingController _email = TextEditingController();
+  final TextEditingController _code = TextEditingController();
+  final TextEditingController _pc = TextEditingController();
+  bool _busy = false;
+  bool _searching = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_prefillFromMdns());
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _email.dispose();
+    _code.dispose();
+    _pc.dispose();
+    super.dispose();
+  }
+
+  Future<void> _prefillFromMdns() async {
+    final discover = widget.discoverHost ?? discoverMonitorHost;
+    final host = await discover();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _searching = false;
+      if (host != null && _pc.text.isEmpty) {
+        _pc.text = host;
+      }
+    });
+  }
+
+  Future<void> _pair() async {
+    final name = _name.text.trim();
+    final email = _email.text.trim();
+    final code = _code.text.trim();
+    final pc = _pc.text.trim();
+    if (name.isEmpty || email.isEmpty || code.isEmpty || pc.isEmpty) {
+      setState(() => _error =
+          'name, email, invitation code and PC address are all required');
+      return;
+    }
+    if (!email.contains('@')) {
+      setState(() => _error =
+          'enter a valid email (identity only — no sign-in happens)');
+      return;
+    }
+    final String url;
+    try {
+      url = EngineApiClient.normalizeServerUrl(pc, isLocal: true);
+    } on ApiException catch (exc) {
+      setState(() => _error = exc.message);
+      return;
+    }
+
+    // One-time honest warning (C3): LAN traffic is unencrypted outside
+    // the host PC. Acknowledgement persists; the warning never blocks
+    // cloud profiles.
+    final acknowledged = await widget.store.localLanWarningAcknowledged();
+    if (!acknowledged) {
+      if (!mounted) {
+        return;
+      }
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Unencrypted LAN traffic'),
+          content: const Text(
+            'Local mode talks to your PC over plain http on this '
+            'network. Traffic between this phone and your PC is '
+            'UNENCRYPTED outside the PC itself. Use this only on a '
+            'network you trust. Cloud mode (https) stays encrypted '
+            'end-to-end through your server certificate.',
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('CANCEL'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('I UNDERSTAND'),
+            ),
+          ],
+        ),
+      );
+      if (ok != true) {
+        return;
+      }
+      await widget.store.acknowledgeLocalLanWarning();
+    }
+
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final token = await pairWithEngine(
+        baseUri: Uri.parse(url),
+        name: name,
+        email: email,
+        invitationCode: code,
+        mode: 'local',
+      );
+      if (!mounted) {
+        return;
+      }
+      Navigator.of(context).pop(ServerProfile(
+        id: DateTime.now().microsecondsSinceEpoch.toRadixString(36),
+        label: name,
+        serverUrl: url,
+        token: token,
+        isLocal: true,
+        email: email,
+      ));
+    } on PairingException catch (exc) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _busy = false;
+        _error = exc.message;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Pair with your Windows PC'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            TextField(
+              controller: _name,
+              decoration: const InputDecoration(
+                  labelText: 'Name (e.g. my-desktop)'),
+            ),
+            TextField(
+              controller: _email,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(
+                labelText: 'Gmail / email (identity only, compulsory)',
+                helperText: 'audit identity — no sign-in, no OAuth',
+              ),
+            ),
+            TextField(
+              controller: _pc,
+              keyboardType: TextInputType.url,
+              decoration: InputDecoration(
+                labelText: 'PC address (auto-detected via mDNS)',
+                hintText: '192.168.1.5:8018 or 127.0.0.1:8018',
+                helperText: _searching
+                    ? 'searching your network for the engine…'
+                    : 'auto-fill or type it manually',
+              ),
+            ),
+            TextField(
+              controller: _code,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Invitation code (compulsory)',
+                helperText: 'sent once — never stored',
+              ),
+            ),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  _error!,
+                  style:
+                      TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+            if (_busy)
+              const Padding(
+                padding: EdgeInsets.only(top: 10),
+                child: LinearProgressIndicator(),
+              ),
+          ],
+        ),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: _busy ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _busy ? null : _pair,
+          child: const Text('Pair'),
+        ),
       ],
     );
   }
@@ -521,6 +1049,19 @@ class _DashboardPageState extends State<DashboardPage> {
   void dispose() {
     _timer?.cancel();
     super.dispose();
+  }
+
+  /// v4.0 (P6): switch server profile — returns to the profile list,
+  /// keeping EVERY profile, token, and preference (nothing is deleted).
+  Future<void> _switchProfile() async {
+    final store = ProfileStore(const FlutterSecureStorage());
+    await store.saveActiveId(null); // clears only the ACTIVE pointer
+    if (!mounted) {
+      return;
+    }
+    Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
+      builder: (_) => const ProfileGatePage(),
+    ));
   }
 
   Future<void> _refresh() async {
@@ -666,6 +1207,11 @@ class _DashboardPageState extends State<DashboardPage> {
       appBar: AppBar(
         title: Text(widget.profile.label),
         actions: <Widget>[
+          IconButton(
+            icon: const Icon(Icons.swap_horiz),
+            tooltip: 'Switch server profile (cloud/local)',
+            onPressed: _switchProfile,
+          ),
           IconButton(icon: const Icon(Icons.refresh), onPressed: _refresh),
           IconButton(
             icon: const Icon(Icons.list_alt),
@@ -682,7 +1228,9 @@ class _DashboardPageState extends State<DashboardPage> {
           padding: const EdgeInsets.all(12),
           children: <Widget>[
             Text(
-              widget.profile.serverUrl,
+              '${widget.profile.serverUrl}  ·  '
+              '${widget.profile.isLocal ? 'LOCAL mode — unencrypted LAN' : 'CLOUD — https'}'
+              '${widget.profile.email != null && widget.profile.email!.isNotEmpty ? '  ·  ${widget.profile.email}' : ''}',
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 8),

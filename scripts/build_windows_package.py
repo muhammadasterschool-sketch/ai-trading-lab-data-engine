@@ -6,6 +6,8 @@ tree's branch:
 
     <package>/                          (ai-trading-lab-data-engine-windows-v<version>/)
     ├── install.ps1 / run-tests.ps1 / run-paper.ps1   (from deploy/windows/)
+    ├── run-monitor.ps1                                (v4.0 local monitor)
+    ├── local-monitor-config.template.json            (v4.0 salted invitation hash)
     ├── README-WINDOWS-PACKAGE.md                     (from deploy/windows/)
     ├── requirements-windows.txt                      (uv export --frozen --no-dev --no-emit-project, hash-pinned)
     ├── dist/<engine wheel>                           (uv build)
@@ -44,6 +46,8 @@ EXPECTED_COMPONENTS = (
     "install.ps1",
     "run-tests.ps1",
     "run-paper.ps1",
+    "run-monitor.ps1",
+    "local-monitor-config.template.json",
     "README-WINDOWS-PACKAGE.md",
 )
 

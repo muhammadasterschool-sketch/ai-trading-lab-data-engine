@@ -1,12 +1,15 @@
 name: ai_trading_lab_monitor
 description: >
-  AI Trading Lab — Android monitoring client (Stage F, Part 9 F2).
-  Monitoring + control client for the user's OWN dedicated server.
-  The trading engine NEVER runs on the phone. No secrets and no
-  hardcoded server address are embedded in the APK: every connection
-  is user-configured (server URL + personal token), TLS-only.
+  AI Trading Lab — Android monitoring client (Stage F, Part 9 F2;
+  v4.0 dual-mode onboarding).
+  Monitoring + control client for the user's OWN server (cloud, TLS)
+  OR the engine on the user's OWN Windows PC (local, invitation-code
+  pairing). The trading engine NEVER runs on the phone. No secrets,
+  no invitation-code values, and no hardcoded server addresses are
+  embedded in the APK: every connection is user-configured, and the
+  transport posture is a PER-PROFILE flag (cloud = TLS-only).
 publish_to: "none"
-version: 0.3.0+1
+version: 0.4.0+1
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
@@ -18,6 +21,9 @@ dependencies:
   # shared preferences, never plain files
   flutter_secure_storage: ^9.2.2
   http: ^1.2.1
+  # v4.0 (P5): mDNS auto-discovery of the local Windows monitor
+  # (_aitl-monitor._tcp.local.) — graceful fallback to manual entry
+  multicast_dns: ^0.3.2
 
 dev_dependencies:
   flutter_test:

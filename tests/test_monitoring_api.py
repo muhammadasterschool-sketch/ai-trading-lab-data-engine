@@ -603,7 +603,9 @@ class TestCliWiring:
             code, body = _get(f"{api.url}/api/health", file_auth)
             assert code == 200
             assert body["engine_mode"] == "PAPER_SUPERVISOR"
-            assert body["engine_version"] == "0.3.0"
+            import data_engine  # v4.0: version agreement, not a
+            # magic string — health reports the ACTUAL engine version
+            assert body["engine_version"] == data_engine.__version__
             # kill switch is fail-closed in the bare CLI path
             code, resp = _post(
                 f"{api.url}/api/killswitch/activate",
