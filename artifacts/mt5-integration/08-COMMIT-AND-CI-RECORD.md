@@ -19,7 +19,7 @@
 | `169b655` | baseline + file-level implementation plan (plan-only, pre-edit) |
 | `79f3f49` | the genuine feed: `mt5_terminal.py`, `mt5_symbol_map.py`, `mt5_market_data.py`, `require_demo` hardening, `mt5-probe` CLI, UNVETTED candidate, 85 new tests |
 | `fc2aace` | deliverables 01–07 |
-| `<final>` | this record (deliverable 08) — see `git log` for the exact tip SHA |
+| `22f7253` | this record (deliverable 08) — branch tip `22f725380be42a83e02375e7afe6c4d057a61f26` |
 
 Full-suite evidence AFTER the change (this host, Python 3.12.15, uv):
 **2994 passed, 8 skipped, 0 failed, 177.91 s, exit 0** — the +85 pass
