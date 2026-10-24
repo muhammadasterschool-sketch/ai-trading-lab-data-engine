@@ -232,6 +232,88 @@ def candidate_record(source_name: str) -> DataSourceRecord:
             ),
         )
 
+    if source_name == "exness-mt5-demo":
+        return DataSourceRecord(
+            source_name="exness-mt5-demo",
+            source_type="broker-terminal",
+            license_basis=(
+                "UNKNOWN — Exness client agreement / market-data terms "
+                "have NOT been reviewed or confirmed by the operator; "
+                "DEMO-account data-use conditions UNVERIFIED"
+            ),
+            coverage=(
+                "Requires a Windows host running the MetaTrader 5 "
+                "terminal with a POSITIVELY VERIFIED Exness DEMO "
+                "account; instrument coverage (forex, metals, indices, "
+                "stock CFDs) is whatever the connected terminal "
+                "OBSERVES — NONE VALIDATED yet; forex ~24/5 with "
+                "weekend gaps"
+            ),
+            granularity=(
+                "M1/M5/M15/M30/H1/H4/D1/W1/MN1 OHLC bars + raw ticks, "
+                "as offered by the terminal (timeframe constants are "
+                "resolved from the installed MetaTrader5 module, never "
+                "hardcoded)"
+            ),
+            expected_limitations=(
+                "Windows-only: the official MetaTrader5 Python package "
+                "requires the terminal running locally; availability "
+                "ends when the terminal closes",
+                "bar/tick timestamps are broker-server epoch values — "
+                "session/timezone semantics require operator "
+                "validation before any freshness claim",
+                "markets closed at weekends trip the staleness "
+                "threshold by design (raise or flag policy — never a "
+                "silent acceptance)",
+                "symbol names and contract specifications differ per "
+                "Exness account family — the mapping is OBSERVED, "
+                "digest-stamped and re-verified at every connect, "
+                "never assumed",
+                "no SLA — terminal/booking-server behaviour can change "
+                "without notice",
+                "READ-ONLY: the feed has no order path and the terminal "
+                "allowlist makes every trade function unreachable",
+            ),
+            revision_behavior=(
+                "MT5 history can be adjusted by the broker (rare, "
+                "unannounced); the symbol-map digest re-check detects "
+                "specification drift and refuses the feed until the "
+                "operator re-validates — revision policy otherwise "
+                "UNVERIFIED"
+            ),
+            corporate_action_behavior=(
+                "CFD index membership and broker symbol changes are "
+                "broker-side events; no synthetic adjustment is "
+                "performed — specification drift is refused via the "
+                "digest re-check"
+            ),
+            provenance_mechanism=(
+                "per-batch provenance model: venue server, terminal "
+                "name/build, broker company, verified environment "
+                "(DEMO), row counts, first/last timestamps, staleness "
+                "age and payload SHA-256, retrieval timestamp; symbol "
+                "map entries carry SHA-256 digests of OBSERVED "
+                "specifications"
+            ),
+            notes=(
+                "CANDIDATE ONLY — zero terminal observations exist yet "
+                "(no Windows host has run the probe); this record "
+                "grants NOTHING.",
+                "REQUIRED FOR APPROVAL: (1) genuine Exness DEMO "
+                "terminal session on the operator's Windows host; "
+                "(2) mt5-probe self-test evidence (connect + positive "
+                "DEMO verification + catalogue + bars + ticks); "
+                "(3) validated symbol map with observed digests; "
+                "(4) freshness observations; (5) operator review of "
+                "Exness terms — then a recorded SRC-APPROVAL decision "
+                "(see docs/OPERATOR_SOURCE_APPROVAL_PACK.md).",
+                "BLOCKED MARKETS (forex-15m-ohlc / metals-15m / "
+                "stocks-15m) stay BLOCKED until this candidate is "
+                "HUMAN-APPROVED and real coverage is verified — "
+                "registering the candidate does NOT unblock them.",
+            ),
+        )
+
     raise KeyError(
         f"unknown candidate source {source_name!r} (declared: "
         f"{sorted(CANDIDATE_SOURCES)})"
@@ -241,6 +323,7 @@ def candidate_record(source_name: str) -> DataSourceRecord:
 #: All declared candidate source names.
 CANDIDATE_SOURCES = (
     "binance-public-spot",
+    "exness-mt5-demo",
     "forex-15m-ohlc",
     "stocks-15m",
     "metals-15m",

@@ -234,3 +234,41 @@ throughout (no reset, no rebase, no force-push).
 - Readiness statuses UNTOUCHED: PAPER_READY = FALSE; the 3 human
   gates open; LIVE_TRADING = NOT AUTHORIZED (this task changed
   ONBOARDING, not trading readiness).
+
+## Stage MT5 — genuine Exness MT5 DEMO read-only market-data feed (2026-10-24, branch feat/exness-mt5-demo-market-data)
+
+- platform/mt5_terminal.py: injectable TERMINAL BOUNDARY for the official
+  MetaTrader5 package (Windows-only, optional runtime import — never a
+  dependency); closed READ ALLOWLIST of module functions (order functions
+  structurally unreachable); env-only credentials (SecretStr, never
+  rendered/logged); numpy structured array + namedtuple payload conversion.
+- platform/mt5_symbol_map.py: exact canonical→broker symbol mapping —
+  validated ONLY against OBSERVED symbol_info metadata, SHA-256
+  digest-stamped, re-checked at every connect (broker-side spec drift
+  refuses the feed until re-validation).
+- platform/mt5_market_data.py: ExnessMT5DemoFeed registered as
+  "exness-mt5-demo" in ProviderFactory — POSITIVE DEMO verification at
+  every connect/reconnect (REAL/CONTEST/unverifiable refused), health
+  report, observed catalogue, latest bars with closed-candle enforcement
+  + freshness (raise/flag), historical ranges (explicitly not
+  freshness-claimed), ticks, per-batch provenance (server/build/company/
+  environment/counts/epochs/staleness/payload SHA-256), structured
+  MT5_E_* errors, bounded-backoff reconnect with full re-verification,
+  idempotent disconnect; order surface = refusal trio ONLY.
+- platform/mt5.py: optional require_demo hardening on MT5Adapter
+  (backward-compatible default False).
+- cli.py: `mt5-probe` operator command (--self-test / --dump-catalogue /
+  --validate-map / --symbol/--bars) with honest exit codes
+  (0 verified / 2 config / 6 fail-closed refusal / 7 environment NOT RUN).
+- platform/feed_source_candidates.py: candidate `exness-mt5-demo`
+  registered UNVETTED; BLOCKED_MARKETS unchanged; no approvals created.
+- docs/OPERATOR_SOURCE_APPROVAL_PACK.md §8: candidate evidence
+  requirements (probe self-test, validated map, freshness observations,
+  terms review).
+- Tests: unit (fake module, mocked-external-service discipline),
+  paper-only negative suite (read-allowlist spy + AST scan + venue
+  refusal), symbol-mapping suite, and Windows-terminal integration
+  checks that auto-SKIP with BLOCKED_ON_OPERATOR_ENV (never mock-passed).
+- Governance untouched: 32 gates, PAPER_READY=FALSE,
+  LIVE_AUTHORIZATION=NOT_AUTHORIZED, 30-day soak + preflight unchanged;
+  no gate marked passed; no live-trading flag introduced.

@@ -409,6 +409,81 @@ def main(argv=None):
         ),
     )
 
+    # MT5 operator probe (genuine Exness MT5 DEMO feed): the ONLY
+    # supported way to produce terminal evidence on the Windows host.
+    # Reads credentials from the environment ONLY; never prints them.
+    # Exit codes: 0 = verified; 2 = configuration/credential error;
+    # 6 = fail-closed verification refusal; 7 = environment blocked
+    # (MetaTrader5 package / Windows terminal unavailable → honest
+    # NOT RUN, never a mock substitution).
+    mt5_parser = subparsers.add_parser(
+        "mt5-probe",
+        help=(
+            "Connect to the local MetaTrader 5 terminal (Windows), "
+            "positively verify the DEMO environment and produce "
+            "operator evidence (catalogue dump, symbol-map "
+            "validation, bar/tick samples) — read-only, paper-only"
+        ),
+    )
+    mt5_parser.add_argument(
+        "--self-test",
+        action="store_true",
+        help=(
+            "Full evidence run: connect → DEMO verification → "
+            "health → catalogue count → M1 bar sample → tick sample "
+            "→ clean disconnect (JSON report to stdout)"
+        ),
+    )
+    mt5_parser.add_argument(
+        "--dump-catalogue",
+        metavar="PATH",
+        help=(
+            "write the OBSERVED symbol catalogue (JSON) to PATH — "
+            "the input the operator uses to author a symbol-map "
+            "proposal"
+        ),
+    )
+    mt5_parser.add_argument(
+        "--validate-map",
+        metavar="PATH",
+        help=(
+            "validate the symbol-map PROPOSAL at PATH against the "
+            "live terminal and write the digest-stamped validated "
+            "map to PATH.validated.json"
+        ),
+    )
+    mt5_parser.add_argument(
+        "--symbol",
+        metavar="CANONICAL",
+        help=(
+            "with --bars: fetch a bar sample for this canonical "
+            "symbol (must be in the validated map)"
+        ),
+    )
+    mt5_parser.add_argument(
+        "--timeframe",
+        default="M1",
+        help="bar sample timeframe (default M1)",
+    )
+    mt5_parser.add_argument(
+        "--bars",
+        type=int,
+        help="fetch a latest-bars sample of N bars for --symbol",
+    )
+    mt5_parser.add_argument(
+        "--out",
+        metavar="PATH",
+        help="write the bar-sample JSON artifact (bars + provenance) to PATH",
+    )
+    mt5_parser.add_argument(
+        "--stale-flag",
+        action="store_true",
+        help=(
+            "report staleness as a flagged field instead of a "
+            "refusal (for weekend/closed-market evidence runs)"
+        ),
+    )
+
     args = parser.parse_args(argv)
 
     if args.command is None:
@@ -735,6 +810,236 @@ def main(argv=None):
                 print(f"[Boundary] Valid calculation types:")
                 for ct in CalculationType:
                     print(f"  - {ct.value}")
+
+        elif args.command == "mt5-probe":
+            # Genuine Exness MT5 DEMO operator probe — read-only,
+            # paper-only. Credentials come from the environment ONLY
+            # and are never printed. Exit codes (documented in the
+            # parser): 0 verified / 2 config / 6 fail-closed refusal /
+            # 7 environment blocked (honest NOT RUN).
+            import json as _json
+
+            from data_engine.platform.mt5_market_data import (
+                ExnessMT5DemoFeed as _Feed,
+                MT5ConfigError as _CfgErr,
+            )
+            from data_engine.platform.mt5_symbol_map import (
+                MT5SymbolMap as _Map,
+                MT5SymbolMapError as _MapErr,
+                SymbolMapEntry as _Entry,
+            )
+            from data_engine.platform.mt5_terminal import (
+                MT5CredentialsError as _CredErr,
+                MT5TerminalConfig as _TermCfg,
+                MT5TerminalError as _TermErr,
+            )
+            from data_engine.schemas import ProviderConfig as _ProvCfg
+
+            def _fail(code: int, message: str) -> None:
+                print(f"[mt5-probe] {message}", file=sys.stderr)
+                raise SystemExit(code)
+
+            try:
+                terminal_config = _TermCfg.from_env()
+            except _CredErr as exc:
+                _fail(2, str(exc))
+
+            # An explicit --symbol authorises an IDENTITY mapping
+            # proposal (canonical == broker symbol) which is still
+            # positively validated against the live terminal at
+            # connect — nothing is assumed.
+            proposals = None
+            if args.symbol:
+                proposals = (
+                    _Entry(
+                        canonical=args.symbol,
+                        broker_symbol=args.symbol,
+                    ),
+                )
+
+            provider_config = _ProvCfg(
+                provider_name="exness-mt5-demo",
+                provider_type="broker-terminal",
+                supports_bid_ask=True,
+            )
+            feed = _Feed(
+                provider_config,
+                terminal_config=terminal_config,
+                symbol_map_proposals=proposals,
+            )
+
+            # Environment gate FIRST: no MetaTrader5 module → honest
+            # NOT RUN (exit 7), never a mock substitution.
+            from data_engine.platform.mt5_terminal import (
+                load_mt5_module as _load_module,
+            )
+            if _load_module() is None:
+                _fail(
+                    7,
+                    "MetaTrader5 package not importable on this "
+                    "platform (Windows-only) — probe NOT RUN; install "
+                    "the package on the Windows terminal host and "
+                    "export MT5_* environment variables (see "
+                    "artifacts/mt5-integration/03-WINDOWS-HOST-SETUP.md)",
+                )
+
+            if args.dump_catalogue:
+                try:
+                    feed.connect()
+                    rows = feed.symbol_catalogue()
+                except (_TermErr, _CfgErr) as exc:
+                    _fail(6, f"catalogue dump refused: {exc}")
+                with open(args.dump_catalogue, "w", encoding="utf-8") as fh:
+                    _json.dump(
+                        {
+                            "captured_at_utc": datetime.now(UTC).isoformat(),
+                            "venue_server": feed.health_check().venue_server,
+                            "symbol_count": len(rows),
+                            "symbols": [dict(r) for r in rows],
+                        },
+                        fh,
+                        indent=2,
+                        default=str,
+                    )
+                print(
+                    f"[mt5-probe] catalogue dumped: {len(rows)} symbols "
+                    f"-> {args.dump_catalogue}"
+                )
+                feed.disconnect()
+
+            if args.validate_map:
+                try:
+                    proposals = _Map.proposals_from_json(
+                        open(args.validate_map, "r", encoding="utf-8").read()
+                    )
+                    feed.connect()
+                    validated = _Map.validate(
+                        proposals, feed._terminal, datetime.now(UTC)
+                    )
+                except (
+                    _MapErr,
+                    _TermErr,
+                    _CfgErr,
+                    FileNotFoundError,
+                ) as exc:
+                    _fail(6, f"map validation refused: {exc}")
+                out_path = f"{args.validate_map}.validated.json"
+                with open(out_path, "w", encoding="utf-8") as fh:
+                    fh.write(validated.to_json())
+                print(
+                    f"[mt5-probe] symbol map VALIDATED against observed "
+                    f"terminal metadata: {len(validated)} entries -> "
+                    f"{out_path}"
+                )
+                feed.disconnect()
+
+            if args.bars:
+                if not args.symbol:
+                    _fail(2, "--bars requires --symbol CANONICAL")
+                try:
+                    feed.connect()
+                    batch = feed.latest_bars(
+                        args.symbol,
+                        args.timeframe,
+                        int(args.bars),
+                        stale_policy="flag" if args.stale_flag else "raise",
+                    )
+                except (_TermErr, _CfgErr, _MapErr) as exc:
+                    _fail(6, f"bar sample refused: {exc}")
+                except Exception as exc:  # noqa: BLE001 — verification refusals
+                    _fail(6, f"bar sample refused: {exc}")
+                payload = _json.loads(batch.model_dump_json())
+                if args.out:
+                    with open(args.out, "w", encoding="utf-8") as fh:
+                        _json.dump(payload, fh, indent=2)
+                    print(
+                        f"[mt5-probe] {len(batch.bars)} {args.timeframe} "
+                        f"bars for {args.symbol} (DEMO verified) -> "
+                        f"{args.out}"
+                    )
+                else:
+                    prov = payload["provenance"]
+                    print(
+                        f"[mt5-probe] {len(batch.bars)} {args.timeframe} "
+                        f"bars for {args.symbol} — env={prov['environment']} "
+                        f"server={prov['venue_server']} "
+                        f"build={prov['terminal_build']} "
+                        f"staleness={prov['staleness_seconds'] and round(prov['staleness_seconds'])}s "
+                        f"sha256={prov['payload_sha256'][:12]}…"
+                    )
+                feed.disconnect()
+
+            if args.self_test:
+                report: dict = {"command": "mt5-probe --self-test"}
+                try:
+                    from data_engine.platform.mt5_market_data import (
+                        MT5ConfigError as _SampCfg,
+                    )
+
+                    started = datetime.now(UTC)
+                    health = feed.connect()
+                    catalogue = feed.symbol_catalogue()
+                    if args.symbol:
+                        sample_symbol = args.symbol
+                    elif feed.symbol_map and len(feed.symbol_map):
+                        sample_symbol = feed.symbol_map.entries()[0].canonical
+                    else:
+                        raise _SampCfg(
+                            "self-test sampling needs --symbol CANONICAL "
+                            "or a validated symbol map"
+                        )
+                    bars = feed.latest_bars(
+                        sample_symbol,
+                        "M1",
+                        5,
+                        stale_policy="flag",
+                    )
+                    ticks = feed.latest_ticks(
+                        sample_symbol, 5, stale_policy="flag"
+                    )
+                    report.update(
+                        {
+                            "status": "PASS",
+                            "environment": "DEMO (positively verified)",
+                            "health": _json.loads(health.model_dump_json()),
+                            "symbol_count": len(catalogue),
+                            "sample_symbol": bars.provenance.canonical,
+                            "sample_bars": len(bars.bars),
+                            "sample_ticks": len(ticks.ticks),
+                            "bar_payload_sha256": bars.provenance.payload_sha256,
+                            "started_at_utc": started.isoformat(),
+                            "finished_at_utc": datetime.now(UTC).isoformat(),
+                            "note": (
+                                "read-only evidence — no order path was "
+                                "available to this process"
+                            ),
+                        }
+                    )
+                    print(_json.dumps(report, indent=2))
+                    feed.disconnect()
+                except Exception as exc:  # noqa: BLE001 — fail-closed report
+                    report.update(
+                        {
+                            "status": "FAIL (fail-closed)",
+                            "error": str(exc),
+                            "finished_at_utc": datetime.now(UTC).isoformat(),
+                        }
+                    )
+                    print(_json.dumps(report, indent=2))
+                    try:
+                        feed.disconnect()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    raise SystemExit(6)
+
+            if not (
+                args.self_test
+                or args.dump_catalogue
+                or args.validate_map
+                or args.bars
+            ):
+                _fail(2, "nothing to do — pass --self-test, --dump-catalogue, "
+                         "--validate-map and/or --symbol/--bars")
 
     except Exception as e:
         print(f"[Data Engine] Error: {e}", file=sys.stderr)

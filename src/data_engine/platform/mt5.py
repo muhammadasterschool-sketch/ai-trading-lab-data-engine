@@ -43,6 +43,17 @@ class MT5OrderRefusedError(RuntimeError):
     """Raised for any order submission attempt (policy refusal)."""
 
 
+class MT5DemoRequiredError(RuntimeError):
+    """Connection refused: account mode is not positively DEMO.
+
+    Defense-in-depth for the require_demo=True connection mode: the
+    genuine feed (data_engine.platform.mt5_market_data) performs its
+    own positive verification against the installed module's
+    ACCOUNT_TRADE_MODE_DEMO constant; this guard keeps the platform
+    adapter surface honest for any future real-terminal session too.
+    """
+
+
 class MT5AccountInfo(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -110,8 +121,16 @@ def _detect_mt5_package() -> Optional[Any]:
 class MT5Adapter:
     """Fail-closed MT5 adapter (market-data + reconciliation reads only)."""
 
-    def __init__(self, terminal: Optional[MT5TerminalSession] = None) -> None:
+    def __init__(
+        self,
+        terminal: Optional[MT5TerminalSession] = None,
+        require_demo: bool = False,
+    ) -> None:
         self._terminal = terminal
+        #: When True, connect() refuses any account mode other than
+        #: DEMO (and any UNVERIFIABLE mode) — fail-closed. Default False
+        #: preserves the historical mock-contract behaviour.
+        self._require_demo = require_demo
         self._state = MT5ConnectionState.DISCONNECTED if terminal else MT5ConnectionState.UNAVAILABLE
         self._account: Optional[MT5AccountInfo] = None
         self._reason = (
@@ -151,6 +170,20 @@ class MT5Adapter:
             self._reason = f"terminal account_info failed: {exc}"
             return self._state
         self._account = self._coerce_account(raw)
+        if self._require_demo and self._account.mode is not AccountMode.DEMO:
+            self._state = MT5ConnectionState.ERROR
+            self._reason = (
+                f"DEMO verification failed: account mode is "
+                f"{self._account.mode.value!r} — require_demo=True "
+                f"refuses REAL, CONTEST and UNVERIFIABLE accounts "
+                f"(fail-closed; paper-only repository)"
+            )
+            self._account = None
+            if audit_log is not None:
+                audit_log.record(
+                    at, "mt5", "demo_verification_refused", self._reason
+                )
+            return self._state
         self._state = MT5ConnectionState.CONNECTED
         self._reason = ""
         if audit_log is not None:

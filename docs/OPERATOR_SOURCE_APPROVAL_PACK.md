@@ -160,3 +160,48 @@ Notes on that recording:
 | `OPERATIONAL_FEED_READY` | Can become TRUE **only when the gate ALSO passes** on live inputs: validated closed bars, correct canonical mapping (instrument registered), sufficient warm-up, freshness within tolerance, no gaps/duplicates. Approval alone is necessary, not sufficient. |
 | `PAPER_READY` | Still requires ALL 32 gates — including `REAL_DATA_READY`, MAC-key provisioning, and the remaining governance items. See the readiness report §0C for the live list. |
 | Live trading | **STILL NOT AUTHORIZED. NOTHING in this pack touches the live boundary. `LiveAuthorizationGate` continues to deny unconditionally.** |
+
+## 8. Candidate: `exness-mt5-demo` (broker-terminal — UNVETTED, needs a Windows host)
+
+Registered 2026-10-24 alongside the genuine read-only MT5 feed
+implementation (`data_engine.platform.mt5_market_data`). What it IS
+and IS NOT:
+
+- IS: a governed, machine-readable CANDIDATE record (UNVETTED) for
+  market data from a real MetaTrader 5 terminal against a positively
+  verified Exness DEMO account — forex, metals, indices and stock CFDs
+  as OBSERVED on the connected terminal.
+- IS NOT: approved, connected, verified, or evidence of anything. Zero
+  terminal observations exist at registration time. The candidate
+  grants NOTHING by existing.
+
+What the feed structurally guarantees (independent of approval):
+
+- READ-ONLY: no order path exists; the terminal boundary enforces a
+  closed read-allowlist (order functions unreachable), and negative
+  tests prove zero order attempts across full workflows.
+- POSITIVE DEMO verification at every connect and reconnect; REAL,
+  CONTEST and unverifiable accounts are refused (fail-closed).
+- Exact symbol mapping: canonical→broker pairs are validated against
+  OBSERVED `symbol_info` metadata and digest-stamped; any broker-side
+  specification drift refuses the feed until the operator re-validates.
+
+REQUIRED BEFORE an SRC-APPROVAL decision can even be considered:
+
+1. A genuine Exness DEMO terminal session on the operator's Windows
+   host (credentials stay in the operator environment, never in the
+   repository).
+2. `data-engine mt5-probe --self-test --symbol <S>` JSON evidence:
+   connect + positive DEMO verification + observed catalogue + bar and
+   tick samples (archive the JSON under `artifacts/mt5-integration/`).
+3. A validated symbol map (`mt5-probe --validate-map`) with observed
+   specification digests for every symbol intended for use.
+4. Freshness observations (staleness ages during open market AND the
+   documented weekend/closed-market behaviour).
+5. Operator review of the Exness client agreement / market-data terms
+   for DEMO data use — licence basis "UNKNOWN" is NOT approvable.
+
+Then record the decision exactly as in §6 (human approver, filled
+template, recorded decision id). Until that happens,
+`forex-15m-ohlc` / `metals-15m` / `stocks-15m` REMAIN BLOCKED MARKETS
+exactly as declared in §4.
