@@ -1,0 +1,4 @@
+3a22efab9314005825f82f481a90004d8b95078b0dfb37c0a3ee666c484d9f99  ai-trading-lab-data-engine-windows-v0.4.0-exness-mt5-0b1e5e2.zip
+83791dd7afc8f2dfafa68d4aaf1d3b2cbc9b637516a3c651e8a99339519f91ed  ai-trading-lab-data-engine-windows-v0.4.0-exness-mt5-0b1e5e2.zip.sha256
+8a2caf8de864b1251d2b93b49a8fca40b86e39a11248e414505377d3380a0638  README-ARTIFACTS.md
+fbaac5c0a4d4b03bab793bfcf34b0bbea5a0b40d3a4d4ca5c97f34553e56d3bc  ai-trading-lab-monitor.apk  (GitHub Release v0.4.0 asset - not stored in this branch)
