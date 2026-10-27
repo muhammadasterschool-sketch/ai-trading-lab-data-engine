@@ -86,6 +86,9 @@ def _build_monitoring_api(
 
     from data_engine import __version__
     from data_engine.runtime.control_state import DurableKillSwitch
+    from data_engine.runtime.lab import AssistantEngine as _AE
+    from data_engine.runtime.lab import BarStore as _BarStore
+    from data_engine.runtime.lab import LabManager as _Lab
     from data_engine.runtime.monitoring import MonitoringAPI
     from data_engine.runtime.registry import ClientRegistry
     from data_engine.runtime.trade_ledger import TradeLedger
@@ -113,6 +116,23 @@ def _build_monitoring_api(
             ),
         }
 
+    # -- v1.1.0 OWNER AI LAB wiring -------------------------------------
+    # The lab is ALWAYS wired in the serve path (fail-closed internals;
+    # every store lives under --monitor-state-dir). The kill switch
+    # also pauses forward paper evaluation: a standing STOP is a stop
+    # for the whole lab.
+    _bar_store = _BarStore(state_root / "bars")
+    _lab = _Lab(
+        state_root,
+        _bar_store,
+        is_halted=lambda: kill_switch.state()["state"] == "ACTIVE",
+    )
+    _lab.assistant = _AE(
+        trade_ledger=trade_ledger,
+        client_registry=client_registry,
+        health_provider=health,
+    )
+
     return MonitoringAPI(
         auth_token=token,
         host=bind,
@@ -123,6 +143,7 @@ def _build_monitoring_api(
         killswitch_activator=kill_switch.activate,
         client_registry=client_registry,
         trade_ledger=trade_ledger,
+        lab=_lab,
     )
 
 

@@ -194,6 +194,10 @@ class MonitoringAPI:
         # fail-closed (same posture as the pairing service).
         client_registry: Optional[Any] = None,
         trade_ledger: Optional[Any] = None,
+        # v1.1.0 (owner AI lab): the LabManager (strategies + assistant
+        # + bars + prediction + broker catalog). Optional and
+        # duck-typed; absent -> lab routes answer 503 fail-closed.
+        lab: Optional[Any] = None,
     ) -> None:
         if not auth_token or not isinstance(auth_token, str):
             raise MonitoringAPIError(
@@ -224,6 +228,7 @@ class MonitoringAPI:
         self._pairing_service = pairing_service  # PairingService (v4.0 B1)
         self._client_registry = client_registry  # ClientRegistry (v1.0.0)
         self._trade_ledger = trade_ledger  # TradeLedger (v1.0.0)
+        self._lab = lab  # LabManager + assistant + bars + predict (v1.1.0)
         self._limiter = _RateLimiter(rate_limit_max, rate_limit_window)
         self._server: Optional[ThreadingHTTPServer] = None
         self._started_at: Optional[float] = None
@@ -363,6 +368,79 @@ class MonitoringAPI:
                     self._json(
                         HTTPStatus.OK, api._trade_ledger.stats()
                     )
+                elif route == "/api/lab/strategies":
+                    # v1.1.0: owner AI lab — strategy pipeline list
+                    if api._lab is None:
+                        self._json(
+                            HTTPStatus.SERVICE_UNAVAILABLE,
+                            {"error": "lab not wired (fail closed)"},
+                        )
+                        return
+                    rows = api._lab.list()
+                    self._json(
+                        HTTPStatus.OK,
+                        {"strategies": rows, "count": len(rows)},
+                    )
+                elif route.startswith("/api/lab/bars/"):
+                    # v1.1.0: stored bar history summary for one symbol
+                    # (symbol may contain '/', e.g. XAU/USD)
+                    if api._lab is None:
+                        self._json(
+                            HTTPStatus.SERVICE_UNAVAILABLE,
+                            {"error": "lab not wired (fail closed)"},
+                        )
+                        return
+                    symbol = route[len("/api/lab/bars/"):]
+                    from data_engine.runtime.lab import LabError as _LabError
+
+                    try:
+                        self._json(
+                            HTTPStatus.OK,
+                            api._lab._bars.summary(symbol),
+                        )
+                    except _LabError as exc:
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": str(exc)},
+                        )
+                elif route.startswith("/api/lab/predict/"):
+                    # v1.1.0: statistical next-move baseline for a symbol
+                    if api._lab is None:
+                        self._json(
+                            HTTPStatus.SERVICE_UNAVAILABLE,
+                            {"error": "lab not wired (fail closed)"},
+                        )
+                        return
+                    symbol = route[len("/api/lab/predict/"):]
+                    from data_engine.runtime.lab import (
+                        LabError as _LabError,
+                        PredictBaseline as _Predict,
+                    )
+
+                    bars = api._lab._bars.bars(symbol)
+                    try:
+                        self._json(
+                            HTTPStatus.OK,
+                            _Predict().predict(bars),
+                        )
+                    except _LabError as exc:
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": str(exc)},
+                        )
+                elif route == "/api/lab/brokers":
+                    # v1.1.0: honest broker catalog + add-broker contract
+                    if api._lab is None:
+                        self._json(
+                            HTTPStatus.SERVICE_UNAVAILABLE,
+                            {"error": "lab not wired (fail closed)"},
+                        )
+                        return
+                    from data_engine.runtime.lab import (
+                        BrokerCatalog as _Catalog,
+                    )
+
+                    self._json(HTTPStatus.OK, _Catalog().catalog())
                 elif route.startswith("/api/strategy/"):
                     # GET /api/strategy/{id} -> gate status (G6)
                     if api._strategy_gate is None:
@@ -396,11 +474,22 @@ class MonitoringAPI:
                                 "/api/killswitch", "/api/prediction",
                                 "/api/users", "/api/registrations",
                                 "/api/ledger/trades", "/api/ledger/stats",
+                                "/api/lab/strategies",
+                                "/api/lab/bars/{symbol}",
+                                "/api/lab/predict/{symbol}",
+                                "/api/lab/brokers",
                                 "POST /api/pair (onboarding; invitation code)",
                                 "POST /api/killswitch/activate",
                                 "POST /api/strategy/submit",
                                 "GET /api/strategy/{id}",
                                 "POST /api/strategy/{id}/activate",
+                                "POST /api/lab/strategies (create)",
+                                "POST /api/lab/strategies/{id}/backtest",
+                                "POST /api/lab/strategies/{id}/paper/start",
+                                "POST /api/lab/strategies/{id}/paper/finish",
+                                "POST /api/lab/strategies/{id}/confirm",
+                                "POST /api/lab/assistant (ask)",
+                                "POST /api/lab/bars (upload history)",
                             ],
                             "live_trading": "NOT_AUTHORIZED",
                         },
@@ -612,12 +701,172 @@ class MonitoringAPI:
                         },
                     )
                     return
+                if route.startswith("/api/lab/"):
+                    # v1.1.0 OWNER AI LAB POST surfaces (fail-closed on
+                    # unwired lab; LabError -> 400; nothing here can
+                    # ever authorize live trading).
+                    if api._lab is None:
+                        self._json(
+                            HTTPStatus.SERVICE_UNAVAILABLE,
+                            {"error": "lab not wired (fail closed)"},
+                        )
+                        return
+                    if route == "/api/lab/bars":
+                        max_body = 2_097_152  # 2 MiB (bounded bar upload)
+                    elif route == "/api/lab/assistant":
+                        max_body = 4096
+                    elif route == "/api/lab/strategies":
+                        max_body = 8192
+                    else:
+                        max_body = 4096
+                    length = int(
+                        self.headers.get("Content-Length", "0") or 0
+                    )
+                    if not 0 < length <= max_body:
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": "JSON body required (max "
+                                      f"{max_body} bytes for this route)"},
+                        )
+                        return
+                    try:
+                        body = json.loads(
+                            self.rfile.read(length).decode("utf-8")
+                        )
+                    except (ValueError, UnicodeDecodeError):
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": "invalid JSON body"},
+                        )
+                        return
+                    if not isinstance(body, dict):
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": "JSON object required"},
+                        )
+                        return
+                    from data_engine.runtime.lab import (
+                        LabError as _LabError,
+                    )
+
+                    try:
+                        if route == "/api/lab/bars":
+                            result = api._lab._bars.append(
+                                str(body.get("symbol", "")),
+                                body.get("bars"),
+                            )
+                            # forward paper evaluation on fresh bars
+                            result["paper"] = (
+                                api._lab.observe_symbol_update(
+                                    str(body.get("symbol", ""))
+                                )
+                            )
+                            self._json(HTTPStatus.OK, result)
+                            return
+                        if route == "/api/lab/assistant":
+                            if api._lab.assistant is None:
+                                self._json(
+                                    HTTPStatus.SERVICE_UNAVAILABLE,
+                                    {"error": "assistant not wired "
+                                              "(fail closed)"},
+                                )
+                                return
+                            self._json(
+                                HTTPStatus.OK,
+                                api._lab.assistant.ask(
+                                    str(body.get("question", ""))
+                                ),
+                            )
+                            return
+                        if route == "/api/lab/strategies":
+                            self._json(
+                                HTTPStatus.OK,
+                                api._lab.create(
+                                    label=str(body.get("label", "")),
+                                    symbol=str(body.get("symbol", "")),
+                                    kind=str(body.get("kind", "")),
+                                    params=body.get("params") or {},
+                                    submitted_by=str(
+                                        body.get("submitted_by",
+                                                 "owner-lab")
+                                    ),
+                                ),
+                            )
+                            return
+                        prefix = "/api/lab/strategies/"
+                        if route.startswith(prefix) and route.endswith(
+                            "/backtest"
+                        ):
+                            self._json(
+                                HTTPStatus.OK,
+                                api._lab.run_backtest(
+                                    route[len(prefix):-len("/backtest")]
+                                ),
+                            )
+                            return
+                        if route.startswith(prefix) and route.endswith(
+                            "/paper/start"
+                        ):
+                            raw_days = body.get("cycle_days", 30)
+                            if isinstance(raw_days, bool) or not (
+                                isinstance(raw_days, int)
+                            ):
+                                raise _LabError(
+                                    "cycle_days must be an integer"
+                                )
+                            self._json(
+                                HTTPStatus.OK,
+                                api._lab.paper_start(
+                                    route[len(prefix):-len("/paper/start")],
+                                    cycle_days=raw_days,
+                                ),
+                            )
+                            return
+                        if route.startswith(prefix) and route.endswith(
+                            "/paper/finish"
+                        ):
+                            self._json(
+                                HTTPStatus.OK,
+                                api._lab.paper_finish(
+                                    route[len(prefix):-len(
+                                        "/paper/finish"
+                                    )],
+                                ),
+                            )
+                            return
+                        if route.startswith(prefix) and route.endswith(
+                            "/confirm"
+                        ):
+                            self._json(
+                                HTTPStatus.OK,
+                                api._lab.confirm(
+                                    route[len(prefix):-len("/confirm")],
+                                    confirm=str(body.get("confirm", "")),
+                                    decided_by=str(
+                                        body.get("decided_by", "owner")
+                                    ),
+                                    note=str(body.get("note", "")),
+                                ),
+                            )
+                            return
+                        self._json(
+                            HTTPStatus.NOT_FOUND,
+                            {"error": "unknown lab route"},
+                        )
+                        return
+                    except _LabError as exc:
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": str(exc)},
+                        )
+                        return
                 if route != "/api/killswitch/activate":
                     self._json(
                         HTTPStatus.METHOD_NOT_ALLOWED,
                         {"error": "read-only surface; POST exists only "
-                                  "for the kill switch and the "
-                                  "strategy gate (no order submission "
+                                  "for the kill switch, the "
+                                  "strategy gate and the owner lab "
+                                  "(no order submission "
                                   "route exists)"},
                     )
                     return

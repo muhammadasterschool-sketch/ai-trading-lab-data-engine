@@ -5,6 +5,56 @@ All notable changes under the FULL PROJECT PROMPT v3.0 run
 no rebase, no force-push; feature branches merged to main only on
 green full suites).
 
+## v1.1.0 — owner AI lab (feat/v1-ai-lab)
+
+Owner mandate (2026-10-27): "aik AI ho jiss se hum total profit and
+loss puch sake ... koi strategy do toh backtest kare phir paper
+trading kare phir results ke sath confirmation le ke live karde ...
+next market ki move predict karne ki capabilities".
+
+- runtime/lab.py (NEW): the owner lab surfaces, honest by design —
+  BarStore (owner-uploaded OHLCV history, validated, deduped, bounded,
+  atomic; the lab NEVER invents market data), AssistantEngine
+  (DETERMINISTIC offline rule-based analytics over the trade ledger /
+  client registry / kill-switch state — no external LLM, nothing
+  fabricated, honest zeros stated), LabBacktester (deterministic
+  long/flat runner: ema_trend / ema_cross / rsi_reversal / breakout;
+  close fills; costs-not-modeled stated in every result), LabManager
+  (durable driver of the EXISTING fail-closed G6
+  StrategyActivationGate: create -> backtest -> paper window ->
+  explicit YES; state mirrors to strategies.json and REPLAYS through
+  the gate on boot; the window is enforced BY THE GATE — evidence
+  before it elapses is refused), PredictBaseline (momentum/volatility
+  logistic research baseline with explicit disclaimers), BrokerCatalog
+  (the honest broker surface: 7 in-repo SIMULATION/PAPER adapters +
+  the BrokerAdapter interface contract for adding new brokers).
+- runtime/monitoring.py: lab routes (all 503 fail-closed when the lab
+  is not wired) — GET /api/lab/strategies, /api/lab/bars/{symbol},
+  /api/lab/predict/{symbol}, /api/lab/brokers; POST /api/lab/strategies,
+  /api/lab/strategies/{id}/backtest | /paper/start | /paper/finish |
+  /confirm, /api/lab/assistant, /api/lab/bars (2 MiB bounded upload
+  that ALSO drives forward paper evaluation). LabError -> 400 with the
+  gate's honest refusal message; gate refusals never surface as 500.
+- cli.py: the serve path now wires the lab from --monitor-state-dir
+  (bars/, strategies.json, paper journals) and attaches the
+  AssistantEngine to the same trade ledger + registry + health the
+  owner surfaces already use. The kill switch ALSO pauses forward
+  paper evaluation (a standing STOP is a stop for the whole lab).
+- mobile/ (monitor APK v1.1.0+7): new LAB tab — Assistant (chat-style
+  Q&A over the ledgers), Strategies (create + run backtest + start/
+  finish paper + explicit confirm dialog), Predict (per-symbol
+  research baseline card with the disclaimer in the UI).
+- admin/ (admin panel APK v1.1.0+2): new Strategies tab (read-only
+  pipeline oversight: state, symbol, backtest evidence, window) — the
+  admin panel observes the lab; it cannot drive it.
+- deploy/windows/push-bars.ps1 (NEW): PC-side bar uploader — CSV ->
+  POST /api/lab/bars in bounded chunks with the monitor token.
+- Governance UNCHANGED: PAPER_READY=FALSE,
+  LIVE_AUTHORIZATION=NOT_AUTHORIZED; ACTIVATED means
+  PAPER_EVALUATION_ONLY and the live path still does not exist.
+- Tests: tests/test_runtime_lab.py + tests/test_lab_api.py (51 new);
+  full suite 3099 passed / 8 skipped / 0 failed (3.12, sandbox).
+
 ## v1.0.0 — owner control plane + admin panel (feat/v1-control-admin-panel)
 
 Owner mandate: "full control on my AI trading lab" + a second APK that
