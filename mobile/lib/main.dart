@@ -365,6 +365,106 @@ class EngineApiClient {
     }
     return body;
   }
+
+  // -- v1.1.0 OWNER AI LAB --------------------------------------------------
+  // The lab surfaces answer 400 with the engine's honest refusal text
+  // (e.g. "strategy gate refused: the validation window has NOT
+  // elapsed") — that text is surfaced verbatim in the UI.
+
+  Map<String, dynamic> _decodeBody(http.Response response) {
+    try {
+      final dynamic decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+    } on FormatException {
+      // fall through to the empty map
+    }
+    return <String, dynamic>{};
+  }
+
+  Future<Map<String, dynamic>> _postLab(
+    String path,
+    Map<String, dynamic> payload, {
+    int timeoutSeconds = 60,
+  }) async {
+    final response = await http
+        .post(
+          Uri.parse('$serverUrl$path'),
+          headers: <String, String>{
+            ..._headers,
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode(payload),
+        )
+        .timeout(Duration(seconds: timeoutSeconds));
+    final Map<String, dynamic> body = _decodeBody(response);
+    if (response.statusCode != 200) {
+      throw ApiException(
+        response.statusCode,
+        (body['error'] as String?) ?? 'lab request refused',
+      );
+    }
+    return body;
+  }
+
+  /// Strategy pipeline list (state, backtest evidence, paper window).
+  Future<List<Map<String, dynamic>>> labStrategies() async {
+    final dynamic decoded = await _getDynamic('/api/lab/strategies');
+    if (decoded is Map && decoded['strategies'] is List) {
+      return (decoded['strategies'] as List).cast<Map<String, dynamic>>();
+    }
+    return <Map<String, dynamic>>[];
+  }
+
+  Future<Map<String, dynamic>> labCreateStrategy({
+    required String label,
+    required String symbol,
+    required String kind,
+    Map<String, dynamic> params = const <String, dynamic>{},
+  }) =>
+      _postLab('/api/lab/strategies', <String, dynamic>{
+        'label': label,
+        'symbol': symbol,
+        'kind': kind,
+        'params': params,
+      });
+
+  Future<Map<String, dynamic>> labBacktest(String id) =>
+      _postLab('/api/lab/strategies/$id/backtest', <String, dynamic>{});
+
+  Future<Map<String, dynamic>> labPaperStart(String id, int cycleDays) =>
+      _postLab('/api/lab/strategies/$id/paper/start',
+          <String, dynamic>{'cycle_days': cycleDays});
+
+  Future<Map<String, dynamic>> labPaperFinish(String id) =>
+      _postLab('/api/lab/strategies/$id/paper/finish', <String, dynamic>{});
+
+  Future<Map<String, dynamic>> labConfirm(String id, String confirm) =>
+      _postLab('/api/lab/strategies/$id/confirm', <String, dynamic>{
+        'confirm': confirm,
+        'decided_by': 'monitor-apk',
+      });
+
+  /// Offline rule-based analytics assistant (answers from the ledgers).
+  Future<Map<String, dynamic>> labAsk(String question) =>
+      _postLab('/api/lab/assistant', <String, dynamic>{'question': question});
+
+  /// Statistical next-move research baseline for one symbol.
+  Future<Map<String, dynamic>> labPredict(String symbol) async {
+    final response = await http
+        .get(Uri.parse('$serverUrl/api/lab/predict/$symbol'),
+            headers: _headers)
+        .timeout(const Duration(seconds: 15));
+    final Map<String, dynamic> body = _decodeBody(response);
+    if (response.statusCode != 200) {
+      throw ApiException(
+        response.statusCode,
+        (body['error'] as String?) ?? 'prediction refused',
+      );
+    }
+    return body;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1343,6 +1443,13 @@ class _DashboardPageState extends State<DashboardPage> {
               builder: (_) => TradesPage(client: _client),
             )),
           ),
+          IconButton(
+            icon: const Icon(Icons.science_outlined),
+            tooltip: 'AI Lab (assistant, strategies, predict)',
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => LabPage(client: _client),
+            )),
+          ),
         ],
       ),
       body: RefreshIndicator(
@@ -1777,6 +1884,746 @@ class _TradesPageState extends State<TradesPage> {
                         },
                       ),
                     ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// v1.1.0 OWNER AI LAB — Assistant / Strategies / Predict
+// ---------------------------------------------------------------------------
+
+class LabPage extends StatelessWidget {
+  const LabPage({required this.client, super.key});
+
+  final EngineApiClient client;
+
+  @override
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('AI Lab (offline, ledger-backed)'),
+          bottom: const TabBar(
+            tabs: <Widget>[
+              Tab(text: 'Assistant'),
+              Tab(text: 'Strategies'),
+              Tab(text: 'Predict'),
+            ],
+          ),
+        ),
+        body: TabBarView(
+          children: <Widget>[
+            AssistantTab(client: client),
+            StrategiesTab(client: client),
+            PredictTab(client: client),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _labString(Map<String, dynamic> map, String key, String fallback) {
+  final value = map[key];
+  if (value == null) {
+    return fallback;
+  }
+  final text = '$value';
+  return text.isEmpty ? fallback : text;
+}
+
+class AssistantTab extends StatefulWidget {
+  const AssistantTab({required this.client, super.key});
+
+  final EngineApiClient client;
+
+  @override
+  State<AssistantTab> createState() => _AssistantTabState();
+}
+
+class _AssistantTabState extends State<AssistantTab> {
+  final List<Map<String, String>> _thread = <Map<String, String>>[];
+  final TextEditingController _input = TextEditingController();
+  bool _busy = false;
+
+  static const List<String> _suggestions = <String>[
+    'total profit',
+    'win rate',
+    'best symbol',
+    'who is logged in',
+    'is trading stopped?',
+    'help',
+  ];
+
+  Future<void> _ask(String question) async {
+    final text = question.trim();
+    if (text.isEmpty || _busy) {
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _thread.add(<String, String>{'role': 'you', 'text': text});
+      _input.clear();
+    });
+    try {
+      final reply = await widget.client.labAsk(text);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _thread.add(<String, String>{
+          'role': 'assistant',
+          'text': _labString(reply, 'answer', '(empty answer)'),
+        });
+      });
+    } on ApiException catch (exc) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _thread.add(<String, String>{
+          'role': 'assistant',
+          'text': 'refused: ${exc.message}',
+        });
+      });
+    } on TimeoutException {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _thread.add(const Map<String, String>.from(<String, String>{
+          'role': 'assistant',
+          'text': 'timeout — server unreachable',
+        }));
+      });
+    } catch (exc) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _thread.add(<String, String>{
+          'role': 'assistant',
+          'text': 'connection error (${exc.runtimeType})',
+        });
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+          child: Wrap(
+            spacing: 6,
+            children: _suggestions
+                .map((s) => ActionChip(
+                      label: Text(s),
+                      onPressed: () => _ask(s),
+                    ))
+                .toList(),
+          ),
+        ),
+        Expanded(
+          child: _thread.isEmpty
+              ? const Center(
+                  child: Text(
+                    'Ask about YOUR ledgers:\nprofit, trades, symbols, '
+                    'users, STOP state.\nNo external AI, nothing invented.',
+                    textAlign: TextAlign.center,
+                  ),
+                )
+              : ListView(
+                  padding: const EdgeInsets.all(8),
+                  children: _thread.map((m) {
+                    final mine = m['role'] == 'you';
+                    return Align(
+                      alignment: mine
+                          ? Alignment.centerRight
+                          : Alignment.centerLeft,
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(vertical: 3),
+                        padding: const EdgeInsets.all(10),
+                        constraints: BoxConstraints(
+                          maxWidth: MediaQuery.of(context).size.width * 0.85,
+                        ),
+                        decoration: BoxDecoration(
+                          color: mine
+                              ? Theme.of(context).colorScheme.primaryContainer
+                              : Theme.of(context)
+                                  .colorScheme
+                                  .surfaceVariant,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: SelectableText(m['text'] ?? ''),
+                      ),
+                    );
+                  }).toList(),
+                ),
+        ),
+        SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Row(
+              children: <Widget>[
+                Expanded(
+                  child: TextField(
+                    controller: _input,
+                    enabled: !_busy,
+                    onSubmitted: _ask,
+                    decoration: const InputDecoration(
+                      hintText: 'e.g. BTC/USD pe kitna profit',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: _busy
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.send),
+                  onPressed: _busy ? null : () => _ask(_input.text),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class StrategiesTab extends StatefulWidget {
+  const StrategiesTab({required this.client, super.key});
+
+  final EngineApiClient client;
+
+  @override
+  State<StrategiesTab> createState() => _StrategiesTabState();
+}
+
+class _StrategiesTabState extends State<StrategiesTab> {
+  List<Map<String, dynamic>> _rows = <Map<String, dynamic>>[];
+  String? _error;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final rows = await widget.client.labStrategies();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _rows = rows;
+        _error = null;
+      });
+    } on ApiException catch (exc) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _error = exc.message);
+    } catch (exc) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _error = 'connection error (${exc.runtimeType})');
+    }
+  }
+
+  Future<void> _act(Future<Map<String, dynamic>> Function() action,
+      String successLabel) async {
+    if (_busy) {
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await action();
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(successLabel)),
+      );
+      await _load();
+    } on ApiException catch (exc) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('refused: ${exc.message}')),
+      );
+    } catch (exc) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('connection error (${exc.runtimeType})')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  Future<void> _createStrategy() async {
+    final labelController = TextEditingController();
+    final symbolController = TextEditingController(text: 'XAUUSD');
+    final paramsController = TextEditingController();
+    String kind = 'ema_trend';
+    final created = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: const Text('New strategy'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                TextField(
+                  controller: labelController,
+                  decoration:
+                      const InputDecoration(hintText: 'label (required)'),
+                ),
+                TextField(
+                  controller: symbolController,
+                  decoration: const InputDecoration(
+                      hintText: 'symbol, e.g. XAUUSD or BTC/USD'),
+                ),
+                DropdownButtonFormField<String>(
+                  initialValue: kind,
+                  items: const <DropdownMenuItem<String>>[
+                    DropdownMenuItem<String>(
+                        value: 'ema_trend', child: Text('EMA trend')),
+                    DropdownMenuItem<String>(
+                        value: 'ema_cross', child: Text('EMA cross')),
+                    DropdownMenuItem<String>(
+                        value: 'rsi_reversal', child: Text('RSI reversal')),
+                    DropdownMenuItem<String>(
+                        value: 'breakout', child: Text('Breakout')),
+                  ],
+                  onChanged: (value) =>
+                      setDialogState(() => kind = value ?? kind),
+                ),
+                TextField(
+                  controller: paramsController,
+                  decoration: const InputDecoration(
+                    hintText: 'params JSON, e.g. {"period": 50}',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('CANCEL'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('CREATE'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (created != true) {
+      return;
+    }
+    Map<String, dynamic> params = <String, dynamic>{};
+    final rawParams = paramsController.text.trim();
+    if (rawParams.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(rawParams);
+        if (decoded is Map<String, dynamic>) {
+          params = decoded;
+        } else {
+          if (!mounted) {
+            return;
+          }
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('params must be a JSON object')),
+          );
+          return;
+        }
+      } on FormatException {
+        if (!mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('params is not valid JSON')),
+        );
+        return;
+      }
+    }
+    await _act(
+      () => widget.client.labCreateStrategy(
+        label: labelController.text.trim(),
+        symbol: symbolController.text.trim(),
+        kind: kind,
+        params: params,
+      ),
+      'strategy created (SUBMITTED)',
+    );
+  }
+
+  Future<void> _confirmActivation(String id, String label) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('CONFIRM strategy?'),
+        content: Text(
+          '"$label" ne backtest + paper validation pass kiya?\n\n'
+          'YES = ACTIVATED for PAPER evaluation only.\n'
+          'Live trading remains NOT AUTHORIZED (engine governance).',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('NO'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('YES — ACTIVATE (paper only)'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) {
+      await _act(
+        () => widget.client.labConfirm(id, 'NO'),
+        'stayed INACTIVE',
+      );
+      return;
+    }
+    await _act(
+      () => widget.client.labConfirm(id, 'YES'),
+      'ACTIVATED (paper evaluation only)',
+    );
+  }
+
+  Color _stateColor(String state, ThemeData theme) {
+    if (state == 'ACTIVATED') {
+      return Colors.green.shade700;
+    }
+    if (state == 'REJECTED') {
+      return theme.colorScheme.error;
+    }
+    if (state == 'VALIDATED') {
+      return Colors.orange.shade700;
+    }
+    return theme.colorScheme.primary;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _busy ? null : _createStrategy,
+        icon: const Icon(Icons.add),
+        label: const Text('New strategy'),
+      ),
+      body: RefreshIndicator(
+        onRefresh: _load,
+        child: _error != null
+            ? ListView(
+                children: <Widget>[
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text('error: $_error'),
+                  ),
+                ],
+              )
+            : _rows.isEmpty
+                ? ListView(
+                    children: const <Widget>[
+                      Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Text(
+                          'No strategies yet.\n\n'
+                          'Pipeline: create -> backtest -> paper window -> '
+                          'your explicit YES -> ACTIVATED (paper only).\n'
+                          'Upload bars from your PC via push-bars.ps1 first.',
+                        ),
+                      ),
+                    ],
+                  )
+                : ListView(
+                    padding: const EdgeInsets.fromLTRB(8, 8, 8, 88),
+                    children: _rows.map((row) {
+                      final id =
+                          _labString(row, 'submission_id', '?');
+                      final state =
+                          _labString(row, 'state', 'SUBMITTED');
+                      final backtest =
+                          row['backtest'] as Map<String, dynamic>?;
+                      return Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Row(
+                                children: <Widget>[
+                                  Expanded(
+                                    child: Text(
+                                      _labString(row, 'label', id),
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleSmall
+                                          ?.copyWith(
+                                              fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: _stateColor(state,
+                                          Theme.of(context))
+                                          .withAlpha(30),
+                                      borderRadius:
+                                          BorderRadius.circular(8),
+                                    ),
+                                    child: Text(
+                                      state,
+                                      style: TextStyle(
+                                        color: _stateColor(
+                                            state, Theme.of(context)),
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${_labString(row, 'kind', '?')}  ·  '
+                                '${_labString(row, 'symbol', '?')}  ·  $id',
+                                style:
+                                    Theme.of(context).textTheme.bodySmall,
+                              ),
+                              if (backtest != null) ...<Widget>[
+                                const SizedBox(height: 4),
+                                Text(
+                                  'backtest: ${backtest['trades']} trades, '
+                                  'return ${backtest['total_return']}%, '
+                                  'maxDD ${backtest['max_drawdown']}%',
+                                  style:
+                                      Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ],
+                              if (row['validation_window_end'] != null)
+                                Text(
+                                  'paper window ends: '
+                                  '${row['validation_window_end']}',
+                                  style:
+                                      Theme.of(context).textTheme.bodySmall,
+                                ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 6,
+                                runSpacing: 6,
+                                children: <Widget>[
+                                  if (state == 'SUBMITTED')
+                                    FilledButton.tonal(
+                                      onPressed: _busy
+                                          ? null
+                                          : () => _act(
+                                              () => widget.client
+                                                  .labBacktest(id),
+                                              'backtest recorded'),
+                                      child: const Text('RUN BACKTEST'),
+                                    ),
+                                  if (state == 'BACKTESTED')
+                                    FilledButton.tonal(
+                                      onPressed: _busy
+                                          ? null
+                                          : () => _act(
+                                              () => widget.client
+                                                  .labPaperStart(id, 30),
+                                              'paper window started (30d)'),
+                                      child: const Text('START PAPER 30d'),
+                                    ),
+                                  if (state == 'VALIDATION_SCHEDULED') ...<Widget>[
+                                    FilledButton.tonal(
+                                      onPressed: _busy
+                                          ? null
+                                          : () => _act(
+                                              () => widget.client
+                                                  .labPaperFinish(id),
+                                              'validation recorded'),
+                                      child: const Text('FINISH PAPER'),
+                                    ),
+                                  ],
+                                  if (state == 'VALIDATED')
+                                    FilledButton(
+                                      onPressed: _busy
+                                          ? null
+                                          : () => _confirmActivation(
+                                              id,
+                                              _labString(row, 'label', id)),
+                                      child:
+                                          const Text('CONFIRM (YES/NO)'),
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+      ),
+    );
+  }
+}
+
+class PredictTab extends StatefulWidget {
+  const PredictTab({required this.client, super.key});
+
+  final EngineApiClient client;
+
+  @override
+  State<PredictTab> createState() => _PredictTabState();
+}
+
+class _PredictTabState extends State<PredictTab> {
+  final TextEditingController _symbol = TextEditingController(text: 'XAUUSD');
+  Map<String, dynamic>? _result;
+  String? _error;
+  bool _busy = false;
+
+  Future<void> _run() async {
+    final symbol = _symbol.text.trim();
+    if (symbol.isEmpty || _busy) {
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final result = await widget.client.labPredict(symbol);
+      if (!mounted) {
+        return;
+      }
+      setState(() => _result = result);
+    } on ApiException catch (exc) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _error = exc.message);
+    } catch (exc) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _error = 'connection error (${exc.runtimeType})');
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final result = _result;
+    return ListView(
+      padding: const EdgeInsets.all(12),
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: TextField(
+                controller: _symbol,
+                decoration: const InputDecoration(
+                  hintText: 'symbol (bars uploaded from your PC)',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                onSubmitted: (_) => _run(),
+              ),
+            ),
+            const SizedBox(width: 8),
+            FilledButton(
+              onPressed: _busy ? null : _run,
+              child: _busy
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('PREDICT'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        if (_error != null)
+          Card(
+            color: Theme.of(context).colorScheme.errorContainer,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text(_error!),
+            ),
+          ),
+        if (result != null) ...<Widget>[
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    '${_labString(result, 'direction', '?')}  '
+                    '(p_up ${result['probability_up']})',
+                    style: Theme.of(context)
+                        .textTheme
+                        .headlineSmall
+                        ?.copyWith(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'momentum ${result['momentum_pct']}%  ·  '
+                    'volatility ${result['volatility_pct']}%  ·  '
+                    'confidence ${result['confidence']}\n'
+                    'bars used ${result['bars_used']} '
+                    '(lookback ${result['lookback']})',
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Card(
+            color: Theme.of(context).colorScheme.surfaceVariant,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text(
+                _labString(result, 'disclaimer', ''),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }

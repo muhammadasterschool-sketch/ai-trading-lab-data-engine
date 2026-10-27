@@ -84,12 +84,12 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # -- 6. v4.0 local-monitor components (fail-closed package check) -------------
-foreach ($component in @("run-monitor.ps1", "local-monitor-config.template.json")) {
+foreach ($component in @("run-monitor.ps1", "local-monitor-config.template.json", "push-bars.ps1")) {
     if (-not (Test-Path ".\$component")) {
         Fail "required v4.0 component missing from the package: $component (tampered/incomplete package?)"
     }
 }
-Write-Host "[ok] v4.0 local-monitor components present (run-monitor.ps1 + invitation hash template)."
+Write-Host "[ok] v4.0 local-monitor components present (run-monitor.ps1 + invitation hash template + push-bars.ps1)."
 
 Write-Host ""
 Write-Host "[INSTALL-OK] Engine installed into .\.venv"

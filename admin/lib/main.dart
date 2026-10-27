@@ -200,6 +200,17 @@ class AdminApiClient {
         : <String, dynamic>{};
   }
 
+  /// v1.1.0: read-only view of the owner AI lab strategy pipeline
+  /// (create/backtest/paper/confirm states). The admin panel OBSERVES
+  /// the lab; it cannot drive it.
+  Future<List<Map<String, dynamic>>> labStrategies() async {
+    final dynamic decoded = await _get('/api/lab/strategies');
+    if (decoded is Map && decoded['strategies'] is List) {
+      return (decoded['strategies'] as List).cast<Map<String, dynamic>>();
+    }
+    return <Map<String, dynamic>>[];
+  }
+
   Future<List<Map<String, dynamic>>> trades() async {
     final dynamic decoded = await _get('/api/ledger/trades');
     if (decoded is Map && decoded['trades'] is List) {
@@ -541,6 +552,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
           UsersTab(client: _client),
           RegistrationsTab(client: _client),
           TradesTab(client: _client),
+          StrategiesTab(client: _client),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -566,6 +578,11 @@ class _AdminHomePageState extends State<AdminHomePage> {
             icon: Icon(Icons.receipt_long_outlined),
             selectedIcon: Icon(Icons.receipt_long),
             label: 'Trades',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.science_outlined),
+            selectedIcon: Icon(Icons.science),
+            label: 'Strategies',
           ),
         ],
       ),
@@ -1058,6 +1075,133 @@ class TradesTab extends StatelessWidget {
                   ),
                 );
               }),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// v1.1.0: read-only oversight of the owner AI lab strategy pipeline
+/// (SUBMITTED -> BACKTESTED -> VALIDATION_SCHEDULED -> VALIDATED ->
+/// ACTIVATED = paper-evaluation-only). The admin panel observes; the
+/// monitor APK is the surface that drives the lab.
+class StrategiesTab extends StatelessWidget {
+  const StrategiesTab({required this.client, super.key});
+
+  final AdminApiClient client;
+
+  static Color _stateColor(String state) {
+    if (state == 'ACTIVATED') {
+      return Colors.greenAccent;
+    }
+    if (state == 'VALIDATED') {
+      return Colors.orangeAccent;
+    }
+    if (state == 'REJECTED') {
+      return Colors.redAccent;
+    }
+    return Colors.lightBlueAccent;
+  }
+
+  static String formatTimestamp(Object? value) {
+    if (value is! String || value.isEmpty) {
+      return '';
+    }
+    final DateTime? parsed = DateTime.tryParse(value);
+    if (parsed == null) {
+      return value;
+    }
+    final String iso = parsed.toIso8601String();
+    return iso.length >= 16 ? iso.substring(0, 16).replaceFirst('T', ' ') : iso;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _AsyncBody(
+      loader: client.labStrategies,
+      builder: (context, data) {
+        final List<Map<String, dynamic>> rows =
+            (data as List).cast<Map<String, dynamic>>();
+        if (rows.isEmpty) {
+          return ListView(
+            children: const <Widget>[
+              Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(
+                  child: Text(
+                    'No strategies in the lab yet.\n\n'
+                    'The owner creates strategies from the monitor APK '
+                    '(AI Lab tab). This panel watches the pipeline:\n'
+                    'create -> backtest -> paper window -> explicit YES '
+                    '-> ACTIVATED (paper evaluation only; live trading '
+                    'stays NOT AUTHORIZED).',
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+            ],
+          );
+        }
+        return ListView(
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Text(
+                'Owner AI lab pipeline — read-only oversight '
+                '(${rows.length})',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+            ),
+            ...rows.map((row) {
+              final String state =
+                  '${row['state'] ?? 'SUBMITTED'}';
+              final dynamic backtest = row['backtest'];
+              return Card(
+                child: ListTile(
+                  leading: Icon(
+                    Icons.science,
+                    color: _stateColor(state),
+                  ),
+                  title: Text('${row['label'] ?? row['submission_id'] ?? '?'}'),
+                  subtitle: Text(
+                    '${row['kind'] ?? '?'} · ${row['symbol'] ?? '?'}\n'
+                    'state: $state\n'
+                    '${backtest is Map ? 'backtest: ${backtest['trades']} '
+                        'trades, return ${backtest['total_return']}%, '
+                        'maxDD ${backtest['max_drawdown']}%\n'
+                    : ''}'
+                    '${row['validation_window_end'] != null ? 'paper window ends: ${formatTimestamp(row['validation_window_end'])}' : ''}',
+                  ),
+                  isThreeLine: true,
+                  trailing: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: _stateColor(state).withAlpha(40),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      state,
+                      style: TextStyle(
+                        color: _stateColor(state),
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }),
+            const Padding(
+              padding: EdgeInsets.all(16),
+              child: Text(
+                'ACTIVATED means PAPER-EVALUATION-ONLY. The engine has '
+                'no live path and LIVE_AUTHORIZATION stays '
+                'NOT_AUTHORIZED.',
+                style: TextStyle(fontSize: 11),
+              ),
+            ),
           ],
         );
       },
