@@ -1,4 +1,4 @@
-# Release Artifacts — v1.0.0 (owner control plane + admin panel; Windows package + dual-APK set)
+# Release Artifacts — v1.1.0 (owner AI lab; Windows package + dual-APK set)
 
 This directory contains **verified build artifacts**. Everything here is
 read-only deliverable content; it changes NO engine code, NO tests, and
@@ -8,57 +8,59 @@ NO governance state.
 
 | File | What it is |
 |------|------------|
-| `ai-trading-lab-data-engine-windows-v1.0.0.zip` | Windows installer package built from merge commit `92c86d1` — the v1.0.0 owner control plane (durable STOP flag + client registry + trade ledger + 4 new owner API routes) with the complete prior fix chain, admin panel source under `source/admin/`, and engine version line 1.0.0 |
+| `ai-trading-lab-data-engine-windows-v1.1.0.zip` | Windows installer package built from commit `bed1600` — the v1.1.0 owner AI lab (assistant, strategy pipeline backtest→paper→confirm, prediction baseline, bars store + push-bars, broker catalog) on top of the complete v1.0.0 owner control plane and the full prior fix chain; engine version line 1.1.0 |
 | `...zip.sha256` | SHA-256 checksum companion |
 | `SHA256SUMS.txt` | SHA-256 of every artifact here (including both Android APK pointers) |
 | `README-ARTIFACTS.md` | This file |
 
 Superseded artifacts (recoverable from git history, never rewritten):
 
+- v1.0.0 package from merge `92c86d1`
+  (sha256 `e3934c604d9bd75fbdc9bc4faddecfcea5025b748ad14fc3dbe8d6084faff72b`)
+  -> `git checkout 856ba48 -- release-artifacts/`
 - v402 package from `8c8529a`
   (sha256 `7318cbc9681dbbb5b6790c1c884d5e3903f3e318875cfb2d2e393e2e470f4018`)
   -> `git checkout f3dc44c -- release-artifacts/`
 - allfixes package from `160d61b`
   (sha256 `b19b13672ee5aa9cf3c6e2bcf670091eb7a65424998213c5ecaa04568396e375`)
   -> `git checkout 24aa382 -- release-artifacts/`
-- monitorfix package from `336eca8`
-  (sha256 `820fa5c32577a23050954d66c9fb12f117389538b1423fe0f110724b8aa90aaa`)
-  -> `git checkout 9156269 -- release-artifacts/`
-- py315 package from `6cef076`
-  (sha256 `473a6114a8d65d6fb04bb226de8bdec378b8b8e8d0d4efa9e16822beef62fe36`)
-  -> `git checkout f6fa9ef -- release-artifacts/`
 
-## The v1.0.0 owner mandate set (details in CHANGELOG.md)
+## The v1.1.0 owner AI-lab mandate set (details in CHANGELOG.md)
 
-1. **Real, durable STOP control** (`runtime/control_state.py` + `cli.py`):
-   `POST /api/killswitch/activate` now PERSISTS a stop flag under
-   `monitor-state\kill_switch_state.json` (survives restarts; corrupt
-   file fails safe to INACTIVE). Resume is PC-gated:
-   `python -m data_engine.cli control-reset`. The API has NO reset route.
-2. **Who is logged in / who ever registered** (`runtime/registry.py`):
-   self-reported `X-Client-*` identity headers observed on every
-   authenticated request; `GET /api/users` (online now, 90 s window) +
-   `GET /api/registrations` (durable first-contact ledger, bounded).
-3. **Trade ledger** (`runtime/trade_ledger.py`): append-only JSONL +
-   `GET /api/ledger/trades` + `GET /api/ledger/stats` (per-symbol
-   counts, total PnL, wins/losses). Honest zeros in monitor-only mode —
-   nothing fabricates history.
-4. **Admin panel APK** (new `admin/` app): who-is-logged-in, registration
-   ledger, trade ledger, STOP button — connect-once setup, secure
-   storage only, TLS default with explicit plain-LAN escape.
+1. **AI assistant (offline, ledger-backed)** — ask "total profit",
+   "win rate", "best symbol", "XAUUSD pe kitna profit", "who is logged
+   in", "is trading stopped?" — every answer is COMPUTED from the
+   owner ledgers (trade ledger, client registry, kill-switch state).
+   Deterministic, no external LLM, nothing fabricated.
+2. **Strategy pipeline** (monitor APK → AI Lab → Strategies):
+   create → RUN BACKTEST (deterministic long/flat runner over YOUR
+   uploaded bars) → START PAPER (validation window; the fail-closed G6
+   gate refuses early-finish evidence) → CONFIRM (explicit YES/NO
+   dialog) → ACTIVATED = PAPER-EVALUATION-ONLY. History enters ONLY
+   via `push-bars.ps1` (CSV → POST /api/lab/bars); the lab never
+   invents market data.
+3. **Prediction** (monitor APK → AI Lab → Predict): momentum-vs-
+   volatility statistical baseline per symbol with the disclaimer
+   shown in the UI — research, not advice, authorizes nothing.
+4. **Broker surface** — GET /api/lab/brokers: the 7 in-repo
+   SIMULATION/PAPER adapters + the exact BrokerAdapter contract for
+   adding a new broker (code, reviewed in git; credentials NEVER via
+   the monitoring API).
+5. **Admin panel** (v1.1.0+2) gained a read-only Strategies tab: it
+   OBSERVES the pipeline; the monitor APK drives it.
 
 ## Verification (do this before trusting any download)
 
 PowerShell (Windows):
 
 ```powershell
-Get-FileHash .\ai-trading-lab-data-engine-windows-v1.0.0.zip -Algorithm SHA256
+Get-FileHash .\ai-trading-lab-data-engine-windows-v1.1.0.zip -Algorithm SHA256
 ```
 
 Expected:
 
 ```
-e3934c604d9bd75fbdc9bc4faddecfcea5025b748ad14fc3dbe8d6084faff72b
+04bb9dd54c04bfa273471c1408e51af103365f489409957bf86b6b68659b0e29
 ```
 
 If the hash does not match, do NOT extract or run anything — re-download.
@@ -82,62 +84,66 @@ If the hash does not match, do NOT extract or run anything — re-download.
 
 - Built by the repo's own fail-closed deterministic builder
   `scripts/build_windows_package.py` — refuses dirty trees, packages
-  `git archive HEAD` content only, embeds SHA256SUMS for all 596 files.
-- Source commit: `92c86d10ff2e3327aeaed6fdd0ca09346dfe995d`
-  (`--no-ff` merge of `feat/v1-control-admin-panel` tip `f3b0493`
-  into this branch; feat chain: `932f2a3` v1.0.0 feature commit ->
-  `55da28f` mobile chart-test fix -> `f3b0493` admin analyze fixes).
-- Engine test suite at the feat tip: sandbox full run 3048 passed /
-  8 skipped / 0 failed (3.12); CI run on `f3b0493`: 7/7 checks SUCCESS
-  (pytest matrix 3.11–3.15 + lint/SAST/coverage + dependency audit).
+  `git archive HEAD` content only, embeds SHA256SUMS for all 601
+  files, and (new in v1.1.0) ships ONLY the wheel matching this
+  commit's engine version.
+- Source commit: `bed1600` (`--no-ff` merge `850030e` of
+  `feat/v1-ai-lab` tip `61539dc` into this branch + the two packaging
+  pins `8ce8a43`/`bed1600`; feat chain: `d04fdd8` v1.1.0 feature
+  commit → `61539dc` analyze fixes).
+- Engine test suite at the feat tip: sandbox full run 3099 passed /
+  8 skipped / 0 failed (3.12); CI runs: 7/7 checks SUCCESS on
+  `61539dc` (feat) — pytest matrix 3.11–3.15 + lint/SAST/coverage +
+  dependency audit.
 - Repo validator `scripts/validate_windows_package.py`: 10/10 PASS on
-  this exact ZIP.
-- v1.0.0 markers verified INSIDE the package: `control-reset` in
-  cli.py, `/api/ledger/stats` in monitoring.py, `TradesChartCard` in
-  mobile/lib/main.dart, `admin/lib/main.dart` present, wheel 1.0.0.
-- `.gitattributes` export-ignore keeps `release-artifacts/` out of the
-  packaged source tree (no nested zip).
-- Contents include the full prior chain: 3 genuine MT5 modules,
-  `exness_mock.py` (simulation-labeled), the v4.0.2 field-fix set, and
-  the complete admin panel source + its CI workflow.
-- PS 5.1-safe installers included (pure-ASCII + UTF-8 BOM deploy scripts).
+  this exact ZIP (including `version agreement: 1.1.0 everywhere` and
+  all 17 required components — `push-bars.ps1` joined the list).
+- v1.1.0 markers verified INSIDE the package: `AssistantEngine`,
+  `LabManager`, `/api/lab/strategies` in the engine wheel; `LabPage` /
+  `AssistantTab` / `StrategiesTab` / `PredictTab` symbols inside the
+  monitor APK's libapp.so; `push-bars.ps1` present.
+- `.gitattributes` export-ignore keeps `release-artifacts/` out of
+  the packaged source tree (no nested zip).
+- PS 5.1-safe installers included (pure-ASCII + UTF-8 BOM deploy
+  scripts, push-bars.ps1 included).
 
 ## Android APKs (not stored in this branch)
 
 Both APKs are published as GitHub Release assets, built by CI from
-their build branches:
+their build branches (same commit `61539dc` for both — the aligned
+v1.1.0 set):
 
-**Monitoring client v1.0.0** (tag `apk-55da28fedd9f`, run 40538714448,
-from `builds/mobile-apk-v1.0.0` = `55da28f`):
-
-```
-https://github.com/muhammadasterschool-sketch/ai-trading-lab-data-engine/releases/download/apk-55da28fedd9f/ai-trading-lab-monitor.apk
-sha256: 45cebd9538f7bcad4a4cfd13d95d1c6215139ff57e85e4525f9d261bc88d7929
-size:   21420947 bytes (versionName 1.0.0 / versionCode 6, verified in the binary manifest;
-        symbols TradesChartCard / TradesPage / X-Client-Kind confirmed inside libapp.so)
-```
-
-**Admin panel v1.0.0** (tag `admin-apk-2f9d6f80f14d`, run 40538929818,
-from `builds/admin-apk-v1.0.0` = `2f9d6f8`):
+**Monitoring client v1.1.0** (tag `apk-61539dc8ed7c`, run 40558155946,
+from `builds/mobile-apk-v1.1.0` = `61539dc`):
 
 ```
-https://github.com/muhammadasterschool-sketch/ai-trading-lab-data-engine/releases/download/admin-apk-2f9d6f80f14d/ai-trading-lab-admin.apk
-sha256: d46e64b0f9eda833f2fe324955ad7e06e75db2b64006b97ebcf345aecf60ef37
-size:   21317139 bytes (versionName 1.0.0 / versionCode 1, verified in the binary manifest;
-        symbols AdminApiClient / OverviewTab / formatTimestamp confirmed inside libapp.so)
+https://github.com/muhammadasterschool-sketch/ai-trading-lab-data-engine/releases/download/apk-61539dc8ed7c/ai-trading-lab-monitor.apk
+sha256: 35dcf634d9c6a7a610f0e1e6d251dcb8d974bd3c75c270d3474991067a4a7225
+size:   21878515 bytes (versionName 1.1.0 / versionCode 7, verified in the binary manifest;
+        symbols LabPage / AssistantTab / StrategiesTab / PredictTab / labStrategies confirmed inside libapp.so)
+```
+
+**Admin panel v1.1.0** (tag `admin-apk-61539dc8ed7c`, run 40558161380,
+from `builds/admin-apk-v1.1.0` = `61539dc`):
+
+```
+https://github.com/muhammadasterschool-sketch/ai-trading-lab-data-engine/releases/download/admin-apk-61539dc8ed7c/ai-trading-lab-admin.apk
+sha256: b794b7670df1f7b5573118f4b06c67c79fd113632cac5135dae782507cad0eab
+size:   21323940 bytes (versionName 1.1.0 / versionCode 2, verified in the binary manifest;
+        symbols StrategiesTab / labStrategies confirmed inside libapp.so)
 ```
 
 Verify each hash the same way after download.
 
-**Install caveat (applies to every apk-*/admin-apk-* release):** CI uses
-a fresh debug keystore per run, so the signature differs from any
+**Install caveat (applies to every apk-*/admin-apk-* release):** CI
+uses a fresh debug keystore per run, so the signature differs from any
 previously installed build — UNINSTALL the old app before installing,
-then re-pair (invitation code from `run-monitor.ps1`). The admin panel
-does not pair: it takes the engine URL + token directly.
+then re-pair (invitation code from `run-monitor.ps1`). The admin
+panel does not pair: it takes the engine URL + token directly.
 
 **Honest scope note:** the Windows package in this directory and the
-TWO APKs above are the aligned v1.0.0 set. In monitor-only mode the
-trade ledger is honestly empty (`total_trades: 0`) until a composed
-paper session records fills; the STOP flag is real and durable, and
-governance stays untouched (PAPER_READY=FALSE /
-LIVE_AUTHORIZATION=NOT_AUTHORIZED).
+TWO APKs above are the aligned v1.1.0 set. The strategy pipeline's
+ACTIVATED state means PAPER-EVALUATION-ONLY — the engine has NO live
+path and governance stays untouched (PAPER_READY=FALSE /
+LIVE_AUTHORIZATION=NOT_AUTHORIZED). Prediction output is a
+statistical research baseline with its disclaimer, not advice.
