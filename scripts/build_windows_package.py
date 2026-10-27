@@ -138,14 +138,32 @@ def main() -> int:
             cwd=REPO_ROOT,
         )
 
-        # 3. engine wheel (fresh build from the same commit)
+        # 3. engine wheel (fresh build from the same commit).
+        # v1.1.0 hardening: only the wheel matching THIS commit's engine
+        # version ships — a stale dist/ wheel from an older build must
+        # never ride along (it previously tripped the version-agreement
+        # validator check).
         sh(["uv", "build", "--wheel"], cwd=REPO_ROOT)
         dist_src = REPO_ROOT / "dist"
-        wheels = sorted(dist_src.glob("*.whl"))
-        if not wheels:
-            raise SystemExit("[BUILD-FAILED] uv build produced no wheel")
+        engine_version = version
+        matching = sorted(
+            dist_src.glob(
+                f"ai_trading_lab_data_engine-{engine_version}-*.whl"
+            )
+        )
+        if not matching:
+            raise SystemExit(
+                f"[BUILD-FAILED] no wheel for engine version "
+                f"{engine_version} in dist/ (stale wheels present? "
+                "delete dist/ and rebuild)."
+            )
+        if len(matching) > 1:
+            raise SystemExit(
+                f"[BUILD-FAILED] ambiguous wheel set for version "
+                f"{engine_version}: {len(matching)} candidates."
+            )
         (stage / "dist").mkdir()
-        for whl in wheels:
+        for whl in matching:
             shutil.copy2(whl, stage / "dist" / whl.name)
 
         # 4. deploy/windows components
