@@ -296,3 +296,26 @@ throughout (no reset, no rebase, no force-push).
 - Governance untouched: PAPER_READY stays FALSE; LIVE_AUTHORIZATION
   NOT_AUTHORIZED; the gate still refuses every trading-capable serve
   configuration; no trading surface was added anywhere.
+
+## Fix (mobile v0.4.3) — dashboard no longer fails on JSON-array collection responses (2026-10-27)
+
+- mobile/lib/main.dart: `positions()` and `orders()` parsed every
+  response through the Map-only `_getJson` cast (`as Map<String,
+  dynamic>`). In monitor-only mode the API's default providers return
+  JSON ARRAYS (`[]`), so the first `/api/positions` poll raised
+  _TypeError AFTER pairing had succeeded — the dashboard then showed
+  "connection error (_TypeError)" with every panel null even though
+  the server log showed 200s (`POST /api/pair -> OK`, `/api/health ->
+  200`, `/api/positions -> 200`, and pnl/risk/feed never reached).
+  Latent since v4.0: monitor-only serve could not start at all until
+  the readiness-gate fix above, so no real phone had ever exercised
+  this path.
+- New `_getDynamic` helper parses defensively (any JSON shape);
+  `positions()`/`orders()` normalize null to an empty list; `pnl()`
+  normalizes null to an empty map. health/risk/feed stay Map-typed
+  (the API returns objects there). The dashboard UI already handled
+  both shapes (`_positionsCard` renders an empty list as
+  "open positions: 0").
+- No server-side change; no API contract change; no governance
+  surface touched (PAPER_READY FALSE / LIVE_AUTHORIZATION
+  NOT_AUTHORIZED unchanged).
