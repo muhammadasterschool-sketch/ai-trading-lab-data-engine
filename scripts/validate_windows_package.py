@@ -50,6 +50,7 @@ REQUIRED_SUFFIXES = (
     "run-paper.ps1",
     "run-monitor.ps1",
     "local-monitor-config.template.json",
+    "push-bars.ps1",
     "README-WINDOWS-PACKAGE.md",
     "requirements-windows.txt",
     "SHA256SUMS.txt",

@@ -48,6 +48,7 @@ EXPECTED_COMPONENTS = (
     "run-paper.ps1",
     "run-monitor.ps1",
     "local-monitor-config.template.json",
+    "push-bars.ps1",
     "README-WINDOWS-PACKAGE.md",
 )
 
