@@ -9,7 +9,7 @@ description: >
   embedded in the APK: every connection is user-configured, and the
   transport posture is a PER-PROFILE flag (cloud = TLS-only).
 publish_to: "none"
-version: 0.4.0+1
+version: 0.4.1+2
 
 environment:
   sdk: ">=3.4.0 <4.0.0"
