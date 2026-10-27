@@ -93,4 +93,50 @@ void main() {
     expect(popped!.token, '0123456789abcdef0123456789abcdef');
     expect(popped!.label, 'primary');
   });
+
+  testWidgets('v1.0.0: trades chart card shows the honest empty state',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(body: TradesChartCard(stats: null)),
+    ));
+    expect(find.textContaining('No trades yet'), findsOneWidget);
+  });
+
+  testWidgets('v1.0.0: trades chart card renders the top symbols',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: TradesChartCard(stats: const <String, dynamic>{
+          'total_trades': 3,
+          'total_pnl': 115.5,
+          'per_symbol': <String, dynamic>{'EURUSD': 2, 'XAUUSD': 1},
+        }),
+      ),
+    ));
+    expect(find.text('EURUSD'), findsOneWidget);
+    expect(find.text('XAUUSD'), findsOneWidget);
+    expect(find.text('2'), findsOneWidget);
+    expect(find.text('1'), findsOneWidget);
+    expect(find.textContaining('total 3'), findsOneWidget);
+    expect(find.textContaining('PnL 115.50'), findsOneWidget);
+  });
+
+  testWidgets('v1.0.0: trades chart caps at six bars', (WidgetTester tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: TradesChartCard(stats: <String, dynamic>{
+          'total_trades': 8,
+          'total_pnl': 10.0,
+          'per_symbol': <String, dynamic>{
+            for (var i = 0; i < 8; i++) 'SYM$i': i + 1,
+          },
+        }),
+      ),
+    ));
+    for (var i = 0; i < 6; i++) {
+      expect(find.text('SYM$i'), findsOneWidget);
+    }
+    expect(find.text('SYM6'), findsNothing);
+    expect(find.textContaining('2 more'), findsOneWidget);
+  });
 }

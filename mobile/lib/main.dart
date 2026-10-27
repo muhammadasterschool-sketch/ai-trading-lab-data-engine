@@ -182,10 +182,26 @@ class ApiException implements Exception {
 }
 
 class EngineApiClient {
-  EngineApiClient({required this.serverUrl, required this.token});
+  EngineApiClient({
+    required this.serverUrl,
+    required this.token,
+    this.clientName = '',
+    this.clientEmail = '',
+    this.clientKind = 'monitor',
+  });
 
   final String serverUrl;
   final String token;
+
+  /// v1.0.0 (owner mandate): SELF-REPORTED identity sent on EVERY
+  /// request so the engine's owner surfaces — /api/users (who is
+  /// connected right now) and /api/registrations (who ever
+  /// registered) — can answer honestly. This is a lab trust domain:
+  /// the bearer token remains the ONLY authentication factor, and
+  /// the identity is exactly as honest as the client sending it.
+  final String clientName;
+  final String clientEmail;
+  final String clientKind;
 
   /// Transport policy (v4.0, scoped PER PROFILE — never global):
   ///  - CLOUD (isLocal == false): TLS ONLY — http:// is refused and a
@@ -218,6 +234,10 @@ class EngineApiClient {
   Map<String, String> get _headers => <String, String>{
         'Authorization': 'Bearer $token',
         'Accept': 'application/json',
+        'X-Client-Name': clientName,
+        'X-Client-Email': clientEmail,
+        'X-Client-Kind': clientKind,
+        'X-Client-Device': 'android',
       };
 
   /// v4.0.2: a 429 is a TRANSIENT server-side throttle, not a broken
@@ -281,6 +301,29 @@ class EngineApiClient {
   Future<dynamic> pnl() async {
     final dynamic decoded = await _getDynamic('/api/pnl');
     return decoded ?? <String, dynamic>{};
+  }
+
+  /// v1.0.0: aggregate trade stats (trades per symbol, total PnL,
+  /// wins/losses) — the dashboard mini chart's data source.
+  /// ("sab se jyada trades kis pe liye")
+  Future<Map<String, dynamic>> ledgerStats() =>
+      _getJson('/api/ledger/stats');
+
+  /// v1.0.0: the per-trade ledger ("kis pe trade li, kitna profit
+  /// hua") — most recent first, bounded by the server (200).
+  Future<List<Map<String, dynamic>>> tradeLedger() async {
+    final response = await http
+        .get(Uri.parse('$serverUrl/api/ledger/trades'), headers: _headers)
+        .timeout(const Duration(seconds: 10));
+    final ApiException? failure = _statusException(response.statusCode);
+    if (failure != null) {
+      throw failure;
+    }
+    final dynamic decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    if (decoded is Map && decoded['trades'] is List) {
+      return (decoded['trades'] as List).cast<Map<String, dynamic>>();
+    }
+    return <Map<String, dynamic>>[];
   }
 
   Future<List<Map<String, dynamic>>> events() async {
@@ -1083,6 +1126,10 @@ class _DashboardPageState extends State<DashboardPage> {
   late final EngineApiClient _client = EngineApiClient(
     serverUrl: widget.profile.serverUrl,
     token: widget.profile.token,
+    // v1.0.0: self-reported identity for the engine's owner surfaces
+    clientName: widget.profile.label,
+    clientEmail: widget.profile.email ?? '',
+    clientKind: 'monitor',
   );
   Timer? _timer;
   Map<String, dynamic>? _health;
@@ -1090,6 +1137,7 @@ class _DashboardPageState extends State<DashboardPage> {
   dynamic _pnl;
   Map<String, dynamic>? _risk;
   Map<String, dynamic>? _feed;
+  Map<String, dynamic>? _stats;
   String? _error;
   bool _busy = false;
 
@@ -1133,6 +1181,15 @@ class _DashboardPageState extends State<DashboardPage> {
       final pnl = await _client.pnl();
       final risk = await _client.risk();
       final feed = await _client.feed();
+      // v1.0.0: the trade-stats fetch is deliberately NON-FATAL — an
+      // older engine (or an unwired surface) must not break the main
+      // dashboard refresh; the chart card keeps its last state.
+      Map<String, dynamic>? stats;
+      try {
+        stats = await _client.ledgerStats();
+      } on ApiException {
+        stats = _stats;
+      }
       if (!mounted) {
         return;
       }
@@ -1142,6 +1199,7 @@ class _DashboardPageState extends State<DashboardPage> {
         _pnl = pnl;
         _risk = risk;
         _feed = feed;
+        _stats = stats;
         _error = null;
       });
     } on ApiException catch (exc) {
@@ -1278,6 +1336,13 @@ class _DashboardPageState extends State<DashboardPage> {
               builder: (_) => EventsPage(client: _client),
             )),
           ),
+          IconButton(
+            icon: const Icon(Icons.receipt_long),
+            tooltip: 'Trade ledger (which trades, what profit)',
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => TradesPage(client: _client),
+            )),
+          ),
         ],
       ),
       body: RefreshIndicator(
@@ -1318,14 +1383,15 @@ class _DashboardPageState extends State<DashboardPage> {
                 ? (_pnl as Map<String, dynamic>)
                     .map((k, v) => MapEntry('$k', '$v'))
                 : <String, String>{'value': '$_pnl'}),
+            TradesChartCard(stats: _stats),
             _positionsCard(),
             const SizedBox(height: 12),
             FilledButton.tonalIcon(
               style: FilledButton.styleFrom(
                 backgroundColor: Theme.of(context).colorScheme.errorContainer,
               ),
-              icon: const Icon(Icons.power_settings_new),
-              label: const Text('KILL SWITCH (confirmation required)'),
+              icon: const Icon(Icons.stop_circle_outlined),
+              label: const Text('STOP TRADING (KILL SWITCH)\nconfirmation + reason required'),
               onPressed: _confirmKillSwitch,
             ),
             const SizedBox(height: 24),
@@ -1448,6 +1514,268 @@ class _EventsPageState extends State<EventsPage> {
                               '${event['actor'] ?? ''} ${event['path'] ?? ''} ${event['rule'] ?? ''}'),
                         );
                       },
+                    ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// v1.0.0 (owner mandate): trades mini chart + per-trade ledger page
+// ---------------------------------------------------------------------------
+
+/// Compact "trades by instrument" card on the dashboard — the answer
+/// to "sab se jyada trades kis pe liye". Hand-rolled CustomPainter
+/// (NO new dependencies): top symbols as horizontal bars, plus the
+/// total-PnL line. An empty ledger is shown HONESTLY (monitor-only
+/// mode trades nothing; the chart fills when a session trades).
+class TradesChartCard extends StatelessWidget {
+  const TradesChartCard({required this.stats, super.key});
+
+  final Map<String, dynamic>? stats;
+
+  @override
+  Widget build(BuildContext context) {
+    final Map<String, dynamic> data = stats ?? const <String, dynamic>{};
+    final int total = (data['total_trades'] as num?)?.toInt() ?? 0;
+    final double pnl = (data['total_pnl'] as num?)?.toDouble() ?? 0.0;
+    final Map<String, dynamic> perSymbol =
+        (data['per_symbol'] as Map?)?.cast<String, dynamic>() ??
+            const <String, dynamic>{};
+    final sorted = perSymbol.entries.toList()
+      ..sort((a, b) => (b.value as num).compareTo(a.value as num));
+    final top = sorted.take(6).toList();
+    final maxCount =
+        top.isEmpty ? 1 : (top.first.value as num).toDouble().clamp(1, 1e9);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: <Widget>[
+                Text('Trades by instrument',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleSmall
+                        ?.copyWith(fontWeight: FontWeight.bold)),
+                Text(
+                  'total $total · PnL ${pnl.toStringAsFixed(2)}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            if (total == 0)
+              Text(
+                'No trades yet — the ledger fills when a trading '
+                'session records fills (monitor-only mode trades '
+                'nothing; honest empty state).',
+                style: Theme.of(context).textTheme.bodySmall,
+              )
+            else
+              ...top.map((entry) {
+                final count = (entry.value as num).toDouble();
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  child: Row(
+                    children: <Widget>[
+                      SizedBox(
+                        width: 86,
+                        child: Text(
+                          entry.key,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                      Expanded(
+                        child: _BarTrack(
+                          fraction: count / maxCount,
+                          highlight: identical(entry, top.first),
+                        ),
+                      ),
+                      SizedBox(
+                        width: 30,
+                        child: Text(
+                          '${entry.value}',
+                          textAlign: TextAlign.end,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            if (sorted.length > 6)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text('+${sorted.length - 6} more instruments',
+                    style: Theme.of(context).textTheme.bodySmall),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BarTrack extends StatelessWidget {
+  const _BarTrack({required this.fraction, required this.highlight});
+
+  final double fraction;
+  final bool highlight;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color base = Theme.of(context).colorScheme.primary;
+    final Color color = highlight
+        ? base
+        : base.withAlpha((255 * 0.55).round());
+    return SizedBox(
+      height: 10,
+      child: CustomPaint(
+        painter: _BarPainter(
+          color: color,
+          fraction: fraction.clamp(0.0, 1.0),
+        ),
+      ),
+    );
+  }
+}
+
+class _BarPainter extends CustomPainter {
+  _BarPainter({required this.color, required this.fraction});
+
+  final Color color;
+  final double fraction;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final Radius radius = Radius.circular(size.height / 2);
+    final Rect full = Rect.fromLTWH(0, 0, size.width, size.height);
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(full, radius),
+      Paint()..color = color.withAlpha((255 * 0.14).round()),
+    );
+    if (fraction > 0) {
+      final Rect fill = Rect.fromLTWH(0, 0, size.width * fraction, size.height);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(fill, radius),
+        Paint()..color = color,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_BarPainter oldDelegate) =>
+      oldDelegate.fraction != fraction || oldDelegate.color != color;
+}
+
+/// v1.0.0: the per-trade ledger page — "kis pe trade li, kitna
+/// profit hua". Most recent first (server-bounded), realized PnL
+/// color-coded green/red, honest empty state.
+class TradesPage extends StatefulWidget {
+  const TradesPage({required this.client, super.key});
+
+  final EngineApiClient client;
+
+  @override
+  State<TradesPage> createState() => _TradesPageState();
+}
+
+class _TradesPageState extends State<TradesPage> {
+  List<Map<String, dynamic>>? _trades;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final trades = await widget.client.tradeLedger();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _trades = trades;
+        _error = null;
+      });
+    } on ApiException catch (exc) {
+      if (!mounted) {
+        return;
+      }
+      setState(() => _error = exc.toString());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final trades = _trades;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Trade ledger')),
+      body: _error != null
+          ? Center(child: Text(_error!))
+          : trades == null
+              ? const Center(child: CircularProgressIndicator())
+              : trades.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'No trades recorded yet.\n'
+                        'The ledger fills when a trading session runs '
+                        '(monitor-only mode trades nothing).',
+                        textAlign: TextAlign.center,
+                      ),
+                    )
+                  : RefreshIndicator(
+                      onRefresh: _load,
+                      child: ListView.builder(
+                        itemCount: trades.length,
+                        itemBuilder: (context, index) {
+                          final trade = trades[index];
+                          final dynamic pnl = trade['pnl'];
+                          final String pnlText = pnl is num
+                              ? (pnl as num).toStringAsFixed(2)
+                              : 'open';
+                          final Color pnlColor = pnl is num
+                              ? ((pnl as num) >= 0
+                                  ? Colors.greenAccent
+                                  : Colors.redAccent)
+                              : Colors.white54;
+                          return ListTile(
+                            dense: true,
+                            leading: Icon(
+                              '${trade['side'] ?? ''}' == 'BUY'
+                                  ? Icons.arrow_downward
+                                  : Icons.arrow_upward,
+                              color: '${trade['side'] ?? ''}' == 'BUY'
+                                  ? Colors.greenAccent
+                                  : Colors.redAccent,
+                            ),
+                            title: Text(
+                              '${trade['side'] ?? '?'} '
+                              '${trade['quantity'] ?? '?'} '
+                              '${trade['symbol'] ?? '?'} @ '
+                              '${trade['price'] ?? '?'}',
+                            ),
+                            subtitle: Text(
+                              '${trade['ts'] ?? ''}'
+                              '${'${trade['strategy'] ?? ''}'.isNotEmpty ? '  ·  ${trade['strategy']}' : ''}',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            trailing: Text(
+                              'PnL $pnlText',
+                              style: TextStyle(
+                                color: pnlColor,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
                     ),
     );
   }

@@ -26,7 +26,7 @@ This module does NOT implement trading strategies and does NOT determine
 whether any strategy is profitable.
 """
 
-__version__ = "0.4.0"
+__version__ = "1.0.0"
 
 from data_engine.schemas import (
     Candle,
