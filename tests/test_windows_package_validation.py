@@ -65,11 +65,12 @@ def _fixture_members() -> dict:
     members: dict = {}
 
     # deploy/windows components (the REAL shipped scripts + readme +
-    # the v4.0 local-monitor entrypoint + salted-hash template)
+    # the v4.0 local-monitor entrypoint + salted-hash template +
+    # the v1.1.0 lab bar uploader)
     for comp in (
         "install.ps1", "run-tests.ps1", "run-paper.ps1",
         "run-monitor.ps1", "local-monitor-config.template.json",
-        "README-WINDOWS-PACKAGE.md",
+        "push-bars.ps1", "README-WINDOWS-PACKAGE.md",
     ):
         members[f"{root}/{comp}"] = (
             REPO_ROOT / "deploy" / "windows" / comp
