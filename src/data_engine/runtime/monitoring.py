@@ -18,7 +18,7 @@ Contract (fail-closed at every boundary):
   confirmation body ({"confirm": true, "reason": "..."}) and an
   injected activator; a missing/false confirmation → 409 refusal.
   The monitoring API can NEVER submit, modify, or cancel orders.
-- **Rate limiting**: fixed-window per-client cap (default 60
+- **Rate limiting**: fixed-window per-client cap (default 300
   requests/minute, injectable); exceeded → 429. Applies to
   authenticated AND unauthenticated requests (brute-force friction).
 - **Pairing (v4.0)**: ``POST /api/pair`` is the ONE onboarding
@@ -150,17 +150,31 @@ class MonitoringAPI:
         health_provider: Callable[[], dict] = default_health_provider,
         positions_provider: Callable[[], Any] = lambda: [],
         orders_provider: Callable[[], Any] = lambda: [],
-        pnl_provider: Callable[[], Any] = _absent,
-        feed_provider: Callable[[], Any] = _absent,
-        risk_provider: Callable[[], Any] = _absent,
+        # v4.0.2 correction: the defaults must be zero-arg callables.
+        # Binding _absent DIRECTLY (which requires a `component` argument)
+        # made every default provider invocation raise TypeError once the
+        # monitor-only surface became reachable -> the dashboard showed
+        # "provider failure (redacted): TypeError" for Risk/PnL/Feed even
+        # though nothing was actually wrong. Mirror the (already correct)
+        # prediction_provider pattern: lambda-wrapped with the component.
+        pnl_provider: Callable[[], Any] = lambda: _absent("pnl"),
+        feed_provider: Callable[[], Any] = lambda: _absent("feed"),
+        risk_provider: Callable[[], Any] = lambda: _absent("risk"),
         events_provider: Callable[[], Any] = lambda: [],
-        killswitch_state_provider: Callable[[], Any] = _absent,
+        killswitch_state_provider: Callable[[], Any] = lambda: _absent(
+            "killswitch"
+        ),
         killswitch_activator: Optional[
             Callable[[str, str], dict]
         ] = None,
         prediction_provider: Callable[[], Any] = lambda: _absent("prediction"),
         strategy_gate: Optional[Any] = None,
-        rate_limit_max: int = 60,
+        # v4.0.2 correction: 60/min starved the real dashboard client,
+        # which polls 5 endpoints every cycle (30/min baseline) and tips
+        # over the window with the events page or a manual refresh
+        # (observed 429 bursts on the owner's phone). 300/min keeps the
+        # brute-force friction while leaving normal polling headroom.
+        rate_limit_max: int = 300,
         rate_limit_window: float = 60.0,
         pairing_service: Optional[Any] = None,
     ) -> None:

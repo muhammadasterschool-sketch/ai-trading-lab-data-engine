@@ -319,3 +319,35 @@ throughout (no reset, no rebase, no force-push).
 - No server-side change; no API contract change; no governance
   surface touched (PAPER_READY FALSE / LIVE_AUTHORIZATION
   NOT_AUTHORIZED unchanged).
+
+## Fix (v4.0.2) — monitor-only default providers + rate limit (2026-10-27)
+
+- runtime/monitoring.py: the default `pnl_provider`, `feed_provider`,
+  `risk_provider`, and `killswitch_state_provider` were bound DIRECTLY
+  to `_absent`, an arity-1 function (`component` required). Every
+  default-provider invocation therefore raised
+  `TypeError: missing 1 required positional argument` and the
+  fail-closed `_provider` wrapper honestly reported
+  `{"state": "ERROR", "detail": "provider failure (redacted):
+  TypeError"}` — which the phone dashboard displayed as
+  Risk/PnL/Feed = ERROR + a red FEED banner even though nothing was
+  actually wrong (the components are merely not wired in monitor-only
+  mode). Defaults are now zero-arg lambdas
+  (`lambda: _absent("pnl")` etc.), mirroring the already-correct
+  `prediction_provider`. First exercised in the field once the
+  monitor-only serve fix (above) made the surface reachable — the
+  owner's screen recording shows exactly this symptom.
+- runtime/monitoring.py: default `rate_limit_max` 60 -> 300 per
+  60 s window. The real dashboard client polls 5 endpoints every
+  10 s (30/min baseline) and legitimately exceeds 60 with the events
+  page / manual refresh — owner-observed 429 bursts
+  (`GET /api/health -> 429`). 300/min keeps the brute-force friction
+  (still enforced on unauthenticated traffic too) with polling
+  headroom. Injectable, so tests keep tiny explicit limits.
+- tests/test_monitoring_api.py: TestDefaultProviderPins — HTTP + direct
+  pins that pnl/feed/risk/killswitch defaults return ABSENT (never
+  ERROR), and that the DEFAULT limiter absorbs a 40-request polling
+  burst. Full suite at this commit: 3003 passed / 8 skipped / 0 failed
+  (CPython 3.12, sandbox).
+- Governance untouched: PAPER_READY=FALSE; LIVE_AUTHORIZATION
+  NOT_AUTHORIZED; no trading surface added or enabled.

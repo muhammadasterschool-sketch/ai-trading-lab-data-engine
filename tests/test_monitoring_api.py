@@ -766,3 +766,41 @@ class TestPredictionEndpoint:
         code, body = _get(f"{api.url}/api/prediction", AUTH)
         assert code == 200
         assert body["state"] == "ABSENT"
+
+
+class TestDefaultProviderPins:
+    """v4.0.2 regression pins: the zero-arg defaults for pnl / feed /
+    risk / killswitch must return honest ABSENT payloads. Binding
+    ``_absent`` directly (an arity-1 function) raised TypeError on every
+    default-provider invocation once the monitor-only serve surface
+    became reachable, and the dashboard displayed
+    "provider failure (redacted): TypeError" for components that were
+    merely not wired. These tests fail if any default regresses to a
+    non-zero-arg callable."""
+
+    @pytest.mark.parametrize(
+        "component", ["pnl", "feed", "risk", "killswitch"]
+    )
+    def test_default_provider_is_honest_absent(self, api, component):
+        code, body = _get(f"{api.url}/api/{component}", AUTH)
+        assert code == 200
+        assert body["component"] == component
+        assert body["state"] == "ABSENT"
+        assert "ERROR" not in body["state"]
+
+    def test_default_providers_never_wrap_type_error(self, api):
+        for component in ("pnl", "feed", "risk", "killswitch"):
+            payload = api._provider(component)
+            assert payload["state"] == "ABSENT"
+            assert "provider failure" not in str(
+                payload.get("detail", "")
+            )
+
+    def test_default_rate_limit_leaves_polling_headroom(self):
+        """The dashboard polls 5 endpoints per 10s cycle (30/min baseline)
+        plus the events page and manual refreshes; the DEFAULT limiter
+        must not 429 that pattern (owner-observed burst). Direct-limiter
+        probe with the production default (no HTTP, deterministic)."""
+        api = MonitoringAPI(auth_token=TOKEN, port=0)
+        for _ in range(40):
+            assert api._limiter.allow("poll-client") is True
