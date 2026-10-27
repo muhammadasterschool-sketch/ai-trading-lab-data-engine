@@ -1,4 +1,4 @@
-# install.ps1 — AI Trading Lab Data Engine, Windows package installer
+﻿# install.ps1 - AI Trading Lab Data Engine, Windows package installer
 # Stage E (Part 8, E1; upgraded v4.0, PART 7 D1).
 # Fail-closed: ANY error stops the script with a non-zero exit. No
 # secrets are read, written, or embedded here.
@@ -27,7 +27,7 @@ function Fail([string]$message) {
     exit 1
 }
 
-Write-Host "== AI Trading Lab Data Engine — Windows installer =="
+Write-Host "== AI Trading Lab Data Engine - Windows installer =="
 
 # -- 1. Python version gate -------------------------------------------------
 $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
@@ -48,7 +48,7 @@ if (($major -lt 3) -or (($major -eq 3) -and ($minor -lt 11))) {
 
 # -- 2. Isolated project venv ------------------------------------------------
 if (Test-Path ".\.venv") {
-    Write-Host "[SKIP] .\.venv already exists — remove it first for a CLEAN install."
+    Write-Host "[SKIP] .\.venv already exists - remove it first for a CLEAN install."
 } else {
     Write-Host "Creating project virtual environment at .\.venv ..."
     & python -m venv .venv
@@ -80,7 +80,7 @@ if ($LASTEXITCODE -ne 0) { Fail "engine wheel install failed." }
 Write-Host "Running fail-closed packaging smoke test ..."
 & $vpython .\source\scripts\windows_smoke_test.py
 if ($LASTEXITCODE -ne 0) {
-    Fail "SMOKE TEST FAILED — the packaged application is NOT fit. Do not proceed; report the output above."
+    Fail "SMOKE TEST FAILED - the packaged application is NOT fit. Do not proceed; report the output above."
 }
 
 # -- 6. v4.0 local-monitor components (fail-closed package check) -------------
@@ -94,10 +94,10 @@ Write-Host "[ok] v4.0 local-monitor components present (run-monitor.ps1 + invita
 Write-Host ""
 Write-Host "[INSTALL-OK] Engine installed into .\.venv"
 Write-Host ""
-Write-Host "What next (beginner path — rent NOTHING):"
+Write-Host "What next (beginner path - rent NOTHING):"
 Write-Host "  1. .\run-monitor.ps1            - start the LOCAL monitor on this PC"
 Write-Host "     (first run creates local-monitor.json + monitor-token.txt; the monitor"
-Write-Host "      binds loopback; add -AllowLan to connect your phone over Wi-Fi —"
+Write-Host "      binds loopback; add -AllowLan to connect your phone over Wi-Fi -"
 Write-Host "      LAN traffic is UNENCRYPTED, see LOCAL-MONITOR-RUNBOOK.md)"
 Write-Host "  2. install the APK on your phone, choose LOCAL COMPUTER, and pair"
 Write-Host "     with your invitation code (issued to you out-of-band; the engine"
@@ -107,7 +107,7 @@ Write-Host "  4. .\run-paper.ps1            - LATER: paper-mode supervisor (need
 Write-Host "     explicit -Confirm + MAC key; see README-WINDOWS-PACKAGE.md)"
 Write-Host ""
 Write-Host "Prefer a cloud server instead (https, remote access)? The APK also"
-Write-Host "supports CLOUD SERVER mode — see deploy/MULTI-USER-DEPLOYMENT-GUIDE.md."
+Write-Host "supports CLOUD SERVER mode - see deploy/MULTI-USER-DEPLOYMENT-GUIDE.md."
 Write-Host "You can keep BOTH profiles on the phone and switch any time."
 Write-Host ""
 Write-Host "Secrets: ONLY environment variables at runtime (see README-WINDOWS-PACKAGE.md)."

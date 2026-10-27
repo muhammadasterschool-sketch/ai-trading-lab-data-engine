@@ -1,4 +1,4 @@
-# run-tests.ps1 — run the FULL test suite through the package's venv
+﻿# run-tests.ps1 - run the FULL test suite through the package's venv
 # Stage E (Part 8, E1/E2). Fail-closed: non-zero exit on any failure.
 #
 # Usage (from the package root, after install.ps1):
@@ -16,7 +16,7 @@ function Fail([string]$message) {
 }
 
 $vpython = ".\.venv\Scripts\python.exe"
-if (-not (Test-Path $vpython)) { Fail "venv not found — run .\install.ps1 first." }
+if (-not (Test-Path $vpython)) { Fail "venv not found - run .\install.ps1 first." }
 
 if (-not (Test-Path ".\source")) { Fail "packaged source tree not found at .\source" }
 
@@ -33,7 +33,7 @@ try {
 } finally {
     Pop-Location
 }
-if ($code -ne 0) { Fail "test suite exited $code — the package is NOT verified." }
+if ($code -ne 0) { Fail "test suite exited $code - the package is NOT verified." }
 
 Write-Host "[TESTS-OK] full suite green through the documented Windows commands."
 exit 0

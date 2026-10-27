@@ -57,6 +57,30 @@ That APK was built from the `mobile/` Flutter sources at `main`
 (v0.4.0 dual-mode onboarding: CLOUD SERVER + LOCAL COMPUTER pairing).
 Verify its hash the same way after download.
 
+## Known issue (fixed on this branch): Windows PowerShell 5.1 parse errors
+
+The .ps1 files inside the ZIP published at commit `cf88433` contained
+UTF-8 em-dashes and no BOM. Windows PowerShell 5.1 (the default
+`powershell.exe`) reads BOM-less files as ANSI/CP1252; the em-dash's
+third byte (0x94) decodes to a smart quote that the PS 5.1 tokenizer
+treats as a string delimiter, corrupting the parse (errors like
+"Unexpected token 'recommended'", "The 'from' keyword is not
+supported", "Array index expression is missing or not valid").
+
+Fixed on this branch: `deploy/windows/*.ps1` are now pure ASCII with a
+UTF-8 BOM. If your extracted copy still shows parse errors, either
+re-download the fixed `install.ps1` from this branch or add the BOM
+locally (fixes every script at once):
+
+```powershell
+Get-ChildItem "C:\AITradingLab\ai-trading-lab-data-engine-windows-v0.4.0" -Recurse -Filter *.ps1 | ForEach-Object {
+  $c = [System.IO.File]::ReadAllText($_.FullName)
+  $c = $c.Replace([string][char]0x2014, '-')
+  [System.IO.File]::WriteAllText($_.FullName, $c, (New-Object System.Text.UTF8Encoding($true)))
+  Write-Host "fixed: $($_.Name)"
+}
+```
+
 ## Honest testing status
 
 - Automated suite at source commit: 2994 passed / 8 skipped / 0 failed;

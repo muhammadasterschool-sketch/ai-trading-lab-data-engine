@@ -1,14 +1,14 @@
-# run-monitor.ps1 — start the LOCAL MONITOR (v4.0, PART 5 B3 / P5).
+﻿# run-monitor.ps1 - start the LOCAL MONITOR (v4.0, PART 5 B3 / P5).
 #
 # Monitor-ONLY entrypoint: it starts the authenticated monitoring API
 # (with invitation pairing enabled) and NOTHING else. It runs WITHOUT a
-# trading session: no orders, no tick loop composition, no broker —
+# trading session: no orders, no tick loop composition, no broker -
 # and the kill-switch endpoint honestly reports 503 until a separately
 # composed operational session is running (fail-closed, unchanged).
 #
 # What it does (first run):
 #   1. creates .\local-monitor.json from the packaged template
-#      (invitation code stored ONLY as salted SHA-256 — the plaintext
+#      (invitation code stored ONLY as salted SHA-256 - the plaintext
 #      default was issued to you out-of-band and is NEVER in files);
 #   2. generates .\monitor-token.txt (the APK obtains this token via
 #      pairing; delete the file to invalidate the paired phone);
