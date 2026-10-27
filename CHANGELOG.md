@@ -272,3 +272,27 @@ throughout (no reset, no rebase, no force-push).
 - Governance untouched: 32 gates, PAPER_READY=FALSE,
   LIVE_AUTHORIZATION=NOT_AUTHORIZED, 30-day soak + preflight unchanged;
   no gate marked passed; no live-trading flag introduced.
+
+## Fix — monitor-only serve no longer blocked by the readiness gate (2026-10-27)
+
+- runtime/service.py: the fail-closed startup gate (exit 2) now guards
+  trading-ABLE surfaces only — a composed session tick (tick_fn) and
+  the unauthenticated read-only dashboard. The v4.0 monitor-only
+  surface (`run-monitor.ps1` -> `serve --no-dashboard --monitor-*`:
+  authenticated monitoring API + invitation pairing, NO session, NO
+  dashboard, kill switch honestly 503) starts without readiness
+  evidence, exactly as the v4 local-first plan specifies ("Starts
+  (monitor-only, NO trading session ...)"). Previously the D-4/D-5
+  default gate (structurally FALSE with no evidence) refused EVERY
+  serve startup, which made the shipped local-monitor beginner path
+  unusable — found first-hand on the owner's Windows Python 3.15.0
+  install (smoke PASS, then serve refused at step 2 of the runbook).
+- Bare supervisor shell, dashboard-enabled serve, and
+  `--session-launch` keep the original refusal semantics (existing
+  tests unchanged and still green: CLI subprocess pin, F-05 wiring).
+- tests/test_runtime_service_lifecycle.py: new TestMonitorOnlySurface
+  pins — monitor-only starts without evidence / with a session tick
+  refuses / with the dashboard refuses.
+- Governance untouched: PAPER_READY stays FALSE; LIVE_AUTHORIZATION
+  NOT_AUTHORIZED; the gate still refuses every trading-capable serve
+  configuration; no trading surface was added anywhere.

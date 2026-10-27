@@ -20,7 +20,13 @@ Honest scope (fail-closed by construction):
   (:class:`data_engine.runtime.readiness.PaperReadinessGate`): with no
   operator-submitted evidence the verdict is structurally FALSE
   (absent evidence is FALSE, never neutral), so the service REFUSES to
-  start (exit code 2) until the readiness chain is completed.
+  start (exit code 2) until the readiness chain is completed. The ONE
+  documented exception (v4.0 correction): a monitor-only surface —
+  authenticated monitoring API present, dashboard DISABLED, NO session
+  tick — starts without readiness evidence, because it composes NO
+  trading surface at all (the gate guards trading-able surfaces, not
+  authenticated read-only observability; the kill switch still
+  honestly reports 503 in that process).
 - The dashboard (if enabled, default) binds LOOPBACK ONLY. Any
   non-loopback host is refused outright (exit code 3): remote exposure
   requires operator TLS/auth infrastructure that is deliberately NOT
@@ -217,7 +223,25 @@ class PaperRuntimeService:
     def run(self) -> int:
         """Run the supervisor to completion; returns the exit code."""
         # 1. fail-closed readiness gate -----------------------------------
-        if not self._readiness_fn():
+        # v4.0 monitor-only correction: the readiness gate guards
+        # TRADING-ABLE surfaces — a composed session tick (tick_fn) and
+        # the unauthenticated read-only dashboard. The v4.0 LOCAL
+        # MONITOR (run-monitor.ps1 -> serve --no-dashboard --monitor-*:
+        # authenticated monitoring API + invitation pairing, NO session,
+        # NO dashboard, kill switch honestly 503) composes NO trading
+        # surface, so the gate must not block it — the unconditional
+        # gate made the shipped beginner path refuse at startup (v4
+        # plan: "Starts (monitor-only, NO trading session ...)").
+        # Every OTHER configuration keeps the original fail-closed
+        # refusal: bare supervisor shell, dashboard-enabled, and
+        # session-launched (whose readiness_fn is the composed
+        # session's own gate).
+        monitor_only_surface = (
+            self._monitoring_api is not None
+            and not self._enable_dashboard
+            and self._tick_fn is None
+        )
+        if not monitor_only_surface and not self._readiness_fn():
             print(
                 "[serve] REFUSING TO START: PAPER_READY = FALSE "
                 "(fail-closed startup — the paper readiness gate holds "

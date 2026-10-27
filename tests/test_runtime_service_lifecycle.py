@@ -6,7 +6,12 @@ Pins (G-03 closure):
 
 - fail-closed startup: with the real (evidence-less) readiness gate the
   service REFUSES to start (exit 2) — including via the real CLI in a
-  subprocess;
+  subprocess — for every trading-able or dashboard-exposing
+  configuration;
+- v4.0 monitor-only exception: the authenticated monitoring-API-only
+  surface (no session tick, no dashboard) STARTS without readiness
+  evidence (TestMonitorOnlySurface) — the shipped run-monitor.ps1
+  beginner path;
 - bounded run: startup -> heartbeat loop -> graceful shutdown -> exit 0;
 - graceful interruption: a stop request (the same path SIGTERM/SIGINT
   take) exits 0 with the reason recorded;
@@ -70,6 +75,79 @@ class TestFailClosedStartup:
         svc = _svc(readiness_fn=lambda: False, enable_dashboard=True, port=0)
         assert svc.run() == EXIT_NOT_READY
         assert svc._dashboard is None
+
+
+class TestMonitorOnlySurface:
+    """v4.0 correction: the AUTHENTICATED monitor-only surface
+    (monitoring API present, dashboard OFF, NO session tick) starts
+    WITHOUT readiness evidence — it composes no trading surface (v4
+    plan: "Starts (monitor-only, NO trading session ...)"; the shipped
+    run-monitor.ps1 beginner path). Anything MORE — a session tick, or
+    the unauthenticated dashboard — still refuses fail-closed."""
+
+    class _FakeMonitorAPI:
+        def __init__(self):
+            self.started = False
+            self.stopped = False
+
+        def start(self):
+            self.started = True
+
+        def stop(self):
+            self.stopped = True
+
+        @property
+        def bind_host(self):
+            return "127.0.0.1"
+
+        @property
+        def bind_port(self):
+            return 8018
+
+    def _monitor_only_svc(self, **over):
+        api = self._FakeMonitorAPI()
+        defaults = dict(
+            readiness_fn=None,  # real gate: structurally FALSE, no evidence
+            enable_dashboard=False,
+            monitoring_api=api,
+            max_seconds=0.06,
+            tick_seconds=0.01,
+            stdout=io.StringIO(),
+            stderr=io.StringIO(),
+        )
+        defaults.update(over)
+        return api, PaperRuntimeService(**defaults)
+
+    def test_monitor_only_starts_without_readiness_evidence(self):
+        out = io.StringIO()
+        api, svc = self._monitor_only_svc(stdout=out)
+        assert svc.run() == EXIT_OK
+        assert api.started, "monitoring API must start"
+        assert api.stopped, "monitoring API must stop gracefully"
+        assert (
+            "authenticated monitoring API bound" in out.getvalue()
+        )
+        assert svc.stop_reason == "bounded runtime reached"
+
+    def test_monitor_only_with_session_tick_still_refuses(self):
+        """A monitor process that ALSO drives a session tick is
+        trading-capable -> the fail-closed gate applies again."""
+        err = io.StringIO()
+        _api, svc = self._monitor_only_svc(
+            tick_fn=lambda: None, stderr=err
+        )
+        assert svc.run() == EXIT_NOT_READY
+        assert "PAPER_READY = FALSE" in err.getvalue()
+
+    def test_monitor_only_with_dashboard_still_refuses(self):
+        """A monitor process that ALSO enables the unauthenticated
+        dashboard keeps the fail-closed refusal (D-5 posture)."""
+        err = io.StringIO()
+        _api, svc = self._monitor_only_svc(
+            enable_dashboard=True, stderr=err
+        )
+        assert svc.run() == EXIT_NOT_READY
+        assert "REFUSING TO START" in err.getvalue()
 
 
 class TestNetworkPosture:
