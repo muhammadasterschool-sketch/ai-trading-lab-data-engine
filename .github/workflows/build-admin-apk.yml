@@ -24,7 +24,11 @@ on:
         required: false
         default: ""
   push:
-    branches: [main]
+    # workflow_dispatch cannot reach a workflow that is absent from the
+    # default branch (fail-closed by GitHub), so release builds of the
+    # admin APK are triggered by pushing to the builds/admin-apk-*
+    # branches (this file at the PUSHED ref is what runs).
+    branches: [main, "builds/admin-apk-**"]
     paths:
       - "admin/**"
       - ".github/workflows/build-admin-apk.yml"
