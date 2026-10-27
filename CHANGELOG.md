@@ -319,3 +319,17 @@ throughout (no reset, no rebase, no force-push).
 - No server-side change; no API contract change; no governance
   surface touched (PAPER_READY FALSE / LIVE_AUTHORIZATION
   NOT_AUTHORIZED unchanged).
+
+## Fix (mobile v0.4.4) — honest 429 handling + calmer poll cadence (2026-10-27)
+
+- mobile/lib/main.dart: HTTP 429 was reported as raw
+  "unexpected status" noise. It is a TRANSIENT server-side throttle,
+  not a broken connection: `_statusException` now maps
+  429 -> "server busy (rate limited) — retrying automatically" and the
+  next poll cycle recovers (server default raised to 300/min in the
+  same release, so 429s should effectively disappear in local use).
+- Dashboard poll cadence 10 s -> 15 s: halves the request rate
+  (5 endpoints per cycle) while staying responsive for a monitoring
+  surface.
+- No auth/contract change; pairing flow untouched; governance
+  untouched (PAPER_READY=FALSE / LIVE_AUTHORIZATION=NOT_AUTHORIZED).
