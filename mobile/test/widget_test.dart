@@ -133,10 +133,13 @@ void main() {
         }),
       ),
     ));
-    for (var i = 0; i < 6; i++) {
+    // bars sort by count DESCENDING: SYM7..SYM2 are the top six,
+    // SYM1/SYM0 (lowest counts) are honestly folded into '+2 more'
+    for (var i = 2; i < 8; i++) {
       expect(find.text('SYM$i'), findsOneWidget);
     }
-    expect(find.text('SYM6'), findsNothing);
+    expect(find.text('SYM1'), findsNothing);
+    expect(find.text('SYM0'), findsNothing);
     expect(find.textContaining('2 more'), findsOneWidget);
   });
 }
