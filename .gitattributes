@@ -1,0 +1,6 @@
+# Git archive export rules (packaging hygiene).
+# `git archive HEAD` (used by scripts/build_windows_package.py to fill
+# source/) must NOT embed delivery artifacts inside the package:
+# a tracked .zip inside release-artifacts/ would be nested into the
+# new package zip, doubling its size and confusing verification.
+release-artifacts/ export-ignore
