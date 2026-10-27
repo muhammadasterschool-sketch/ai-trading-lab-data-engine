@@ -1,4 +1,4 @@
-# Release Artifacts — MT5 Windows Package v0.4.0
+# Release Artifacts — MT5 Windows Package v0.4.0 (Python 3.15 support)
 
 This directory contains **verified build artifacts**. Everything here is
 read-only deliverable content; it changes NO engine code, NO tests, and
@@ -8,39 +8,66 @@ NO governance state.
 
 | File | What it is |
 |------|------------|
-| `ai-trading-lab-data-engine-windows-v0.4.0-exness-mt5-0b1e5e2.zip` | Windows installer package built from commit `0b1e5e2` (feat/exness-mt5-demo-market-data tip) — genuine read-only Exness MT5 DEMO market-data integration |
-| `ai-trading-lab-data-engine-windows-v0.4.0-exness-mt5-0b1e5e2.zip.sha256` | SHA-256 checksum companion for the ZIP |
+| `ai-trading-lab-data-engine-windows-v0.4.0-exness-mt5-py315-6cef076.zip` | Windows installer package built from commit `6cef076` — genuine read-only Exness MT5 DEMO market-data integration + Python 3.15 support (pydantic 2.14.1 / pydantic-core 2.50.1) + PS 5.1-safe installers |
+| `...zip.sha256` | SHA-256 checksum companion |
 | `SHA256SUMS.txt` | SHA-256 of every artifact here (including the Android APK pointer) |
+| `README-ARTIFACTS.md` | This file |
+
+Superseded artifact: the pre-3.15 package built from `0b1e5e2`
+(sha256 `3a22efab...d9f99`) was removed from this branch tip and remains
+recoverable from git history: `git checkout 0763507 -- release-artifacts/`.
 
 ## Verification (do this before trusting any download)
 
 PowerShell (Windows):
 
 ```powershell
-Get-FileHash .\ai-trading-lab-data-engine-windows-v0.4.0-exness-mt5-0b1e5e2.zip -Algorithm SHA256
+Get-FileHash .\ai-trading-lab-data-engine-windows-v0.4.0-exness-mt5-py315-6cef076.zip -Algorithm SHA256
 ```
 
 Expected:
 
 ```
-3a22efab9314005825f82f481a90004d8b95078b0dfb37c0a3ee666c484d9f99
+473a6114a8d65d6fb04bb226de8bdec378b8b8e8d0d4efa9e16822beef62fe36
 ```
 
 If the hash does not match, do NOT extract or run anything — re-download.
+
+## Python version guidance (evidence-based, 2026-10-27)
+
+- **Python 3.15.x**: SUPPORTED by the engine. Locked deps were bumped
+  (pydantic 2.14.1, pydantic-core 2.50.1 — first line with cp315
+  wheels; numpy 2.5.3 / pandas 3.0.6 / zeroconf 0.151.5 already ship
+  cp315). Full test suite executed on CPython 3.15.0: 2994 passed /
+  8 skipped / 0 failed.
+  **Exception:** the vendor `MetaTrader5` pip package (operator step,
+  NOT part of the locked requirements) ships cp310–cp314 wheels only.
+  On 3.15 the MT5 demo probe is blocked until the vendor publishes a
+  cp315 wheel. For the MT5 probe specifically, create the venv with
+  Python 3.14: `py -3.14 -m venv .venv` (install.ps1 skips creating a
+  venv that already exists and uses it).
+- **Python 3.14.x**: declared runtime; everything works including MT5.
+- **Python 3.11–3.13**: supported (CI matrix).
+- **Python <3.11**: not supported (requires-python >=3.11).
 
 ## Provenance (exactly how this ZIP was produced)
 
 - Built by the repo's own fail-closed deterministic builder
   `scripts/build_windows_package.py` — refuses dirty trees, packages
-  `git archive HEAD` content only, embeds SHA256SUMS for all 580 files.
-- Source commit: `0b1e5e27b6a90be57c501e6cf83ec55869ec552a`
-  (= tip of `feat/exness-mt5-demo-market-data`, CI 6/6 SUCCESS on that
-  exact SHA, run 40217138921).
+  `git archive HEAD` content only, embeds SHA256SUMS for all 581 files.
+- Source commit: `6cef076eec440f48e9fa3fa0e8f5ef34380c580d`
+  (= this branch; parent chain: `0b1e5e2` verified MT5 feature tip ->
+  `cf88433` artifacts -> `0763507` PS 5.1 fix -> `1f5d218` py315 deps ->
+  `6cef076` export-ignore packaging hygiene).
 - Repo validator `scripts/validate_windows_package.py`: 10/10 PASS.
+- `.gitattributes` export-ignore keeps `release-artifacts/` out of the
+  packaged source tree (no nested zip).
 - Contents include all 3 genuine MT5 modules (`mt5_terminal.py`,
   `mt5_symbol_map.py`, `mt5_market_data.py`), 4 MT5 test files,
   `fake_mt5_lab`, MT5 integration artifacts 03/05/06, and
   `exness_mock.py` (simulation-labeled).
+- The PS 5.1 encoding fix (pure-ASCII + UTF-8 BOM deploy scripts) is
+  INCLUDED in this package — no local BOM one-liner needed.
 
 ## Android APK (not stored in this branch)
 
@@ -57,35 +84,14 @@ That APK was built from the `mobile/` Flutter sources at `main`
 (v0.4.0 dual-mode onboarding: CLOUD SERVER + LOCAL COMPUTER pairing).
 Verify its hash the same way after download.
 
-## Known issue (fixed on this branch): Windows PowerShell 5.1 parse errors
-
-The .ps1 files inside the ZIP published at commit `cf88433` contained
-UTF-8 em-dashes and no BOM. Windows PowerShell 5.1 (the default
-`powershell.exe`) reads BOM-less files as ANSI/CP1252; the em-dash's
-third byte (0x94) decodes to a smart quote that the PS 5.1 tokenizer
-treats as a string delimiter, corrupting the parse (errors like
-"Unexpected token 'recommended'", "The 'from' keyword is not
-supported", "Array index expression is missing or not valid").
-
-Fixed on this branch: `deploy/windows/*.ps1` are now pure ASCII with a
-UTF-8 BOM. If your extracted copy still shows parse errors, either
-re-download the fixed `install.ps1` from this branch or add the BOM
-locally (fixes every script at once):
-
-```powershell
-Get-ChildItem "C:\AITradingLab\ai-trading-lab-data-engine-windows-v0.4.0" -Recurse -Filter *.ps1 | ForEach-Object {
-  $c = [System.IO.File]::ReadAllText($_.FullName)
-  $c = $c.Replace([string][char]0x2014, '-')
-  [System.IO.File]::WriteAllText($_.FullName, $c, (New-Object System.Text.UTF8Encoding($true)))
-  Write-Host "fixed: $($_.Name)"
-}
-```
-
 ## Honest testing status
 
-- Automated suite at source commit: 2994 passed / 8 skipped / 0 failed;
-  MT5 subset 102 passed / 5 skipped (terminal-integration tests are
-  BLOCKED_ON_OPERATOR_ENV by design).
+- Automated suite at source commit, on CPython 3.15.0 (sandbox,
+  first-hand): 2994 passed / 8 skipped / 0 failed; the 8 skips are the
+  terminal-integration tests, BLOCKED_ON_OPERATOR_ENV by design.
+- CI matrix now includes 3.15; builds-branch pushes are branch-filtered
+  (no CI on push by design) — workflow_dispatch results, if any, are
+  recorded in the commit message / chat.
 - **Real Windows + Exness MT5 DEMO terminal connection: NOT RUN.**
   It requires an actual Windows PC with the MetaTrader 5 terminal
   installed and DEMO account credentials. Run
