@@ -220,15 +220,29 @@ class EngineApiClient {
         'Accept': 'application/json',
       };
 
+  /// v4.0.2: a 429 is a TRANSIENT server-side throttle, not a broken
+  /// connection — surface it as an honest, calm message (the next poll
+  /// cycle retries automatically).
+  ApiException? _statusException(int statusCode) {
+    if (statusCode == 401) {
+      return ApiException(401, 'invalid or expired token');
+    }
+    if (statusCode == 429) {
+      return ApiException(429, 'server busy (rate limited) — retrying automatically');
+    }
+    if (statusCode != 200) {
+      return ApiException(statusCode, 'unexpected status');
+    }
+    return null;
+  }
+
   Future<Map<String, dynamic>> _getJson(String path) async {
     final response = await http
         .get(Uri.parse('$serverUrl$path'), headers: _headers)
         .timeout(const Duration(seconds: 10));
-    if (response.statusCode == 401) {
-      throw ApiException(401, 'invalid or expired token');
-    }
-    if (response.statusCode != 200) {
-      throw ApiException(response.statusCode, 'unexpected status');
+    final ApiException? failure = _statusException(response.statusCode);
+    if (failure != null) {
+      throw failure;
     }
     return jsonDecode(utf8.decode(response.bodyBytes))
         as Map<String, dynamic>;
@@ -244,11 +258,9 @@ class EngineApiClient {
     final response = await http
         .get(Uri.parse('$serverUrl$path'), headers: _headers)
         .timeout(const Duration(seconds: 10));
-    if (response.statusCode == 401) {
-      throw ApiException(401, 'invalid or expired token');
-    }
-    if (response.statusCode != 200) {
-      throw ApiException(response.statusCode, 'unexpected status');
+    final ApiException? failure = _statusException(response.statusCode);
+    if (failure != null) {
+      throw failure;
     }
     return jsonDecode(utf8.decode(response.bodyBytes));
   }
@@ -275,8 +287,9 @@ class EngineApiClient {
     final response = await http
         .get(Uri.parse('$serverUrl/api/events'), headers: _headers)
         .timeout(const Duration(seconds: 10));
-    if (response.statusCode != 200) {
-      throw ApiException(response.statusCode, 'unexpected status');
+    final ApiException? failure = _statusException(response.statusCode);
+    if (failure != null) {
+      throw failure;
     }
     final dynamic decoded = jsonDecode(utf8.decode(response.bodyBytes));
     if (decoded is List) {
@@ -1084,7 +1097,10 @@ class _DashboardPageState extends State<DashboardPage> {
   void initState() {
     super.initState();
     _refresh();
-    _timer = Timer.periodic(const Duration(seconds: 10), (_) => _refresh());
+    // v4.0.2: 15 s poll cadence (was 10 s) — halves the request rate so
+    // the dashboard sits comfortably under the server's rate limit
+    // while staying responsive for a monitoring surface.
+    _timer = Timer.periodic(const Duration(seconds: 15), (_) => _refresh());
   }
 
   @override
