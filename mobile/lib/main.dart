@@ -1992,10 +1992,10 @@ class _AssistantTabState extends State<AssistantTab> {
         return;
       }
       setState(() {
-        _thread.add(const Map<String, String>.from(<String, String>{
+        _thread.add(<String, String>{
           'role': 'assistant',
           'text': 'timeout — server unreachable',
-        }));
+        });
       });
     } catch (exc) {
       if (!mounted) {
@@ -2207,7 +2207,7 @@ class _StrategiesTabState extends State<StrategiesTab> {
                       hintText: 'symbol, e.g. XAUUSD or BTC/USD'),
                 ),
                 DropdownButtonFormField<String>(
-                  initialValue: kind,
+                  value: kind,
                   items: const <DropdownMenuItem<String>>[
                     DropdownMenuItem<String>(
                         value: 'ema_trend', child: Text('EMA trend')),

@@ -1104,18 +1104,6 @@ class StrategiesTab extends StatelessWidget {
     return Colors.lightBlueAccent;
   }
 
-  static String formatTimestamp(Object? value) {
-    if (value is! String || value.isEmpty) {
-      return '';
-    }
-    final DateTime? parsed = DateTime.tryParse(value);
-    if (parsed == null) {
-      return value;
-    }
-    final String iso = parsed.toIso8601String();
-    return iso.length >= 16 ? iso.substring(0, 16).replaceFirst('T', ' ') : iso;
-  }
-
   @override
   Widget build(BuildContext context) {
     return _AsyncBody(
@@ -1157,6 +1145,20 @@ class StrategiesTab extends StatelessWidget {
               final String state =
                   '${row['state'] ?? 'SUBMITTED'}';
               final dynamic backtest = row['backtest'];
+              String detail =
+                  '${row['kind'] ?? '?'} · ${row['symbol'] ?? '?'}\n'
+                  'state: $state\n';
+              if (backtest is Map) {
+                detail = detail +
+                    'backtest: ${backtest['trades']} trades, '
+                        'return ${backtest['total_return']}%, '
+                        'maxDD ${backtest['max_drawdown']}%\n';
+              }
+              if (row['validation_window_end'] != null) {
+                detail = detail +
+                    'paper window ends: '
+                        '${formatTimestamp(row['validation_window_end'])}';
+              }
               return Card(
                 child: ListTile(
                   leading: Icon(
@@ -1164,15 +1166,7 @@ class StrategiesTab extends StatelessWidget {
                     color: _stateColor(state),
                   ),
                   title: Text('${row['label'] ?? row['submission_id'] ?? '?'}'),
-                  subtitle: Text(
-                    '${row['kind'] ?? '?'} · ${row['symbol'] ?? '?'}\n'
-                    'state: $state\n'
-                    '${backtest is Map ? 'backtest: ${backtest['trades']} '
-                        'trades, return ${backtest['total_return']}%, '
-                        'maxDD ${backtest['max_drawdown']}%\n'
-                    : ''}'
-                    '${row['validation_window_end'] != null ? 'paper window ends: ${formatTimestamp(row['validation_window_end'])}' : ''}',
-                  ),
+                  subtitle: Text(detail),
                   isThreeLine: true,
                   trailing: Container(
                     padding: const EdgeInsets.symmetric(
