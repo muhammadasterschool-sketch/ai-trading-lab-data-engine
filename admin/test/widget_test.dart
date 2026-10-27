@@ -31,11 +31,11 @@ void main() {
 
   test('epoch timestamps format as UTC ISO; others pass through', () {
     expect(
-      _fmtTs(0),
+      formatTimestamp(0),
       DateTime.fromMillisecondsSinceEpoch(0, isUtc: true).toIso8601String(),
     );
-    expect(_fmtTs('already-a-string'), 'already-a-string');
-    expect(_fmtTs(null), 'null');
+    expect(formatTimestamp('already-a-string'), 'already-a-string');
+    expect(formatTimestamp(null), 'null');
   });
 
   testWidgets('setup screen refuses empty required fields',
