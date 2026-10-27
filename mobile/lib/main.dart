@@ -234,12 +234,42 @@ class EngineApiClient {
         as Map<String, dynamic>;
   }
 
+  /// v4.0.1 correction: collection endpoints (positions, orders) return
+  /// JSON ARRAYS from the monitoring API — the monitor-only default
+  /// providers return []. Forcing them through the Map-only cast raised
+  /// _TypeError on the dashboard ("connection error (_TypeError)") and
+  /// left every panel empty even though pairing had succeeded. Parse
+  /// defensively instead: accept whatever JSON shape the server sends.
+  Future<dynamic> _getDynamic(String path) async {
+    final response = await http
+        .get(Uri.parse('$serverUrl$path'), headers: _headers)
+        .timeout(const Duration(seconds: 10));
+    if (response.statusCode == 401) {
+      throw ApiException(401, 'invalid or expired token');
+    }
+    if (response.statusCode != 200) {
+      throw ApiException(response.statusCode, 'unexpected status');
+    }
+    return jsonDecode(utf8.decode(response.bodyBytes));
+  }
+
   Future<Map<String, dynamic>> health() => _getJson('/api/health');
   Future<Map<String, dynamic>> risk() => _getJson('/api/risk');
   Future<Map<String, dynamic>> feed() => _getJson('/api/feed');
-  Future<dynamic> positions() => _getJson('/api/positions');
-  Future<dynamic> orders() => _getJson('/api/orders');
-  Future<dynamic> pnl() => _getJson('/api/pnl');
+  Future<dynamic> positions() async {
+    final dynamic decoded = await _getDynamic('/api/positions');
+    return decoded ?? <dynamic>[];
+  }
+
+  Future<dynamic> orders() async {
+    final dynamic decoded = await _getDynamic('/api/orders');
+    return decoded ?? <dynamic>[];
+  }
+
+  Future<dynamic> pnl() async {
+    final dynamic decoded = await _getDynamic('/api/pnl');
+    return decoded ?? <String, dynamic>{};
+  }
 
   Future<List<Map<String, dynamic>>> events() async {
     final response = await http
