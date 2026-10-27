@@ -511,7 +511,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
     Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
       builder: (_) => SetupPage(
         onSaved: (config) async {
-          final storage = const FlutterSecureStorage();
+          const storage = FlutterSecureStorage();
           await storage.write(
             key: _storageConfigKey,
             value: jsonEncode(config.toJson()),
@@ -537,7 +537,7 @@ class _AdminHomePageState extends State<AdminHomePage> {
       body: IndexedStack(
         index: _tab,
         children: <Widget>[
-          OverviewTab(client: _client),
+          OverviewTab(client: _client, config: widget.config),
           UsersTab(client: _client),
           RegistrationsTab(client: _client),
           TradesTab(client: _client),
@@ -664,9 +664,10 @@ class _AsyncBodyState extends State<_AsyncBody> {
 /// Overview: engine health + the STOP control (the admin's own
 /// full-control surface; resume stays PC-gated on purpose).
 class OverviewTab extends StatefulWidget {
-  const OverviewTab({required this.client, super.key});
+  const OverviewTab({required this.client, required this.config, super.key});
 
   final AdminApiClient client;
+  final AdminConfig config;
 
   @override
   State<OverviewTab> createState() => _OverviewTabState();
@@ -868,7 +869,7 @@ Widget _infoCard(
 
 /// Timestamp formatting: registry timestamps are epoch seconds
 /// (wall clock); anything else passes through untouched.
-String _fmtTs(dynamic value) {
+String formatTimestamp(dynamic value) {
   if (value is num) {
     return DateTime.fromMillisecondsSinceEpoch(
       (value * 1000).round(),
@@ -969,7 +970,7 @@ class RegistrationsTab extends StatelessWidget {
                 ),
                 subtitle: Text(
                   'email: ${row['email'] == '' ? '—' : row['email']}\n'
-                  'first seen: ${_fmtTs(row['first_seen'])}\n'
+                  'first seen: ${formatTimestamp(row['first_seen'])}\n'
                   'ip: ${row['ip']}  ·  device: '
                   '${row['device'] == '' ? '—' : row['device']}',
                 ),
@@ -1031,11 +1032,9 @@ class TradesTab extends StatelessWidget {
               ...rows.map((trade) {
                 final dynamic pnl = trade['pnl'];
                 final String pnlText =
-                    pnl is num ? (pnl as num).toStringAsFixed(2) : 'open';
+                    pnl is num ? pnl.toStringAsFixed(2) : 'open';
                 final Color pnlColor = pnl is num
-                    ? ((pnl as num) >= 0
-                        ? Colors.greenAccent
-                        : Colors.redAccent)
+                    ? (pnl >= 0 ? Colors.greenAccent : Colors.redAccent)
                     : Colors.white54;
                 return ListTile(
                   dense: true,
