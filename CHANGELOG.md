@@ -5,6 +5,62 @@ All notable changes under the FULL PROJECT PROMPT v3.0 run
 no rebase, no force-push; feature branches merged to main only on
 green full suites).
 
+## v1.0.0 — owner control plane + admin panel (feat/v1-control-admin-panel)
+
+Owner mandate: "full control on my AI trading lab" + a second APK that
+is an ADMIN PANEL (who is logged in, registration ledger, trade
+ledger) + the real STOP control. Version line moved to 1.0.0 across
+the engine and both clients (pyproject == __version__ == uv.lock ==
+monitor APK 1.0.0+6 == admin APK 1.0.0+1).
+
+- runtime/control_state.py (NEW): DurableKillSwitch — the monitoring
+  API's activator/state-provider contract finally gets a REAL
+  implementation in the serve path: POST /api/killswitch/activate now
+  PERSISTS a durable STOP flag (monitor-state/kill_switch_state.json,
+  atomic writes, corrupt-file fail-safe to INACTIVE). Monitor-only
+  mode composes no trading session, so the flag is the standing halt
+  decision for the install — honest about what it is and is not.
+  RESUME is deliberately PC-gated: new `control-reset` CLI command
+  (human principal on the machine); the API has NO reset route.
+- runtime/registry.py (NEW): ClientRegistry — self-reported identity
+  (X-Client-Name/Email/Kind/Device headers) observed on every
+  AUTHENTICATED request; /api/users (who is connected RIGHT NOW with
+  a 90 s online window) + /api/registrations (durable first-contact
+  ledger, registrations.json, bounded, atomic). Stripped +
+  length-capped fields; unknown kinds collapse to "other"; the bearer
+  token remains the only authentication factor.
+- runtime/trade_ledger.py (NEW): TradeLedger — append-only JSONL
+  per-trade ledger (symbol/side/quantity/price/pnl/strategy) with
+  strict validation, bounded newest-first reads, corrupt-line
+  tolerance, and honest zero stats in monitor-only mode. /api/ledger/
+  trades + /api/ledger/stats (per-symbol counts = the dashboard mini
+  chart data; total PnL; wins/losses).
+- runtime/monitoring.py: four new GET routes (all 503 fail-closed
+  until wired, mirroring the pairing posture); best-effort identity
+  observation after auth (never breaks serving); root route list
+  updated; the bare-CLI "kill switch NOT wired" era ends.
+- cli.py: serve wires DurableKillSwitch + ClientRegistry + TradeLedger
+  from --monitor-state-dir (default ./monitor-state); health now
+  reports the REAL stop-flag state; new control-reset command.
+- mobile/ (monitor APK v1.0.0+6): identity headers on every request;
+  dashboard "Trades by instrument" mini chart (hand-rolled
+  CustomPainter, zero new deps) + TradesPage (per-trade ledger, PnL
+  color-coded); stats fetch is non-fatal on older engines; STOP
+  button relabeled as the trading stop control it is.
+- admin/ (NEW admin panel APK v1.0.0+1): connect-once setup (URL +
+  token + admin name/email, probe-before-save, secure storage only);
+  four tabs — Overview (health + STOP TRADING), Users (who is logged
+  in, online dots), Registrations (first-contact ledger), Trades
+  (summary + per-trade ledger); TLS default with an explicit
+  per-config plain-LAN escape; .github/workflows/build-admin-apk.yml
+  (admin-apk-<sha12> release tags, same pinned-tool discipline as
+  build-apk.yml).
+- Tests: test_client_registry.py, test_trade_ledger.py,
+  test_control_state.py, test_owner_surfaces_api.py (HTTP-level),
+  TestCliWiring updated to the wired reality (activate -> 200 +
+  durable state file); mobile chart widget tests; admin validation
+  tests.
+
 ## Stage C — runtime integration (merged 3750dab)
 
 - runtime/composition.py: explicit composition root (documented,

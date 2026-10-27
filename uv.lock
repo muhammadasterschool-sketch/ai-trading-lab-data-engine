@@ -15,7 +15,7 @@ resolution-markers = [
 
 [[package]]
 name = "ai-trading-lab-data-engine"
-version = "0.4.0"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },

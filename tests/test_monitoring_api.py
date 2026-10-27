@@ -594,7 +594,12 @@ class TestCliWiring:
         token_file.write_text("d" * 32)
         token_file.chmod(0o600)
         api = _build_monitoring_api(
-            bind="127.0.0.1", port=0, token_file=str(token_file)
+            bind="127.0.0.1",
+            port=0,
+            token_file=str(token_file),
+            # explicit per-test state dir: the durable stop flag must
+            # never leak across tests (that IS its contract)
+            state_dir=str(tmp_path / "monitor-state"),
         )
         assert api.bind_host == "127.0.0.1"
         api.start()
@@ -606,13 +611,31 @@ class TestCliWiring:
             import data_engine  # v4.0: version agreement, not a
             # magic string — health reports the ACTUAL engine version
             assert body["engine_version"] == data_engine.__version__
-            # kill switch is fail-closed in the bare CLI path
+            # v1.0.0: health carries the REAL durable stop flag
+            # (honest INACTIVE default; no fabricated halt)
+            assert body["kill_switch"] == "INACTIVE"
+            # v1.0.0: the activator is WIRED — the phone's STOP
+            # really acts and PERSISTS under the state dir
             code, resp = _post(
                 f"{api.url}/api/killswitch/activate",
                 {"confirm": True, "reason": "halt"},
                 file_auth,
             )
-            assert code == 503
+            assert code == 200
+            assert resp["state"] == "ACTIVE"
+            state_file = (
+                tmp_path / "monitor-state" / "kill_switch_state.json"
+            )
+            assert state_file.is_file()
+            persisted = json.loads(state_file.read_text(encoding="utf-8"))
+            assert persisted["state"] == "ACTIVE"
+            # v1.0.0: owner surfaces are wired in the serve path
+            code, users = _get(f"{api.url}/api/users", file_auth)
+            assert code == 200
+            assert users["count"] == 1  # this very request, anonymous
+            code, stats = _get(f"{api.url}/api/ledger/stats", file_auth)
+            assert code == 200
+            assert stats["total_trades"] == 0  # monitor-only: honest zero
         finally:
             api.stop()
 

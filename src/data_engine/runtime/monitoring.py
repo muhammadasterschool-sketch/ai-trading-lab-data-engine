@@ -18,6 +18,16 @@ Contract (fail-closed at every boundary):
   confirmation body ({"confirm": true, "reason": "..."}) and an
   injected activator; a missing/false confirmation → 409 refusal.
   The monitoring API can NEVER submit, modify, or cancel orders.
+- **Owner surfaces (v1.0.0)**: GET /api/users (who is connected
+  RIGHT NOW), GET /api/registrations (durable first-contact
+  ledger), GET /api/ledger/trades + GET /api/ledger/stats
+  (per-trade ledger + aggregates for the dashboard mini chart).
+  All four are 503 fail-closed unless the corresponding
+  registry/ledger is INJECTED by the serve path; identity comes
+  from SELF-REPORTED X-Client-* headers read on every
+  authenticated request (lab trust domain — the bearer token stays
+  the only authentication factor; reset stays PC-gated via the
+  ``control-reset`` CLI, never reachable from this API).
 - **Rate limiting**: fixed-window per-client cap (default 300
   requests/minute, injectable); exceeded → 429. Applies to
   authenticated AND unauthenticated requests (brute-force friction).
@@ -177,6 +187,13 @@ class MonitoringAPI:
         rate_limit_max: int = 300,
         rate_limit_window: float = 60.0,
         pairing_service: Optional[Any] = None,
+        # v1.0.0 (owner mandate): client identity registry (who is
+        # connected / who ever registered) and the durable trade
+        # ledger (which trades, what profit). Both are OPTIONAL and
+        # duck-typed; absent -> the matching routes answer 503
+        # fail-closed (same posture as the pairing service).
+        client_registry: Optional[Any] = None,
+        trade_ledger: Optional[Any] = None,
     ) -> None:
         if not auth_token or not isinstance(auth_token, str):
             raise MonitoringAPIError(
@@ -205,6 +222,8 @@ class MonitoringAPI:
         self._prediction_provider = prediction_provider
         self._strategy_gate = strategy_gate  # StrategyActivationGate (G6)
         self._pairing_service = pairing_service  # PairingService (v4.0 B1)
+        self._client_registry = client_registry  # ClientRegistry (v1.0.0)
+        self._trade_ledger = trade_ledger  # TradeLedger (v1.0.0)
         self._limiter = _RateLimiter(rate_limit_max, rate_limit_window)
         self._server: Optional[ThreadingHTTPServer] = None
         self._started_at: Optional[float] = None
@@ -265,6 +284,7 @@ class MonitoringAPI:
                         {"error": "invalid or missing bearer token"},
                     )
                     return
+                self._observe()
                 route = self.path.split("?", 1)[0].rstrip("/") or "/"
                 if route == "/api/health":
                     self._json(HTTPStatus.OK, api._provider("health"))
@@ -287,6 +307,61 @@ class MonitoringAPI:
                 elif route == "/api/prediction":
                     self._json(
                         HTTPStatus.OK, api._prediction_provider()
+                    )
+                elif route == "/api/users":
+                    # v1.0.0: who is connected RIGHT NOW (owner surface)
+                    if api._client_registry is None:
+                        self._json(
+                            HTTPStatus.SERVICE_UNAVAILABLE,
+                            {"error": "client registry not wired "
+                                     "(fail closed)"},
+                        )
+                        return
+                    clients = api._client_registry.users()
+                    self._json(
+                        HTTPStatus.OK,
+                        {"clients": clients, "count": len(clients)},
+                    )
+                elif route == "/api/registrations":
+                    # v1.0.0: durable first-contact registration ledger
+                    if api._client_registry is None:
+                        self._json(
+                            HTTPStatus.SERVICE_UNAVAILABLE,
+                            {"error": "client registry not wired "
+                                     "(fail closed)"},
+                        )
+                        return
+                    rows = api._client_registry.registrations()
+                    self._json(
+                        HTTPStatus.OK,
+                        {"registrations": rows, "count": len(rows)},
+                    )
+                elif route == "/api/ledger/trades":
+                    # v1.0.0: per-trade ledger (which trades, what PnL)
+                    if api._trade_ledger is None:
+                        self._json(
+                            HTTPStatus.SERVICE_UNAVAILABLE,
+                            {"error": "trade ledger not wired "
+                                     "(fail closed)"},
+                        )
+                        return
+                    trades = api._trade_ledger.entries(limit=200)
+                    self._json(
+                        HTTPStatus.OK,
+                        {"trades": trades, "count": len(trades)},
+                    )
+                elif route == "/api/ledger/stats":
+                    # v1.0.0: aggregates — trades per symbol (the
+                    # dashboard mini chart), total PnL, wins/losses
+                    if api._trade_ledger is None:
+                        self._json(
+                            HTTPStatus.SERVICE_UNAVAILABLE,
+                            {"error": "trade ledger not wired "
+                                     "(fail closed)"},
+                        )
+                        return
+                    self._json(
+                        HTTPStatus.OK, api._trade_ledger.stats()
                     )
                 elif route.startswith("/api/strategy/"):
                     # GET /api/strategy/{id} -> gate status (G6)
@@ -319,6 +394,8 @@ class MonitoringAPI:
                                 "/api/orders", "/api/pnl", "/api/feed",
                                 "/api/risk", "/api/events",
                                 "/api/killswitch", "/api/prediction",
+                                "/api/users", "/api/registrations",
+                                "/api/ledger/trades", "/api/ledger/stats",
                                 "POST /api/pair (onboarding; invitation code)",
                                 "POST /api/killswitch/activate",
                                 "POST /api/strategy/submit",
@@ -404,6 +481,7 @@ class MonitoringAPI:
                         {"error": "invalid or missing bearer token"},
                     )
                     return
+                self._observe()
                 if route == "/api/strategy/submit":
                     """G6 chat-form submission: structured spec + free
                     text (LLM assist allowed for PARSING ONLY, never
@@ -600,6 +678,27 @@ class MonitoringAPI:
                     HTTPStatus.METHOD_NOT_ALLOWED,
                     {"error": "read-only monitoring surface"},
                 )
+
+            def _observe(self) -> None:
+                """v1.0.0: best-effort client observation AFTER auth.
+
+                Identity is SELF-REPORTED via X-Client-* headers (lab
+                trust domain — the bearer token is the only
+                authentication factor). Observation must NEVER break
+                serving, so any registry failure is swallowed here.
+                """
+                if api._client_registry is None:
+                    return
+                try:
+                    api._client_registry.observe(
+                        client_ip=self.client_address[0],
+                        name=self.headers.get("X-Client-Name", ""),
+                        email=self.headers.get("X-Client-Email", ""),
+                        kind=self.headers.get("X-Client-Kind", ""),
+                        device=self.headers.get("X-Client-Device", ""),
+                    )
+                except Exception:  # noqa: BLE001 — never break serving
+                    pass
 
             do_PUT = do_PATCH = do_DELETE = _method_not_allowed
 

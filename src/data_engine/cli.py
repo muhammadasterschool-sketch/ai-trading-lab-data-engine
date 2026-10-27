@@ -63,24 +63,40 @@ def _build_monitoring_api(
     port: int,
     token_file: str,
     pairing_service=None,
+    state_dir: str = "./monitor-state",
 ):
     """Construct the authenticated monitoring API (Stage F/F1) with
     HONEST providers: the health endpoint reflects the supervisor's
     own process state; every not-yet-composed dimension reports
-    ABSENT. The kill-switch activator stays UNWIRED in the bare CLI
-    path (fail closed: POST returns 503 until an operational session
-    composition injects the real activator).
+    ABSENT.
 
     v4.0: an OPTIONAL ``pairing_service`` (runtime.pairing.PairingService)
     wires the ``POST /api/pair`` onboarding endpoint; absent = pairing
-    disabled (503 fail-closed)."""
+    disabled (503 fail-closed).
+
+    v1.0.0 (owner mandate): the serve path wires the REAL durable
+    controls — a :class:`~data_engine.runtime.control_state.DurableKillSwitch`
+    (the phone's STOP button finally ACTS and PERSISTS), a
+    :class:`~data_engine.runtime.registry.ClientRegistry` (who is
+    connected / who ever registered) and a
+    :class:`~data_engine.runtime.trade_ledger.TradeLedger` (which
+    trades, what profit). All three live under ``state_dir``."""
     import time as _time
+    from pathlib import Path as _Path
 
     from data_engine import __version__
+    from data_engine.runtime.control_state import DurableKillSwitch
     from data_engine.runtime.monitoring import MonitoringAPI
+    from data_engine.runtime.registry import ClientRegistry
+    from data_engine.runtime.trade_ledger import TradeLedger
 
     token = _read_token_file(token_file, "monitoring API")
     started = _time.monotonic()
+
+    state_root = _Path(state_dir)
+    kill_switch = DurableKillSwitch(state_root / "kill_switch_state.json")
+    client_registry = ClientRegistry(state_root)
+    trade_ledger = TradeLedger(state_root / "trade_ledger.jsonl")
 
     def health() -> dict:
         return {
@@ -88,7 +104,9 @@ def _build_monitoring_api(
             "engine_state": "RUNNING",
             "engine_version": __version__,
             "uptime_seconds": round(_time.monotonic() - started, 1),
-            "kill_switch": "NOT_WIRED_IN_BARE_CLI_PATH",
+            # v1.0.0: the REAL standing stop flag (durable), replacing
+            # the honest-but-useless NOT_WIRED marker.
+            "kill_switch": kill_switch.state()["state"],
             "detail": (
                 "supervisor-level health; a composed operational session "
                 "injects richer providers (positions/orders/pnl/risk)"
@@ -101,6 +119,10 @@ def _build_monitoring_api(
         port=port,
         health_provider=health,
         pairing_service=pairing_service,
+        killswitch_state_provider=kill_switch.state,
+        killswitch_activator=kill_switch.activate,
+        client_registry=client_registry,
+        trade_ledger=trade_ledger,
     )
 
 
@@ -281,6 +303,15 @@ def main(argv=None):
         ),
     )
     serve_parser.add_argument(
+        "--monitor-state-dir",
+        default="./monitor-state",
+        help=(
+            "v1.0.0: directory for the durable owner controls — kill "
+            "switch state, client registry (registrations.json) and "
+            "the trade ledger (trade_ledger.jsonl). Created on demand."
+        ),
+    )
+    serve_parser.add_argument(
         "--session-launch",
         default=None,
         metavar="PLAN_JSON",
@@ -360,6 +391,30 @@ def main(argv=None):
         "--config",
         required=True,
         help="path to the pairing config JSON to inspect",
+    )
+
+    # v1.0.0 (owner mandate): the HUMAN-principal resume path. STOP is
+    # reachable from the paired phone (kill-switch POST); RESUME is
+    # deliberately PC-gated — run this ON the machine.
+    control_reset_parser = subparsers.add_parser(
+        "control-reset",
+        help=(
+            "Reset the durable STOP flag on THIS PC (owner resume "
+            "path; the monitoring API can never reset it)"
+        ),
+    )
+    control_reset_parser.add_argument(
+        "--monitor-state-dir",
+        default="./monitor-state",
+        help=(
+            "directory holding kill_switch_state.json (same value as "
+            "the serve --monitor-state-dir)"
+        ),
+    )
+    control_reset_parser.add_argument(
+        "--actor",
+        default="owner-on-pc",
+        help="audit identity recorded for this reset",
     )
 
     # Soak preflight (FIX-14 / B-P2-16 + Task 12): the EXECUTABLE
@@ -648,6 +703,26 @@ def main(argv=None):
             print(_fmt(pairing_cfg))
             raise SystemExit(0)
 
+        elif args.command == "control-reset":
+            # v1.0.0: the owner's resume path (STOP came from the
+            # phone; resume happens HERE, on the PC, human-gated).
+            from pathlib import Path as _ResetPath
+
+            from data_engine.runtime.control_state import DurableKillSwitch
+
+            state_file = (
+                _ResetPath(args.monitor_state_dir) / "kill_switch_state.json"
+            )
+            store = DurableKillSwitch(state_file)
+            state = store.reset(actor=args.actor)
+            print(
+                "[control-reset] durable STOP flag cleared by "
+                f"{args.actor}:"
+            )
+            print(f"  state: {state['state']}")
+            print(f"  file:  {state_file}")
+            raise SystemExit(0)
+
         elif args.command == "serve":
             from data_engine.runtime.service import PaperRuntimeService
 
@@ -690,6 +765,14 @@ def main(argv=None):
                         port=args.monitor_port,
                         token_file=args.monitor_token_file,
                         pairing_service=pairing_service,
+                        state_dir=args.monitor_state_dir,
+                    )
+                    print(
+                        "[serve] durable owner controls wired from "
+                        f"{args.monitor_state_dir} (kill-switch state + "
+                        "client registry + trade ledger; STOP from the "
+                        "phone now persists; resume = control-reset on "
+                        "the PC)"
                     )
                 if args.mdns_announce:
                     if monitoring_api is None:

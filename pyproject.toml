@@ -1,6 +1,6 @@
 [project]
 name = "ai-trading-lab-data-engine"
-version = "0.4.0"
+version = "1.0.0"
 description = "Production-grade deterministic market-data engine for the AI Trading Lab."
 readme = "README.md"
 requires-python = ">=3.11"
