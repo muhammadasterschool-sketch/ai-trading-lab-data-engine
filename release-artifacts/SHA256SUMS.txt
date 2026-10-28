@@ -1,3 +1,2 @@
-04bb9dd54c04bfa273471c1408e51af103365f489409957bf86b6b68659b0e29  ai-trading-lab-data-engine-windows-v1.1.0.zip
-35dcf634d9c6a7a610f0e1e6d251dcb8d974bd3c75c270d3474991067a4a7225  ai-trading-lab-monitor.apk  (GitHub Release apk-61539dc8ed7c asset - v1.1.0, not stored in this branch)
-b794b7670df1f7b5573118f4b06c67c79fd113632cac5135dae782507cad0eab  ai-trading-lab-admin.apk  (GitHub Release admin-apk-61539dc8ed7c asset - v1.1.0, not stored in this branch)
+b6eff2d03b91ca8d6163a035d3592f02e7dd7f925dd60f512e46a06656b887c1  ai-trading-lab-data-engine-windows-v1.5.0.zip
+5f38a67f11bc58082160eff952c46425f3a5430cfcc897d244c46edc5df75502  ai-trading-lab-monitor.apk  (GitHub Release apk-0a566ad79ae5 asset - v1.5.0, not stored in this branch)
