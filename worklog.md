@@ -238,3 +238,23 @@ Stage Summary:
 - Versions: versionCode 10 / versionName 5.5 / health 5.5.0 / dashboard badge v5.5 / strings v5.5 / ENGINE_VERSION log line
 - Build: gradle 8.9 offline + JDK17 OK; zipalign + apksigner v2 Verifies (same keystore, alias atl); aapt: versionCode 10; APK 95,248B; dex grep "direct entry" ✓, dashboard grep engStrip/v5.5/M2991474 ✓
 - Deploy: v5.5 APK + source zip (script updated) → download/ + public/downloads/ + standalone/public/downloads/; v5.4 removed; downloads.html v5.5 (6 refs + quick-start rewritten: Register → Sign in → dashboard foran, 2FA line removed); RELEASE-v5.md v5.5 section on top
+
+## Task 15 — v5.6 feature: instant REGISTRATION ALERTS + GitHub repo sync
+- User: "It works thanks" (v5.5 live) → next: (1) update GitHub repo muhammadasterschool-sketch/ai-trading-lab-data-engine with the app, (2) notification to owner whenever ANYONE registers with any invitation code
+- ANDROID (v5.6, versionCode 11):
+  - NEW Notifier.java — high-importance status-bar alert channel atl_alerts; registration(ctx,name,email,role,invite) posts "New registration — <name> / <email> joined via invitation code <CODE> · role · paper account created"; BigTextStyle, unique IDs, fully guarded (never breaks API)
+  - Api.java: stores appCtx; register() fires Notifier.registration() right after account+paper account creation; health 5.6.0; ENGINE_VERSION log line; dashboard badge v5.6; strings v5.6
+- WEB (v5.6):
+  - Prisma: new AdminNotification model (kind/title/body/meta JSON/read + index) — db push + generate OK
+  - register/route.ts: writes AdminNotification AFTER invite consume (name/email/invite/role/ip), never blocks signup
+  - NEW /api/admin/notifications: GET (latest 100 + unreadCount, requireAdmin), POST (read-all / read)
+  - admin-tab.tsx: "Registration alerts" panel at top — amber unread badge, live 20s polling, per-alert rows, Mark-all-read; icons Bell/CheckCheck
+  - E2E test: register test.notif@example.com → AdminNotification row created ✓; admin API 403 unauth ✓; test data cleaned (user+notification removed, invite uses decremented)
+  - bun run build OK, server restarted double-fork; links 200 (downloads.html v5.6 x8, apk 95,248B, zip 85,098B, RELEASE-v5.md); v5.5 files 404
+- Build: gradle offline OK, apksigner v2 Verifies (same keystore), aapt versionCode 11; dex grep "New registration/atl_alerts" ✓; APK 95,248B; source zip script bumped v5.6; deployed 3 dirs; v5.5 removed
+- GITHUB SYNC (token via chat, repo public):
+  - AUDIT found tracked secrets/binaries: .env, ai-trading-lab.keystore, db/custom.db(+wal/shm 38MB user data), local.properties, 115MB Windows zips (GitHub 100MB hard limit) — pushing old history would leak secrets AND be rejected
+  - FIX: comprehensive .gitignore (secrets/db/builds/deliverables/workspace internals); archive branch archive/main-v4-era created via API at old main SHA 4cc6782 (v4 Flutter-era history preserved)
+  - Fresh orphan commit 8fe2cf5 "v5.6 full source" (220 files, largest bun.lock 337KB, ZERO secrets) → force-pushed main 4cc6782→8fe2cf5
+  - Verified via API: 299 tree entries, secrets/binaries NONE, all key files present (register route, notifications route, Notifier.java, schema, build.gradle, RELEASE-v5.md)
+  - GOTCHA: `git checkout --orphan | head -1` — head closes the pipe → SIGPIPE kills checkout mid-switch (first orphan attempt silently kept old parent; redo without pipe)
