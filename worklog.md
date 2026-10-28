@@ -344,3 +344,14 @@ Stage Summary:
 - VERIFIED CLEAN (no defects): schema vs queries, PBKDF2/TOTP, HTTP parsing, FGS specialUse+timeout, WebView flow, admin guards, 35 votes, risk gates, SL/TP math, discovery, F&G, node --check JS, signature, versionCode monotonic
 - REBRAND: versionCode 17 / versionName "1.0"; APK AI-Trading-Lab-v1.0-Android.apk; dashboard badge "v1.0 · Verified Stable"; ENGINE_START/ENGINE_VERSION logs updated
 - Deploy dual-copy (public/ + .next/standalone/public/), bun restarted; ALL LINKS 200: downloads.html, v1.0 APK (132112b), source zip, RELEASE doc; download/ folder synced
+
+## Task 22 — v1.1: TWO-TIER ENTRY ENGINE (owner report: "30 mins no entries")
+- Owner report on v1.0: engine still not opening trades after 30 min on live app
+- ROOT CAUSE (entry gate mathematically near-unreachable): gate demanded >=14 of 35 strategies voting on one candle (40% participation). But ~20 of 35 strategies are EVENT-based by design — EMA cross = exact crossover bar only, Supertrend = flip bar only, RSI+BB / CCI+Williams / MFI+OBV / StochRSI / VWAP(±1.2%) / candlestick / harmonic / FVG / BOS / sweep / F&G = extreme/zone voters, silent most candles. Typical 1m candle collects 5-12 votes < 14 → engine silent forever
+- FIX 1 — EMA 9/21 votes on current trend STATE (e9>e21 → buy), Supertrend votes on current REGIME (bull/bear) — the two core trend gauges now speak on EVERY candle
+- FIX 2 — two-tier entry: TIER-A "CONSENSUS_35" (>=9 voters & >=60% dominant, strict lead) + TIER-B "SCOUT_SIGNAL" (engine silent 20+ min → >=6 voters & >=65% dominant) — lab always demonstrates real entries
+- FIX 3 — honest Home status: voters x/35, BUY vs SELL counts, best dominance %, silent-minutes, "SCOUT ARMED"; trade rows now store tier (strategy column = CONSENSUS_35 / SCOUT_SIGNAL)
+- Risk UNCHANGED: 1%/trade, SL 1.5xATR, TP 2.5xATR, max 5 positions, 1/symbol, daily halt -5%, kill -10%
+- DATA ANSWER (owner asked "charts kahan se aate hain, fake to nahi"): LIVE Binance klines via data-api.binance.vision (fallback api.binance.com), 200x1m per active symbol every 30s, no simulated candles; tradable universe = crypto top-30 by volume (discovery top-150 ledger); F&G live from alternative.me; forex/PSX/indices listed but engine trades only symbols with real candle data
+- versionCode 17→18 / versionName "1.1"; dashboard badge "v1.1 · Two-Tier Entry Engine"; Engine Status row explains both tiers; data feed row states "live Binance market data (real, not simulated)"
+- Build+zipalign+apksigner OK (SHA-1 0440b7f9...); deployed v1.1 APK (136208b) + source zip to public/downloads AND .next/standalone/public (dual-copy), bun restarted, ALL LINKS 200 (downloads.html, APK, zip, RELEASE-v5.md); v1.0 files removed; download/ synced

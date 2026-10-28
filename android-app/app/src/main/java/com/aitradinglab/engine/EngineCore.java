@@ -14,13 +14,32 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * EngineCore v5.8 — 1-MINUTE 24H SCANNER edition.
- * Loop (30s): risk check -> manage open trades -> refresh candles -> scan signals
- *   -> consensus gate (>=40% dominant of cast votes, >=40% participation) -> paper execute -> log everything.
- * Timeframe: 1m — paper trading decisions on the 1-minute chart, 24/7 nonstop.
+ * EngineCore v1.1 — 1-MINUTE 24H SCANNER, two-tier entry engine.
+ * Loop (30s): risk check -> manage open trades -> refresh candles -> scan signals -> paper execute.
+ *
+ * v1.1 ENTRY FIX (why the old build never traded):
+ *   The old gate demanded >=14 of 35 strategies voting on one candle (40% participation).
+ *   But ~20 of the 35 strategies are EVENT-based by design — they only vote on rare
+ *   events (exact EMA crossover bar, Supertrend flip bar, oversold extremes, candlestick
+ *   patterns, harmonics, SMC breaks). A typical 1m candle gets only 5-12 votes, so the
+ *   gate almost never passed and the engine sat silent forever.
+ *
+ *   Fix, two parts:
+ *   1. The two core trend strategies (EMA 9/21, Supertrend) now vote on their CURRENT
+ *      STATE (alignment / regime), not only on the rare event bar. Trend gauges can now
+ *      actually speak on every candle.
+ *   2. Two-tier entry:
+ *      TIER A "CONSENSUS_35" — >=9 strategies voted AND >=60% dominant (strict lead).
+ *      TIER B "SCOUT_SIGNAL" — if the engine has been silent 20+ minutes, a strong
+ *                              lean (>=6 voters, >=65% dominant) is enough so the lab
+ *                              always demonstrates real behavior.
+ *
+ * Risk model (unchanged): 1% balance risk/trade | SL 1.5xATR | TP 2.5xATR (1:1.67 R:R)
+ *   | max 5 concurrent positions | 1 position/symbol | daily halt -5% | kill switch -10%.
+ * Data: LIVE 1m klines from the Binance public API (data-api.binance.vision) — real
+ *   market data, candles are never simulated. 1m timeframe, 24/7 nonstop.
  * Discovery (30 min): Binance ticker scan -> auto-register new instruments (top 150).
  * News (15 min): RSS -> sentiment -> high-impact pauses new entries 30 min.
- * The engine never sleeps: it runs day & night (24h market scan).
  */
 public class EngineCore implements Runnable {
     private static final String[] DATA_HOSTS = {"https://data-api.binance.vision", "https://api.binance.com"};
@@ -38,6 +57,7 @@ public class EngineCore implements Runnable {
     private long lastDiscovery = 0, lastNews = 0, lastLoop = 0;
     private long newsPauseUntil = 0;
     private String lastConsensus = "";
+    private volatile long lastEntryAt = System.currentTimeMillis(); // v1.1 — scout-tier timer (engine start = t0)
     private int activeSymbols = 0;
     private long scanCount = 0;             // 24h scanner heartbeat counter
     private volatile long lastScanAt = 0;
@@ -55,7 +75,7 @@ public class EngineCore implements Runnable {
 
     // ================== MAIN LOOP ==================
     @Override public void run() {
-        db.log("INFO", "SYSTEM", "ENGINE_START", "v1.0 verified stable — 1m timeframe, 24h nonstop scanner, 35 strategies, 40% consensus gate, closed-candle execution, full bug audit passed");
+        db.log("INFO", "SYSTEM", "ENGINE_START", "v1.1 two-tier entry engine — 1m timeframe, 24h nonstop scanner, 35 strategies, live Binance data | TIER-A consensus: >=9 voters & >=60% dominant | TIER-B scout after 20 min silence: >=6 voters & >=65% | risk 1%/trade, SL 1.5xATR, TP 2.5xATR, max 5 positions");
         while (running) {
             try {
                 long now = System.currentTimeMillis();
@@ -1331,13 +1351,14 @@ public class EngineCore implements Runnable {
 
     // ================== STRATEGIES (10) ==================
     /** vote: +1 buy, -1 sell, 0 neutral */
+    /** 1. EMA 9/21 — v1.1: votes on CURRENT trend state (alignment), not just the rare
+     *  crossover bar. In the old build this strategy stayed silent on ~99% of candles,
+     *  starving the participation gate. */
     private int emaCross(List<Candle> k) {
         double e9 = ema(k, 9), e21 = ema(k, 21);
         if (Double.isNaN(e9) || Double.isNaN(e21)) return 0;
-        double prev9 = ema(k.subList(0, k.size() - 1), 9), prev21 = ema(k.subList(0, k.size() - 1), 21);
-        if (Double.isNaN(prev9) || Double.isNaN(prev21)) return 0;
-        if (prev9 <= prev21 && e9 > e21) return 1;
-        if (prev9 >= prev21 && e9 < e21) return -1;
+        if (e9 > e21) return 1;
+        if (e9 < e21) return -1;
         return 0;
     }
 
@@ -1379,14 +1400,13 @@ public class EngineCore implements Runnable {
 
     // ---- v5.8 new strategy votes ----
 
-    /** 6. Supertrend flip — follow the trend regime. */
+    /** 6. Supertrend — v1.1: votes on the CURRENT regime (direction), not only on the
+     *  rare flip bar. The regime itself is the signal; flips are just regime changes. */
     private int supertrendVote(List<Candle> k) {
         double[] st = supertrend(k);
         if (st == null) return 0;
-        double[] stPrev = supertrend(k.subList(0, k.size() - 1));
-        if (stPrev == null) return 0;
-        if (stPrev[1] < 0 && st[1] > 0) return 1;   // flip up
-        if (stPrev[1] > 0 && st[1] < 0) return -1;  // flip down
+        if (st[1] > 0) return 1;   // bullish regime
+        if (st[1] < 0) return -1;  // bearish regime
         return 0;
     }
 
@@ -1713,23 +1733,49 @@ public class EngineCore implements Runnable {
                         harmonicVote(k), schaffVote(k), fngVote(k)};
                 int buy = 0, sell = 0;
                 for (int v : votes) { if (v > 0) buy++; else if (v < 0) sell++; }
-                // Participation-based consensus: abstentions don't dilute the signal,
-                // but we require at least 40% of strategies to have an opinion.
+                // Participation-based consensus: abstentions don't dilute the signal.
                 int participated = buy + sell;
                 double consensusBuy = participated > 0 ? buy / (double) participated : 0;
                 double consensusSell = participated > 0 ? sell / (double) participated : 0;
-                boolean enoughData = participated >= votes.length * 0.4;
+                double dom = Math.max(consensusBuy, consensusSell);
+                boolean buyLeads = consensusBuy > consensusSell;
 
-                // v5.9.2 — user request: consensus gate 60% → 40% (dominant side must also
-                // strictly lead, so a 50/50 split cannot fire both directions).
-                if (enoughData && consensusBuy >= 0.4 && consensusBuy > consensusSell) { openTrade(uid, sym, "BUY", consensusBuy, k); open++; }
-                else if (enoughData && consensusSell >= 0.4 && consensusSell > consensusBuy) { openTrade(uid, sym, "SELL", consensusSell, k); open++; }
-                else lastConsensus = "24h scan #" + scanCount + " — " + activeSymbols + " instruments on 1m — 35 strategies watching, no >=40% consensus yet (best " + (int)(Math.max(consensusBuy, consensusSell) * 100) + "%)";
+                // v1.1 TWO-TIER ENTRY — replaces the old gate that demanded >=14 voting
+                // strategies (40% of 35). That gate almost never passed because ~20 of the
+                // 35 strategies are rare-EVENT voters by design, so a normal candle got
+                // only 5-12 votes and the engine sat silent forever (user-reported bug).
+                //
+                // TIER A — CONSENSUS (quality): >=9 voters AND >=60% dominant, strict lead.
+                // TIER B — SCOUT (activity): engine silent 20+ min -> >=6 voters AND >=65%
+                //   dominant is enough, so the lab always demonstrates real entries.
+                long silenceMs = System.currentTimeMillis() - lastEntryAt;
+                boolean scoutArmed = silenceMs >= 20L * 60_000;
+                String tier = null;
+                if (participated >= 9 && dom >= 0.60 && (buyLeads ? consensusBuy : consensusSell) > 0.5) {
+                    tier = "CONSENSUS_35";
+                } else if (scoutArmed && participated >= 6 && dom >= 0.65 && (buyLeads ? consensusBuy : consensusSell) > 0.5) {
+                    tier = "SCOUT_SIGNAL";
+                }
+
+                if (tier != null) {
+                    String side = buyLeads ? "BUY" : "SELL";
+                    double cons = buyLeads ? consensusBuy : consensusSell;
+                    openTrade(uid, sym, side, cons, k, tier);
+                    open++;
+                    lastConsensus = "ENTRY OPEN — " + sym + " " + side + " (" + tier + ", " + (int)(cons * 100)
+                            + "% dominant, " + participated + "/35 voters) — managing SL/TP every 30s";
+                } else {
+                    long silentMin = silenceMs / 60000;
+                    lastConsensus = "24h scan #" + scanCount + " — " + activeSymbols + " syms on 1m — voters "
+                            + participated + "/35 · BUY " + buy + " vs SELL " + sell + " · best " + (int)(dom * 100)
+                            + "% (need 60% w/ 9 voters" + (scoutArmed ? ", or 65% w/ 6 as scout" : "") + ") — silent "
+                            + silentMin + " min" + (scoutArmed ? " · SCOUT ARMED" : "");
+                }
             }
         }
     }
 
-    private void openTrade(long uid, String sym, String side, double consensus, List<Candle> k) {
+    private void openTrade(long uid, String sym, String side, double consensus, List<Candle> k, String tier) {
         double price = k.get(k.size() - 1).c;
         double a = atr(k, 14);
         if (Double.isNaN(a) || a <= 0) return;
@@ -1744,9 +1790,10 @@ public class EngineCore implements Runnable {
         if (qty <= 0) return;
 
         db.getWritableDatabase().execSQL(
-                "INSERT INTO trades(user_id, symbol, side, qty, entry, sl, tp, status, strategy, consensus, opened_at) VALUES(?,?,?,?,?,?,?, 'OPEN', 'CONSENSUS_35', ?, ?)",
-                new Object[]{uid, sym, side, qty, price, sl, tp, consensus, System.currentTimeMillis()});
-        db.log("INFO", "EXECUTOR", "PAPER_OPEN", sym + " " + side + " qty=" + String.format("%.6f", qty) + " consensus=" + (int)(consensus*100) + "%");
+                "INSERT INTO trades(user_id, symbol, side, qty, entry, sl, tp, status, strategy, consensus, opened_at) VALUES(?,?,?,?,?,?,?, 'OPEN', ?, ?, ?)",
+                new Object[]{uid, sym, side, qty, price, sl, tp, tier, consensus, System.currentTimeMillis()});
+        lastEntryAt = System.currentTimeMillis(); // v1.1 — scout timer resets on every real entry
+        db.log("INFO", "EXECUTOR", "PAPER_OPEN", sym + " " + side + " [" + tier + "] qty=" + String.format("%.6f", qty) + " entry=" + String.format("%.6f", price) + " consensus=" + (int)(consensus * 100) + "%");
     }
 
     private void manageOpenTrades() {

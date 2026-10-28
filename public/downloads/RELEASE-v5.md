@@ -1,3 +1,59 @@
+# AI Trading Lab — v1.1 Release (Android) — TWO-TIER ENTRY ENGINE
+
+Release date: 2026-10-29
+APK: `AI-Trading-Lab-v1.1-Android.apk` (versionCode 18)
+
+Owner report on v1.0: "30 mins ke liye no entries kar raha" — the engine was
+still not opening trades. Root cause found in the entry gate itself; v1.1
+rebuilds it as a two-tier engine so the lab demonstrably trades.
+
+## v1.1 — WHY v1.0 NEVER TRADED (root cause)
+
+The v5.9.2/v1.0 gate required **>=14 of 35 strategies voting** on one candle
+(40% participation) plus 40% dominance. But ~20 of the 35 strategies are
+EVENT-based by design — they only vote on rare events:
+- EMA cross voted only on the exact crossover bar (~1% of candles)
+- Supertrend voted only on the flip bar
+- RSI+Bollinger, CCI+Williams, MFI+OBV, StochRSI, VWAP(±1.2%!), candlestick
+  patterns, harmonics, FVG/BOS/sweep, Fear&Greed extremes — all extreme/zone
+  voters that stay silent most of the time
+
+So a typical 1m candle collected only 5-12 votes < 14 required → the engine
+sat silent forever. The gate was mathematically near-unreachable.
+
+## v1.1 FIX — TWO-TIER ENTRY ENGINE
+
+1. **EMA 9/21 now votes on current trend STATE** (e9>e21 → buy vote), not
+   only on the rare crossover bar.
+2. **Supertrend now votes on current REGIME** (bullish/bearish), not only on
+   the flip bar.
+3. **TIER A "CONSENSUS_35"** — >=9 strategies voted AND >=60% dominant with
+   strict lead (quality entries).
+4. **TIER B "SCOUT_SIGNAL"** — if the engine has been silent 20+ minutes, a
+   strong lean (>=6 voters, >=65% dominant, strict lead) is enough, so the
+   lab ALWAYS demonstrates real entries.
+5. **Honest status line on Home** — voters x/35, BUY vs SELL counts, best
+   dominance %, silent-minutes counter and "SCOUT ARMED" state, so the owner
+   can SEE why the engine is waiting ("kab trade karega" visible live).
+6. Each trade row now records its tier (CONSENSUS_35 / SCOUT_SIGNAL).
+
+Risk model UNCHANGED: 1% balance risk per trade | SL 1.5xATR | TP 2.5xATR
+(~1:1.67 R:R) | max 5 concurrent positions | 1 position/symbol | daily halt
+-5% | kill switch -10% from peak.
+
+## DATA SOURCE — REAL, NOT SIMULATED
+
+All candles come LIVE from the Binance public market-data API
+(`data-api.binance.vision`, fallback `api.binance.com`). Every 30s the
+scanner refreshes 200 x 1m klines per active symbol (top-30 by volume).
+No candle is ever generated/faked. The tradable universe is the crypto list
+(BTCUSDT, ETHUSDT, SOLUSDT, ... 60+ pairs, discovery keeps top-150 in the
+ledger); forex/indices/PSX stocks are registered as instruments but Binance
+does not serve their charts, so the engine trades only symbols with real
+candle data. Crypto Fear & Greed comes live from alternative.me.
+
+---
+
 # AI Trading Lab — v1.0 Release (Android) — VERIFIED STABLE
 
 Release date: 2026-10-29

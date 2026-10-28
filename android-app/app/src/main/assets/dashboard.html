@@ -96,7 +96,7 @@ select{width:100%;background:#18181b;border:1px solid #27272a;border-radius:9px;
   <div class="logo">📈</div>
   <h1>AI Trading Lab <span style="color:#f59e0b">v1</span></h1>
   <div class="sub">Full trading engine on this device — paper trading</div>
-  <div class="sub" style="color:#fbbf24">v1.0 · Verified Stable · PDF Encyclopedia · 1m 24h Scanner</div>
+  <div class="sub" style="color:#fbbf24">v1.1 · Two-Tier Entry Engine · PDF Encyclopedia · 1m 24h Scanner</div>
   <div id="engStrip" class="eng">checking engine…</div>
   <div class="note"><b>Naya install / update?</b> Accounts is device ki local database mein hote hain — app reinstall ya update ke baad purana account <b>transfer nahi hota</b>. Is liye pehli dafa <b>Register</b> tab par account banayen (invite code pehle se bhara hai), phir <b>Sign in</b> — dashboard foran khulega. Kisi authenticator app ki zaroorat nahi.</div>
 
@@ -337,10 +337,10 @@ function renderDash(){
       '<div class="card full"><div class="k">Equity (last 12h)</div><div id="sparkwrap">'+spark+'</div></div>' +
       '<div class="card full"><div class="k">Engine Status</div>' +
         '<table style="margin-top:6px"><tr><td class="mut">Consensus</td><td>'+esc(e.consensus||'')+'</td></tr>' +
-        '<tr><td class="mut">Timeframe</td><td><b>'+(e.timeframe||'1m')+'</b> · '+(e.strategy_count||35)+' strategy votes (need ≥40%) · '+(e.indicator_count||82)+' indicators</td></tr>' +
+        '<tr><td class="mut">Timeframe</td><td><b>'+(e.timeframe||'1m')+'</b> · '+(e.strategy_count||35)+' strategy votes · TIER-A: ≥9 voters & ≥60% dominant · TIER-B scout: after 20 min silence, ≥6 voters & ≥65% · '+(e.indicator_count||82)+' indicators</td></tr>' +
         '<tr><td class="mut">Market scanner</td><td>'+(e.scanner||'24h')+' nonstop · scan #'+(e.scan_count||0)+(e.fear_greed>=0?' · F&G '+e.fear_greed:'')+'</td></tr>' +
         '<tr><td class="mut">Instruments trading</td><td>'+e.active_symbols+'</td></tr>' +
-        '<tr><td class="mut">Data feed</td><td>'+esc((e.data_host||'').replace('https://',''))+'</td></tr>' +
+        '<tr><td class="mut">Data feed</td><td>'+esc((e.data_host||'').replace('https://',''))+' · live Binance market data (real, not simulated)</td></tr>' +
         '<tr><td class="mut">Risk</td><td>1% / trade · 5% daily halt · 10% kill</td></tr></table></div>' +
       '</div>';
     document.getElementById('hdrSub').textContent = USER ? (USER.name + (USER.role==='ADMIN'?' · ADMIN':'')) : '';
