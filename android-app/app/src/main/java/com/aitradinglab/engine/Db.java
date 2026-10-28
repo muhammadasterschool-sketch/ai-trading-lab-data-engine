@@ -47,7 +47,7 @@ public class Db extends SQLiteOpenHelper {
         exec(d, "CREATE TABLE IF NOT EXISTS invites(code TEXT PRIMARY KEY, label TEXT, max_uses INTEGER DEFAULT 0, uses INTEGER DEFAULT 0, active INTEGER DEFAULT 1)");
         exec(d, "CREATE TABLE IF NOT EXISTS instruments(symbol TEXT PRIMARY KEY, base TEXT, quote TEXT, exchange TEXT, asset_class TEXT, status TEXT, priority INTEGER DEFAULT 0, discovered_at INTEGER, last_data_at INTEGER, note TEXT)");
         exec(d, "CREATE TABLE IF NOT EXISTS candles(symbol TEXT, tf TEXT, ts INTEGER, o REAL, h REAL, l REAL, c REAL, v REAL, PRIMARY KEY(symbol, tf, ts))");
-        exec(d, "CREATE TABLE IF NOT EXISTS accounts(user_id INTEGER PRIMARY KEY, balance REAL DEFAULT 100000, start_balance REAL DEFAULT 100000, peak REAL DEFAULT 100000, day_start REAL DEFAULT 100000, day_ts INTEGER DEFAULT 0)");
+        exec(d, "CREATE TABLE IF NOT EXISTS accounts(user_id INTEGER PRIMARY KEY, balance REAL DEFAULT 100, start_balance REAL DEFAULT 100, peak REAL DEFAULT 100, day_start REAL DEFAULT 100, day_ts INTEGER DEFAULT 0)");
         exec(d, "CREATE TABLE IF NOT EXISTS trades(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, symbol TEXT, side TEXT, qty REAL, entry REAL, sl REAL, tp REAL, exit REAL, pnl REAL, status TEXT, strategy TEXT, consensus REAL, opened_at INTEGER, closed_at INTEGER)");
         exec(d, "CREATE TABLE IF NOT EXISTS logs(id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, level TEXT, component TEXT, event TEXT, details TEXT)");
         exec(d, "CREATE TABLE IF NOT EXISTS news(id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, source TEXT, headline TEXT, sentiment TEXT, impact TEXT)");

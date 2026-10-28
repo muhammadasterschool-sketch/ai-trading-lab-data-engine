@@ -35,7 +35,10 @@ import org.json.JSONObject;
  *                              always demonstrates real behavior.
  *
  * Risk model (unchanged): 1% balance risk/trade | SL 1.5xATR | TP 2.5xATR (1:1.67 R:R)
- *   | max 5 concurrent positions | 1 position/symbol | daily halt -5% | kill switch -10%.
+ *   | UNLIMITED concurrent positions (v1.2, owner request — no cap) | 1 open position
+ *   per symbol (anti-duplicate guard) | daily halt -5% | kill switch -10%.
+ * Paper money: default $100 per new account (v1.2); owner can set ANY amount from
+ *   Settings > Paper Balance (/api/balance) — open trades are cancelled on change.
  * Data: LIVE 1m klines from the Binance public API (data-api.binance.vision) — real
  *   market data, candles are never simulated. 1m timeframe, 24/7 nonstop.
  * Discovery (30 min): Binance ticker scan -> auto-register new instruments (top 150).
@@ -75,7 +78,27 @@ public class EngineCore implements Runnable {
 
     // ================== MAIN LOOP ==================
     @Override public void run() {
-        db.log("INFO", "SYSTEM", "ENGINE_START", "v1.1 two-tier entry engine — 1m timeframe, 24h nonstop scanner, 35 strategies, live Binance data | TIER-A consensus: >=9 voters & >=60% dominant | TIER-B scout after 20 min silence: >=6 voters & >=65% | risk 1%/trade, SL 1.5xATR, TP 2.5xATR, max 5 positions");
+        db.log("INFO", "SYSTEM", "ENGINE_START", "v1.2 two-tier entry engine — 1m timeframe, 24h nonstop scanner, 35 strategies, live Binance data | TIER-A consensus: >=9 voters & >=60% dominant | TIER-B scout after 20 min silence: >=6 voters & >=65% | risk 1%/trade, SL 1.5xATR, TP 2.5xATR, UNLIMITED positions | paper money $100 default, owner-changeable");
+
+        // v1.2 ONE-TIME MIGRATION — paper money is now $100 (owner request). Accounts still
+        // on the old $100,000 default are reset; open trades are cancelled because they
+        // were sized against the old balance. Afterwards the owner can set ANY amount
+        // from Settings > Paper Balance.
+        if (!"1".equals(db.setting("v12_paper_100", "0"))) {
+            long t0 = System.currentTimeMillis();
+            try {
+                db.getWritableDatabase().execSQL(
+                        "UPDATE trades SET exit=entry, pnl=0, status='CANCELLED', closed_at=? WHERE status='OPEN'",
+                        new Object[]{t0});
+                db.getWritableDatabase().execSQL(
+                        "UPDATE accounts SET balance=100, start_balance=100, peak=100, day_start=100, day_ts=?",
+                        new Object[]{t0 / 86400000L});
+                db.setSetting("v12_paper_100", "1");
+                db.log("INFO", "ACCOUNT", "PAPER_RESET_100", "v1.2 one-time reset — paper accounts set to $100 (old $100,000 default retired), open trades cancelled. Apna amount Settings > Paper Balance se kabhi bhi badal sakte hain.");
+            } catch (Throwable t) {
+                db.log("ERROR", "ACCOUNT", "PAPER_RESET_FAIL", String.valueOf(t));
+            }
+        }
         while (running) {
             try {
                 long now = System.currentTimeMillis();
@@ -1699,13 +1722,8 @@ public class EngineCore implements Runnable {
         if (System.currentTimeMillis() < newsPauseUntil) { lastConsensus = "news pause active"; return; }
         for (long uid : userIds()) {
             if (dailyHalted(uid)) continue;
-            Cursor oc = db.getReadableDatabase().rawQuery(
-                    "SELECT COUNT(*) FROM trades WHERE user_id=? AND status='OPEN'", new String[]{String.valueOf(uid)});
-            int open = oc.moveToFirst() ? oc.getInt(0) : 0; oc.close();
-            if (open >= 5) { lastConsensus = "max concurrent positions (5)"; continue; }
 
             for (String sym : activeSymbols()) {
-                if (open >= 5) break;
                 Cursor ex = db.getReadableDatabase().rawQuery(
                         "SELECT COUNT(*) FROM trades WHERE user_id=? AND symbol=? AND status='OPEN'", new String[]{String.valueOf(uid), sym});
                 boolean have = ex.moveToFirst() && ex.getInt(0) > 0; ex.close();
@@ -1761,7 +1779,6 @@ public class EngineCore implements Runnable {
                     String side = buyLeads ? "BUY" : "SELL";
                     double cons = buyLeads ? consensusBuy : consensusSell;
                     openTrade(uid, sym, side, cons, k, tier);
-                    open++;
                     lastConsensus = "ENTRY OPEN — " + sym + " " + side + " (" + tier + ", " + (int)(cons * 100)
                             + "% dominant, " + participated + "/35 voters) — managing SL/TP every 30s";
                 } else {
@@ -1783,7 +1800,7 @@ public class EngineCore implements Runnable {
         double tp = "BUY".equals(side) ? price + 2.5 * a : price - 2.5 * a;
 
         Cursor c = db.getReadableDatabase().rawQuery("SELECT balance FROM accounts WHERE user_id=?", new String[]{String.valueOf(uid)});
-        double bal = c.moveToFirst() ? c.getDouble(0) : 100000; c.close();
+        double bal = c.moveToFirst() ? c.getDouble(0) : 100; c.close();
         double riskAmt = bal * RISK_PER_TRADE;
         double qty = riskAmt / (1.5 * a);
         if (qty * price > bal * 0.95) qty = bal * 0.95 / price;
@@ -1849,7 +1866,7 @@ public class EngineCore implements Runnable {
 
     private void snapshotEquity() {
         Cursor c = db.getReadableDatabase().rawQuery("SELECT AVG(balance) FROM accounts", null);
-        double eq = c.moveToFirst() ? c.getDouble(0) : 100000; c.close();
+        double eq = c.moveToFirst() ? c.getDouble(0) : 100; c.close();
         db.getWritableDatabase().execSQL("INSERT OR REPLACE INTO equity(ts, value) VALUES(?,?)",
                 new Object[]{System.currentTimeMillis(), eq});
         // v1.0 BUGFIX: the equity table grew forever (a row every 30s scan). Keep the

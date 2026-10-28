@@ -89,7 +89,7 @@ public class Api {
     private Res get(String path, String auth) throws Exception {
         if ("/".equals(path) || "/index.html".equals(path)) return Res.html(dashboardHtml);
         if ("/api/health".equals(path)) return Res.json(200, new JSONObject()
-                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "1.0.0").put("timeframe", "1m").put("scanner", "24h"));
+                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "1.2.0").put("timeframe", "1m").put("scanner", "24h"));
 
         Long uid = userId(auth);
         if (uid == null) return Res.error(401, "authentication required");
@@ -130,6 +130,8 @@ public class Api {
             return Res.json(200, new JSONObject().put("ok", true).put("message", "Discovery + news scan started"));
         }
         if ("/api/settings".equals(path)) return saveSettings(body);
+        // v1.2 — owner ka apna paper amount: set ANY paper balance
+        if ("/api/balance".equals(path)) return setBalance(uid, body);
         // v5.7 FULL MOBILE CONTROL — owner admin actions
         if ("/api/admin/users".equals(path)) return adminUserAction(uid, body);
         if ("/api/admin/invites".equals(path)) return adminInviteAction(uid, body);
@@ -180,7 +182,7 @@ public class Api {
         Cursor nc = db.getReadableDatabase().rawQuery("SELECT id FROM users WHERE email=?", new String[]{email});
         long uid = nc.moveToFirst() ? nc.getLong(0) : -1; nc.close();
         db.getWritableDatabase().execSQL(
-                "INSERT OR IGNORE INTO accounts(user_id, balance, start_balance, peak, day_start, day_ts) VALUES(?,100000,100000,100000,100000,?)",
+                "INSERT OR IGNORE INTO accounts(user_id, balance, start_balance, peak, day_start, day_ts) VALUES(?,100,100,100,100,?)",
                 new Object[]{uid, System.currentTimeMillis() / 86400000L});
         db.log("INFO", "AUTH", "REGISTER", email + " (" + role + ") — account + paper account created");
         // v5.7 — the owner now gets the alert THREE ways, instantly:
@@ -339,7 +341,7 @@ public class Api {
     private Res dashboard(long uid) throws Exception {
         Cursor a = db.getReadableDatabase().rawQuery(
                 "SELECT balance, start_balance, peak, day_start FROM accounts WHERE user_id=?", new String[]{String.valueOf(uid)});
-        double bal = 100000, start = 100000, peak = 100000, dayStart = 100000;
+        double bal = 100, start = 100, peak = 100, dayStart = 100;
         if (a.moveToFirst()) { bal = a.getDouble(0); start = a.getDouble(1); peak = a.getDouble(2); dayStart = a.getDouble(3); }
         a.close();
 
@@ -564,7 +566,30 @@ public class Api {
     private Res settings() throws Exception {
         return Res.json(200, new JSONObject()
                 .put("engineOn", "1".equals(db.setting("engine_on", "1")))
-                .put("version", "1.0"));
+                .put("version", "1.2"));
+    }
+
+    /** v1.2 — Paper Balance: owner apna paper amount khud set karta hai.
+     *  Body: {amount: number}. $10 – $100,000,000 allowed. Open trades are CANCELLED
+     *  (exit=entry, pnl=0) because they were sized against the old balance; risk
+     *  counters (start/peak/day_start) reset so PnL% aur drawdown naye base se chale. */
+    private Res setBalance(long uid, String body) throws Exception {
+        JSONObject o = HttpServer.jObj(body);
+        double amt = o.optDouble("amount", Double.NaN);
+        if (Double.isNaN(amt) || amt < 10 || amt > 100000000)
+            return Res.error(400, "Paper balance $10 se $100,000,000 ke beech set karein");
+        long now = System.currentTimeMillis();
+        db.getWritableDatabase().execSQL(
+                "UPDATE trades SET exit=entry, pnl=0, status='CANCELLED', closed_at=? WHERE user_id=? AND status='OPEN'",
+                new Object[]{now, uid});
+        db.getWritableDatabase().execSQL(
+                "UPDATE accounts SET balance=?, start_balance=?, peak=?, day_start=?, day_ts=? WHERE user_id=?",
+                new Object[]{amt, amt, amt, amt, now / 86400000L, uid});
+        db.log("INFO", "ACCOUNT", "BALANCE_SET", "user #" + uid + " — paper balance set to $"
+                + String.format(Locale.US, "%.2f", amt) + " (open trades cancelled, risk counters reset)");
+        return Res.json(200, new JSONObject().put("ok", true).put("balance", round2(amt))
+                .put("message", "Paper balance set: $" + String.format(Locale.US, "%.0f", amt)
+                        + " — ab har trade is balance ka 1% risk karegi"));
     }
 
     private Res saveSettings(String body) throws Exception {

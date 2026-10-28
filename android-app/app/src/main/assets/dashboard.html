@@ -96,7 +96,7 @@ select{width:100%;background:#18181b;border:1px solid #27272a;border-radius:9px;
   <div class="logo">📈</div>
   <h1>AI Trading Lab <span style="color:#f59e0b">v1</span></h1>
   <div class="sub">Full trading engine on this device — paper trading</div>
-  <div class="sub" style="color:#fbbf24">v1.1 · Two-Tier Entry Engine · PDF Encyclopedia · 1m 24h Scanner</div>
+  <div class="sub" style="color:#fbbf24">v1.2 · Paper $100 + Custom Amount · Unlimited Positions · Two-Tier Entry</div>
   <div id="engStrip" class="eng">checking engine…</div>
   <div class="note"><b>Naya install / update?</b> Accounts is device ki local database mein hote hain — app reinstall ya update ke baad purana account <b>transfer nahi hota</b>. Is liye pehli dafa <b>Register</b> tab par account banayen (invite code pehle se bhara hai), phir <b>Sign in</b> — dashboard foran khulega. Kisi authenticator app ki zaroorat nahi.</div>
 
@@ -341,7 +341,7 @@ function renderDash(){
         '<tr><td class="mut">Market scanner</td><td>'+(e.scanner||'24h')+' nonstop · scan #'+(e.scan_count||0)+(e.fear_greed>=0?' · F&G '+e.fear_greed:'')+'</td></tr>' +
         '<tr><td class="mut">Instruments trading</td><td>'+e.active_symbols+'</td></tr>' +
         '<tr><td class="mut">Data feed</td><td>'+esc((e.data_host||'').replace('https://',''))+' · live Binance market data (real, not simulated)</td></tr>' +
-        '<tr><td class="mut">Risk</td><td>1% / trade · 5% daily halt · 10% kill</td></tr></table></div>' +
+        '<tr><td class="mut">Risk</td><td>1% / trade · UNLIMITED positions (no cap) · 5% daily halt · 10% kill</td></tr></table></div>' +
       '</div>';
     document.getElementById('hdrSub').textContent = USER ? (USER.name + (USER.role==='ADMIN'?' · ADMIN':'')) : '';
   });
@@ -531,14 +531,32 @@ function delBroker(id){
 function renderSet(){
   api('/api/settings').then(function(r){
     var on = r.data.engineOn;
-    document.getElementById('main').innerHTML =
-      '<h2>Engine</h2>' +
-      '<div class="card full"><div class="k">Paper trading engine</div>' +
-      '<div class="row"><button class="btn '+(on?'sec':'')+'" onclick="setEngine(true)">▶ START</button>' +
-      '<button class="btn '+(on?'':'sec')+'" onclick="setEngine(false)">⏸ STOP</button></div>' +
-      '<div class="small" style="margin-top:10px">Engine runs in background via Android foreground service. It survives app close and phone reboot. Risk: 1% per trade, daily −5% halt, −10% drawdown kill switch.</div></div>' +
-      '<h2>Version</h2><div class="card full"><div class="k">AI Trading Lab</div><div class="v">'+r.data.version+' · Phone Server</div>' +
-      '<div class="small" style="margin-top:8px">Full system on this device: instruments ledger, news engine, system logs ledger, paper executor, broker vault'+(USER&&USER.role==='ADMIN'?', owner Control panel (🛡️ users · invites · alerts)':'')+'. No PC needed.</div></div>';
+    api('/api/dashboard').then(function(d){
+      var bal = d.data && d.data.balance != null ? d.data.balance : 0;
+      document.getElementById('main').innerHTML =
+        '<h2>Paper Balance</h2>' +
+        '<div class="card full"><div class="k">Apna paper amount — jitna chaho</div>' +
+        '<div class="v">$'+Number(bal).toFixed(2)+'</div>' +
+        '<div class="row" style="margin-top:8px"><input id="balAmt" type="number" min="10" max="100000000" step="any" inputmode="decimal" placeholder="Naya amount, e.g. 100" style="flex:1;min-width:0;padding:11px;border-radius:10px;border:1px solid #27272a;background:#09090b;color:#e4e4e7;font-size:15px"><button class="btn" onclick="setBalance()">💵 SET</button></div>' +
+        '<div class="small" style="margin-top:10px"><b>$10 se $100,000,000</b> tak koi bhi amount set karo. Default naya account: <b>$100</b>. Amount badalne par open trades cancel hoti hain (naye balance par dobara size hongi) aur PnL%/drawdown naye base se count hota hai. Risk per trade = balance ka <b>1%</b> — $100 par $1, $10,000 par $100.</div></div>' +
+        '<h2>Engine</h2>' +
+        '<div class="card full"><div class="k">Paper trading engine</div>' +
+        '<div class="row"><button class="btn '+(on?'sec':'')+'" onclick="setEngine(true)">▶ START</button>' +
+        '<button class="btn '+(on?'':'sec')+'" onclick="setEngine(false)">⏸ STOP</button></div>' +
+        '<div class="small" style="margin-top:10px">Engine runs in background via Android foreground service. It survives app close and phone reboot. Risk: 1% per trade, UNLIMITED positions, daily −5% halt, −10% drawdown kill switch.</div></div>' +
+        '<h2>Version</h2><div class="card full"><div class="k">AI Trading Lab</div><div class="v">'+r.data.version+' · Phone Server</div>' +
+        '<div class="small" style="margin-top:8px">Full system on this device: instruments ledger, news engine, system logs ledger, paper executor, broker vault'+(USER&&USER.role==='ADMIN'?', owner Control panel (🛡️ users · invites · alerts)':'')+'. No PC needed.</div></div>';
+    });
+  });
+}
+function setBalance(){
+  var el = document.getElementById('balAmt');
+  var v = parseFloat(el && el.value);
+  if(!v || isNaN(v) || v < 10){ alert('$10 se kam nahi ho sakta — amount likhein (e.g. 100)'); return; }
+  if(v > 100000000){ alert('Maximum $100,000,000'); return; }
+  api('/api/balance',{method:'POST',body:{amount:v}}).then(function(r){
+    if(r.status===200){ alert(r.data.message||('Paper balance set: $'+v)); renderSet(); }
+    else alert(r.data.error||'Balance set failed — dobara try karein');
   });
 }
 function setEngine(on){

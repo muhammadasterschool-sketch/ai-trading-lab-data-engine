@@ -355,3 +355,13 @@ Stage Summary:
 - DATA ANSWER (owner asked "charts kahan se aate hain, fake to nahi"): LIVE Binance klines via data-api.binance.vision (fallback api.binance.com), 200x1m per active symbol every 30s, no simulated candles; tradable universe = crypto top-30 by volume (discovery top-150 ledger); F&G live from alternative.me; forex/PSX/indices listed but engine trades only symbols with real candle data
 - versionCode 17→18 / versionName "1.1"; dashboard badge "v1.1 · Two-Tier Entry Engine"; Engine Status row explains both tiers; data feed row states "live Binance market data (real, not simulated)"
 - Build+zipalign+apksigner OK (SHA-1 0440b7f9...); deployed v1.1 APK (136208b) + source zip to public/downloads AND .next/standalone/public (dual-copy), bun restarted, ALL LINKS 200 (downloads.html, APK, zip, RELEASE-v5.md); v1.0 files removed; download/ synced
+
+## Task 23 — v1.2: PAPER $100 + CUSTOM AMOUNT + UNLIMITED POSITIONS + iOS PWA
+- Owner: "ios ka link de do" + "paper money 100 dollar kardo" + "mai kitna paper amount change kar sako" + "position trade kholni ke koi limit na ho"
+- PAPER $100: default 100000→100 everywhere (Db schema, register insert, dashboard/openTrade/equity fallbacks); one-time v1.2 boot migration resets existing accounts to $100 + cancels old-balance-sized open trades (settings key v12_paper_100, logged PAPER_RESET_100)
+- CUSTOM AMOUNT: new POST /api/balance {amount} ($10–$100M) — cancels open trades, resets balance/start/peak/day_start/day_ts, logs BALANCE_SET; dashboard Settings tab gets Paper Balance card (current balance + input + SET button + setBalance() JS)
+- UNLIMITED POSITIONS: max-5-concurrent cap REMOVED from scanAndTrade (count query deleted); 1-open-position-per-symbol anti-duplicate guard retained; Home Risk row now says "UNLIMITED positions (no cap)"
+- iOS PWA: verified web app ships manifest.webmanifest + apple-touch-icon.png + appleWebApp meta (capable, black-translucent) — Safari □↑ Add to Home Screen works; downloads.html iPhone card rewritten with 2 safed + honest note (engine Android app ke andar hai)
+- ENV RESET (sandbox rebuilt mid-task): gradle 8.9 + Temurin JDK 17 + cmdline-tools/build-tools 34.0.0 reinstalled from scratch; repo1.maven.org 429 → Aliyun mirror added to settings.gradle; .next/standalone wiped → bun run build regenerated; bun restarted
+- versionCode 18→19 / versionName "1.2"; settings version 1.2; health 1.2.0; dashboard badge v1.2; JS node --check OK
+- Deploy: APK (130 KB) + source zip dual-copy (public/ + .next/standalone/public/), bun restarted; ALL 200: /, downloads.html, v1.2 APK, source zip, manifest, apple-touch-icon; v1.1 files removed; download/ synced

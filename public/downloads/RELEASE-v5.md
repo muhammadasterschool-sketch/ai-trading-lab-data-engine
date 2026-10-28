@@ -1,3 +1,35 @@
+# AI Trading Lab — v1.2 Release (Android) — PAPER $100 + CUSTOM AMOUNT + UNLIMITED POSITIONS
+
+Release date: 2026-10-29
+APK: `AI-Trading-Lab-v1.2-Android.apk` (versionCode 19)
+
+Owner requests: "ios ka link de do" + "paper money 100 dollar kardo" +
+"mai kitna paper amount change kar sako" + "position trade kholni ke koi limit na ho".
+
+## WHAT CHANGED
+
+1. **Paper money $100 (was $100,000)** — new accounts start at $100. Risk per
+   trade stays 1% ($1 per trade at $100).
+2. **ONE-TIME MIGRATION for existing installs** — first v1.2 boot resets all
+   paper accounts to $100 and cancels open trades (they were sized against the
+   old balance). Logged as PAPER_RESET_100 in the system ledger.
+3. **NEW: Paper Balance control (Settings tab)** — set ANY amount, $10 to
+   $100,000,000, via POST /api/balance. Open trades are cancelled on change;
+   start_balance / peak / day_start reset so PnL% and drawdown rebase cleanly.
+4. **UNLIMITED POSITIONS** — the max-5-concurrent cap is REMOVED (owner
+   request). The engine may open as many positions as signals justify. The
+   one-open-position-per-symbol anti-duplicate guard stays (prevents stacking
+   duplicate trades on the same symbol within the same signal).
+5. **iOS PWA** — the web app already ships a complete manifest, apple-touch-icon
+   and standalone display meta: Safari → Share → Add to Home Screen installs it
+   as a full-screen app. Note: the trading engine itself is the Android app
+   (foreground service + local SQLite); the iPhone PWA gives the web dashboard.
+
+Risk model otherwise unchanged: 1%/trade | SL 1.5xATR | TP 2.5xATR | daily
+halt -5% | kill switch -10%.
+
+---
+
 # AI Trading Lab — v1.1 Release (Android) — TWO-TIER ENTRY ENGINE
 
 Release date: 2026-10-29
