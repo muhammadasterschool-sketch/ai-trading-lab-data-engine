@@ -342,7 +342,8 @@ class _UsersPageState extends State<UsersPage> {
                   ),
                 ),
               ),
-              ButtonBar(
+              OverflowBar(
+                spacing: 8,
                 children: <Widget>[
                   TextButton.icon(
                     onPressed: () => _reset2fa(account),

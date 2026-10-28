@@ -295,6 +295,17 @@ class _LoginPairingFormDialogState extends State<LoginPairingFormDialog> {
           icon: const Icon(Icons.copy),
           label: const Text('copy secret'),
         ),
+        if (_enrollUri != null)
+          TextButton.icon(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: _enrollUri!));
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('otpauth URI copied')),
+              );
+            },
+            icon: const Icon(Icons.link),
+            label: const Text('copy otpauth URI'),
+          ),
       ]);
     }
     return AlertDialog(

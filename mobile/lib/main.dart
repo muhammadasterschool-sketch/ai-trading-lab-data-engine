@@ -2875,7 +2875,7 @@ class _StrategiesTabState extends State<StrategiesTab> {
                           ),
                         ),
                       );
-                    }).toList(),
+                    }),
                   ],
                   ),
       ),
