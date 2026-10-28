@@ -5,6 +5,98 @@ All notable changes under the FULL PROJECT PROMPT v3.0 run
 no rebase, no force-push; feature branches merged to main only on
 green full suites).
 
+## v1.5.0 — paper-ready full upgrade (feat/v1.5-paper-ready)
+
+Owner mandate (2026-10-28): "jitne bhi upgrades karne hai sare karoo
+... admin apk delete karo aur monitor app mein admin user + users
+option ... email login two factors verification ke baghair na ho ...
+backtest data real and verified kisi repo se fetch karlo agar na mile
+to websites par jao ... top 5 strategy jo YouTubers use karte hai
+from start ... 1 min timeframe ... 60 percent sure ... 1 trade per
+sec after confirmation candle ... crash prediction ... sare kaam
+karo till paper trading".
+
+- quant top-50 pack (NEW: oscillators.py, bands.py,
+  trend_indicators.py, volume_ta.py, statistics_ext.py): 40 more
+  indicators (MACD, Stochastic, StochRSI, CCI, Williams %R, TRIX,
+  UO, AO, Bollinger, Keltner, Donchian, rolling/anchored VWAP, ADX,
+  Supertrend, Parabolic SAR, Ichimoku, Aroon, WMA/HMA/DEMA/TEMA/
+  ZLEMA/KAMA, linreg slope/R2, OBV, MFI, Force, EOM, CMF, A/D,
+  Chaikin Osc, volume z-score, Choppiness, Vortex, Hurst approx,
+  variance ratio, skew/kurtosis, Kaufman ER) — 57 registered in the
+  IndicatorRegistry (was 17); all pure/deterministic/None-padded.
+- runtime/presets.py (NEW): TOP-5 YouTuber presets — EMA 9/21 scalp
+  + 200 filter, RSI+Bollinger mean-reversion, VWAP reversion,
+  Supertrend follow + ADX filter, opening-range breakout — all M1,
+  confirmation-candle (closed-bar) semantics, popularity-is-not-edge
+  disclaimer, same G6 gate as everything else.
+- runtime/lab.py: five new backtester kinds (ema_scalp, rsi_bb,
+  vwap_reversion, supertrend_follow, orb_breakout — ORB is
+  PIT-disciplined, entries only after the range fully forms),
+  optional cost model in run() (fees+slippage per side; NET is the
+  headline with gross reported alongside; costs-off preserves the
+  v1.1.0 contract exactly), per-family conservative cost defaults
+  (crypto 10+2 bps, FX/metals 1+7 bps per side), AUTO-SCAN
+  (deterministic 27-combo parameter scan, 70/30 IS/OOS split, net
+  of costs, survivors become ORDINARY submissions), and preset
+  bootstrap (idempotent; creates + backtests + opens the 30-day
+  paper windows so paper trading STARTS with the presets).
+- runtime/confidence.py (NEW): ConfidenceGate — the >=60%
+  bullish/bearish confirmation assessor (strategy vote 0.45 +
+  baseline 0.35 + trend 0.20, all components inspectable,
+  confirmation-candle only, honest "not a calibrated probability"
+  labeling).
+- runtime/rapid_scalper.py (NEW): the PAPER-ONLY one-fill-per-second
+  burst journal — after a CONFIRMED (>=60%) call on a closed
+  confirmation candle, plans 60 hypothetical fills at 1/sec with a
+  deterministic cost model, marks the exit at the NEXT closed
+  candle, enforces cooldown + cumulative loss cap + kill-switch
+  pause; journaled to the strategy's paper ledger, NO orders sent
+  anywhere (live stays NOT_AUTHORIZED).
+- runtime/crash_lab.py (NEW): LabCrashPredictor (heuristic
+  vol-z/ATR-expansion/drawdown-speed gauge, NOT the governed §4F
+  contract) + NextMoveEnsemble (baseline + trend + efficiency
+  ensemble) wired to GET /api/lab/crash/{symbol} and
+  /api/lab/predict-ensemble/{symbol}.
+- platform/historical_data.py (NEW): HistoricalDataService — REAL
+  VERIFIED backtest data: bundled repo datasets (datasets/:
+  BTCUSDT + ETHUSDT 1m 2026-09 from data.binance.vision, sha256
+  verified against the official .CHECKSUM at acquisition and
+  re-verified on EVERY load, tamper = refusal) first, then the
+  Binance Vision website fallback (downloads + verifies + caches).
+  RESEARCH_BACKTEST_ONLY: the operational-feed approval chain
+  (feed_source_candidates / SRC-APPROVAL / DATA_READINESS) is
+  untouched. CLI: hist-datasets, hist-import. HTTP:
+  GET /api/hist/datasets, POST /api/hist/import.
+- runtime/totp.py + runtime/accounts.py (NEW): MANDATORY two-factor
+  login — RFC 6238 TOTP (official test vectors pinned), PBKDF2
+  passwords (200k iters), sticky enrollment handshake (password
+  verified -> authenticator secret shown ONCE -> code confirms),
+  12h sessions, 5-failure 15-minute lockout, per-account login
+  history, admin ops (create user / reset 2FA / lock-unlock).
+  NO session is ever issued without a valid TOTP code. CLI:
+  add-admin, accounts-list. HTTP: POST /api/auth/login (pre-auth),
+  /api/auth/logout, GET /api/auth/me, /api/admin/accounts*.
+- runtime/monitoring.py: session tokens now authorize alongside the
+  pairing bearer (owner level); /api/users + /api/registrations are
+  admin-gated (trader sessions get 403); new routes as above; a
+  dedicated 10/min/IP login rate limit; opt-in --bootstrap-presets
+  auto-creates the TOP-5 presets when a symbol's first bars land.
+- Mobile monitor app v1.5.0+8: EMAIL LOGIN (2FA) onboarding with
+  in-dialog enrollment, admin Users page (online clients + accounts
+  with login history + create user / reset 2FA / lock), and the
+  "START PAPER TRADING" card (verified data import + presets +
+  AUTO-SCAN). The separate ADMIN APK IS DELETED (admin/ and its CI
+  workflow removed — the monitor app is now the single app; older
+  admin APK releases remain historical artifacts of v1.0.0-v1.1.0).
+- Governance UNCHANGED: PAPER_READY=FALSE,
+  LIVE_AUTHORIZATION=NOT_AUTHORIZED, 32 readiness gates, G6 pipeline
+  order, frozen-strategy-domain boundary (presets live in runtime/
+  for exactly this reason), secret-scan and AST invariants intact.
+- Tests: 3210 passed / 8 skipped (was 3098) — 112 new tests across
+  quant extensions, lab v1.5.0, accounts/2FA, historical data and
+  the new monitoring routes.
+
 ## v1.1.0 — owner AI lab (feat/v1-ai-lab)
 
 Owner mandate (2026-10-27): "aik AI ho jiss se hum total profit and

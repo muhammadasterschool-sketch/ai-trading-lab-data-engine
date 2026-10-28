@@ -1,23 +1,39 @@
-# ANDROID MONITORING APK (Stage F, Part 9 F2/F3/F4; v4.0 dual-mode onboarding)
+# ANDROID MONITORING APK (Stage F, Part 9 F2/F3/F4; v4.0 dual-mode onboarding; v1.5.0 2FA login + admin)
 
 ## What this app is
 
 The Android monitoring client for the AI Trading Lab data engine.
 **Monitoring + control only — the trading engine NEVER runs on the
-phone.**
+phone.** Since v1.5.0 this is the SINGLE app: the separate admin APK
+is retired, and admin features (Users screen) live here for
+admin-role logins.
 
-v4.0 onboarding offers exactly **TWO ways to connect** (owner decision
-P1/P2 — **renting a server is OPTIONAL**):
+v1.5.0 onboarding offers **THREE ways to connect**:
 
-1. **CLOUD SERVER** — your own dedicated VPS over https (the original
+1. **EMAIL LOGIN (2FA)** — email + password + a 6-digit TOTP code
+   (Google Authenticator / Authy / Microsoft Authenticator). NO
+   session is issued without a valid code; enrollment happens on
+   first login (the engine shows the secret once, you confirm with a
+   code). Admin-role logins additionally see the **Users** screen
+   (who is connected, all accounts with login history, create user,
+   reset 2FA, lock/unlock).
+2. **CLOUD SERVER** — your own dedicated VPS over https (the original
    multi-user deployment path; see
    `deploy/MULTI-USER-DEPLOYMENT-GUIDE.md`).
-2. **LOCAL COMPUTER** — the engine on your own Windows PC. Install the
+3. **LOCAL COMPUTER** — the engine on your own Windows PC. Install the
    Windows package, run `run-monitor.ps1`, and pair the phone with an
    **invitation code** over your Wi-Fi (or `127.0.0.1` on the same
    device/emulator). No server rental, no DNS, no certificates.
 
-Both modes onboard through the engine's `POST /api/pair` endpoint
+The v1.5.0 **START PAPER TRADING** card (AI Lab -> Strategies)
+imports VERIFIED REAL 1-minute data (bundled repo datasets,
+sha256-checked; Binance Vision website fallback), creates the TOP-5
+YouTuber presets and opens their 30-day paper windows; AUTO-SCAN
+scans 27 parameter combinations (IS/OOS, net of costs). Confirmed
+(>=60%) calls journal PAPER-ONLY one-fill-per-second bursts — journal
+entries, never orders.
+
+Both pairing modes onboard through the engine's `POST /api/pair` endpoint
 using an **owner-issued invitation code** (compulsory in both forms).
 On success the engine returns the profile's monitoring **bearer token**,
 which is stored ONLY in `flutter_secure_storage` — no manual token

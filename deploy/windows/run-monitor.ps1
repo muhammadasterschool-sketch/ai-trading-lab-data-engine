@@ -26,7 +26,8 @@
 
 param(
     [switch]$AllowLan,
-    [int]$MonitorPort = 8018
+    [int]$MonitorPort = 8018,
+    [switch]$NoBootstrapPresets
 )
 
 $ErrorActionPreference = "Stop"
@@ -99,7 +100,23 @@ if ($AllowLan) {
     Write-Host "[run-monitor] to connect a phone on your Wi-Fi, re-run with: .\run-monitor.ps1 -AllowLan"
 }
 
-# -- 4. go (monitor-only; no trading session is composed) ------------------
+# -- 4. v1.5.0 preset auto-bootstrap (default ON) ---------------------------
+# When the FIRST bars land for a symbol that has no strategies yet,
+# the engine auto-creates the TOP-5 YouTuber presets and opens their
+# 30-day paper windows (activation still needs your explicit YES).
+if (-not $NoBootstrapPresets) {
+    $extraArgs += "--bootstrap-presets"
+    Write-Host "[run-monitor] preset auto-bootstrap ON (TOP-5 YouTuber presets on first data; -NoBootstrapPresets disables)."
+}
+
+# -- 5. first-admin hint (v1.5.0 2FA login) --------------------------------
+$acct = ".\monitor-state\accounts.json"
+if (-not (Test-Path $acct)) {
+    Write-Host "[run-monitor] TIP: create the first ADMIN account for 2FA email login:"
+    Write-Host "    .\create-admin.ps1 -Email you@example.com -Name 'Owner'"
+}
+
+# -- 6. go (monitor-only; no trading session is composed) ------------------
 Write-Host "[run-monitor] starting data-engine serve (Ctrl+C to stop) ..."
 & $vpython -m data_engine.cli serve `
     --no-dashboard `

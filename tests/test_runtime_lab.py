@@ -359,7 +359,14 @@ class TestLabManagerPipeline:
         halted_lab.run_backtest(sid)
         halted_lab.paper_start(sid, cycle_days=1)
         result = halted_lab.observe_symbol_update("XAU/USD")
-        assert result == {"evaluated": [], "halted": True}
+        # v1.5.0: the halted response also carries the (empty) burst
+        # lists — the kill switch pauses EVERYTHING, bursts included.
+        assert result == {
+            "evaluated": [],
+            "halted": True,
+            "bursts_planned": [],
+            "bursts_marked": [],
+        }
 
     def test_durable_restore_replay(self, lab, store):
         store.append("XAU/USD", _bars(300, drift=1.005,

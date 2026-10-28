@@ -198,6 +198,18 @@ class MonitoringAPI:
         # + bars + prediction + broker catalog). Optional and
         # duck-typed; absent -> lab routes answer 503 fail-closed.
         lab: Optional[Any] = None,
+        # v1.5.0 (owner mandate): account service with MANDATORY TOTP
+        # 2FA login (email+password+code -> 12h session token). Absent
+        # -> auth routes answer 503 fail-closed and only the pairing
+        # bearer token authorizes (v1.1.0 behavior preserved).
+        accounts: Optional[Any] = None,
+        # v1.5.0: auto-bootstrap the TOP-5 YouTuber presets when bars
+        # first land for a symbol that has no strategies yet (opt-in;
+        # tests construct without it).
+        bootstrap_presets: bool = False,
+        # v1.5.0: historical data service (bundled verified datasets +
+        # Binance Vision fallback). Absent -> hist routes 503.
+        hist_service: Optional[Any] = None,
     ) -> None:
         if not auth_token or not isinstance(auth_token, str):
             raise MonitoringAPIError(
@@ -229,6 +241,10 @@ class MonitoringAPI:
         self._client_registry = client_registry  # ClientRegistry (v1.0.0)
         self._trade_ledger = trade_ledger  # TradeLedger (v1.0.0)
         self._lab = lab  # LabManager + assistant + bars + predict (v1.1.0)
+        self._accounts = accounts  # AccountService (v1.5.0)
+        self._bootstrap_presets = bool(bootstrap_presets)
+        self._hist_service = hist_service  # HistoricalDataService (v1.5.0)
+        self._login_limiter = _RateLimiter(10, 60.0)  # 10 logins/min/IP
         self._limiter = _RateLimiter(rate_limit_max, rate_limit_window)
         self._server: Optional[ThreadingHTTPServer] = None
         self._started_at: Optional[float] = None
@@ -266,14 +282,43 @@ class MonitoringAPI:
                 self.end_headers()
                 self.wfile.write(body)
 
-            def _authorized(self) -> bool:
+            def _identity(self) -> Optional[dict]:
+                """v1.5.0: pairing bearer OR a valid 2FA session token.
+
+                Returns ``{"kind": "pairing", "role": "owner"}`` for
+                the operator token file, ``{"kind": "session", "email",
+                "role": ...}`` for a logged-in account, or None.
+                """
                 header = self.headers.get("Authorization", "")
                 if not header.startswith("Bearer "):
-                    return False
+                    return None
                 supplied = header[len("Bearer "):].strip()
-                return hmac.compare_digest(
+                if not supplied:
+                    return None
+                if hmac.compare_digest(
                     supplied.encode("utf-8"), api._token.encode("utf-8")
-                )
+                ):
+                    return {"kind": "pairing", "role": "owner"}
+                if api._accounts is not None:
+                    session = api._accounts.sessions.validate(supplied)
+                    if session:
+                        return {
+                            "kind": "session",
+                            "email": session["email"],
+                            "role": session["role"],
+                        }
+                return None
+
+            def _authorized(self) -> bool:
+                return self._identity() is not None
+
+            def _admin(self) -> bool:
+                identity = self._identity()
+                if not identity:
+                    return False
+                return identity["kind"] == "pairing" or identity.get(
+                    "role"
+                ) == "admin"
 
             def do_GET(self) -> None:  # noqa: N802
                 client = self.client_address[0]
@@ -315,6 +360,14 @@ class MonitoringAPI:
                     )
                 elif route == "/api/users":
                     # v1.0.0: who is connected RIGHT NOW (owner surface)
+                    # v1.5.0: admin-gated (pairing owner OR admin-role
+                    # session); trader sessions answer 403.
+                    if not self._admin():
+                        self._json(
+                            HTTPStatus.FORBIDDEN,
+                            {"error": "admin role required"},
+                        )
+                        return
                     if api._client_registry is None:
                         self._json(
                             HTTPStatus.SERVICE_UNAVAILABLE,
@@ -329,6 +382,13 @@ class MonitoringAPI:
                     )
                 elif route == "/api/registrations":
                     # v1.0.0: durable first-contact registration ledger
+                    # v1.5.0: admin-gated (see /api/users).
+                    if not self._admin():
+                        self._json(
+                            HTTPStatus.FORBIDDEN,
+                            {"error": "admin role required"},
+                        )
+                        return
                     if api._client_registry is None:
                         self._json(
                             HTTPStatus.SERVICE_UNAVAILABLE,
@@ -441,6 +501,135 @@ class MonitoringAPI:
                     )
 
                     self._json(HTTPStatus.OK, _Catalog().catalog())
+                elif route == "/api/lab/presets":
+                    # v1.5.0: the TOP-5 YouTuber strategy presets
+                    from data_engine.runtime.presets import (
+                        presets_for_api as _presets,
+                    )
+
+                    rows = _presets()
+                    self._json(
+                        HTTPStatus.OK,
+                        {"presets": rows, "count": len(rows)},
+                    )
+                elif route.startswith("/api/lab/predict-ensemble/"):
+                    # v1.5.0: multi-component next-move ensemble
+                    if api._lab is None:
+                        self._json(
+                            HTTPStatus.SERVICE_UNAVAILABLE,
+                            {"error": "lab not wired (fail closed)"},
+                        )
+                        return
+                    symbol = route[len("/api/lab/predict-ensemble/"):]
+                    from data_engine.runtime.crash_lab import (
+                        NextMoveEnsemble as _Ensemble,
+                    )
+                    from data_engine.runtime.lab import (
+                        LabError as _LabError,
+                    )
+
+                    bars = api._lab._bars.bars(symbol)
+                    try:
+                        self._json(
+                            HTTPStatus.OK, _Ensemble().predict(bars)
+                        )
+                    except _LabError as exc:
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": str(exc)},
+                        )
+                elif route.startswith("/api/lab/crash/"):
+                    # v1.5.0: heuristic crash-risk gauge
+                    if api._lab is None:
+                        self._json(
+                            HTTPStatus.SERVICE_UNAVAILABLE,
+                            {"error": "lab not wired (fail closed)"},
+                        )
+                        return
+                    symbol = route[len("/api/lab/crash/"):]
+                    from data_engine.runtime.crash_lab import (
+                        LabCrashPredictor as _Crash,
+                    )
+                    from data_engine.runtime.lab import (
+                        LabError as _LabError,
+                    )
+
+                    bars = api._lab._bars.bars(symbol)
+                    try:
+                        self._json(
+                            HTTPStatus.OK, _Crash().predict(bars)
+                        )
+                    except _LabError as exc:
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": str(exc)},
+                        )
+                elif route == "/api/hist/datasets":
+                    # v1.5.0: bundled verified historical datasets
+                    from data_engine.platform.historical_data import (
+                        list_bundled_datasets as _list_ds,
+                    )
+
+                    rows = _list_ds()
+                    self._json(
+                        HTTPStatus.OK,
+                        {
+                            "datasets": rows,
+                            "count": len(rows),
+                            "note": (
+                                "verified real data (sha256 vs official "
+                                "source checksum); RESEARCH_BACKTEST_ONLY "
+                                "- operational feed gates unchanged"
+                            ),
+                        },
+                    )
+                elif route == "/api/auth/me":
+                    # v1.5.0: who am I (session or pairing)?
+                    identity = self._identity()
+                    if identity and identity["kind"] == "session":
+                        record = api._accounts.store.get(
+                            identity["email"]
+                        ) or {}
+                        self._json(
+                            HTTPStatus.OK,
+                            {
+                                "auth": "session",
+                                "email": identity["email"],
+                                "name": record.get("name"),
+                                "role": identity["role"],
+                            },
+                        )
+                    else:
+                        self._json(
+                            HTTPStatus.OK,
+                            {
+                                "auth": "pairing",
+                                "email": None,
+                                "role": "owner",
+                            },
+                        )
+                elif route == "/api/admin/accounts":
+                    # v1.5.0: admin-only account roster + login history
+                    if api._accounts is None:
+                        self._json(
+                            HTTPStatus.SERVICE_UNAVAILABLE,
+                            {"error": "accounts not wired (fail closed)"},
+                        )
+                        return
+                    if not self._admin():
+                        self._json(
+                            HTTPStatus.FORBIDDEN,
+                            {"error": "admin role required"},
+                        )
+                        return
+                    self._json(
+                        HTTPStatus.OK,
+                        api._accounts.accounts(
+                            actor_role=self._identity()["role"]
+                            if self._identity()["kind"] == "session"
+                            else "admin"
+                        ),
+                    )
                 elif route.startswith("/api/strategy/"):
                     # GET /api/strategy/{id} -> gate status (G6)
                     if api._strategy_gate is None:
@@ -477,8 +666,16 @@ class MonitoringAPI:
                                 "/api/lab/strategies",
                                 "/api/lab/bars/{symbol}",
                                 "/api/lab/predict/{symbol}",
+                                "/api/lab/predict-ensemble/{symbol}",
+                                "/api/lab/crash/{symbol}",
+                                "/api/lab/presets",
                                 "/api/lab/brokers",
+                                "/api/hist/datasets",
+                                "/api/auth/me",
+                                "/api/admin/accounts (admin)",
                                 "POST /api/pair (onboarding; invitation code)",
+                                "POST /api/auth/login (email+password+TOTP)",
+                                "POST /api/auth/logout",
                                 "POST /api/killswitch/activate",
                                 "POST /api/strategy/submit",
                                 "GET /api/strategy/{id}",
@@ -490,6 +687,12 @@ class MonitoringAPI:
                                 "POST /api/lab/strategies/{id}/confirm",
                                 "POST /api/lab/assistant (ask)",
                                 "POST /api/lab/bars (upload history)",
+                                "POST /api/lab/bootstrap {symbol}",
+                                "POST /api/lab/auto-scan {symbol}",
+                                "POST /api/hist/import {symbol, timeframe}",
+                                "POST /api/admin/accounts (create user)",
+                                "POST /api/admin/accounts/reset-2fa",
+                                "POST /api/admin/accounts/set-lock",
                             ],
                             "live_trading": "NOT_AUTHORIZED",
                         },
@@ -556,6 +759,108 @@ class MonitoringAPI:
                         ) else HTTPStatus.INTERNAL_SERVER_ERROR,
                         payload,
                     )
+                    return
+
+                # -- v1.5.0: POST /api/auth/login — the SECOND pre-auth
+                # route (email + password + TOTP; the account service
+                # enforces its own lockout policy and this handler adds
+                # a dedicated 10/min/IP login rate limit).
+                if route == "/api/auth/login":
+                    if api._accounts is None:
+                        self._json(
+                            HTTPStatus.SERVICE_UNAVAILABLE,
+                            {"error": "accounts not wired (fail closed)"},
+                        )
+                        return
+                    if not api._login_limiter.allow(client):
+                        self._json(
+                            HTTPStatus.TOO_MANY_REQUESTS,
+                            {"error": "E_LOGIN_RATE_LIMITED"},
+                        )
+                        return
+                    length = int(
+                        self.headers.get("Content-Length", "0") or 0
+                    )
+                    if length <= 0 or length > 4096:
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": "JSON body required (max 4096 bytes)"},
+                        )
+                        return
+                    try:
+                        login_body = json.loads(
+                            self.rfile.read(length).decode("utf-8")
+                        )
+                    except (ValueError, UnicodeDecodeError):
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": "invalid JSON body"},
+                        )
+                        return
+                    if not isinstance(login_body, dict):
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": "JSON object required"},
+                        )
+                        return
+                    from data_engine.runtime.accounts import (
+                        AccountError as _AccountError,
+                    )
+
+                    try:
+                        outcome = api._accounts.login(
+                            str(login_body.get("email", "")),
+                            str(login_body.get("password", "")),
+                            str(login_body.get("totp_code", "")),
+                            ip=client,
+                        )
+                    except _AccountError as exc:
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": str(exc)},
+                        )
+                        return
+                    kind = outcome.get("outcome")
+                    if kind == "SESSION":
+                        self._json(
+                            HTTPStatus.OK,
+                            {
+                                "token": outcome["token"],
+                                "expires_at": outcome["expires_at"],
+                                "user": outcome["user"],
+                                "auth": "session",
+                            },
+                        )
+                    elif kind == "E_TOTP_ENROLLMENT_REQUIRED":
+                        self._json(
+                            HTTPStatus.CONFLICT,
+                            {
+                                "error": kind,
+                                "totp_secret": outcome["totp_secret"],
+                                "otpauth_uri": outcome["otpauth_uri"],
+                                "note": (
+                                    "add the secret to your "
+                                    "authenticator app, then login again "
+                                    "with the 6-digit code to finish "
+                                    "enrollment"
+                                ),
+                            },
+                        )
+                    elif kind == "E_ACCOUNT_LOCKED":
+                        self._json(
+                            HTTPStatus.LOCKED,
+                            {
+                                "error": kind,
+                                "locked_until": outcome.get(
+                                    "locked_until"
+                                ),
+                            },
+                        )
+                    else:  # E_BAD_CREDENTIALS / E_TOTP_INVALID
+                        self._json(
+                            HTTPStatus.UNAUTHORIZED,
+                            {"error": kind},
+                        )
                     return
 
                 if not api._limiter.allow(client):
@@ -701,6 +1006,193 @@ class MonitoringAPI:
                         },
                     )
                     return
+                # -- v1.5.0: auth/logout + admin account ops + hist
+                # import (session or pairing auth; admin ops are
+                # admin-gated; nothing here can authorize live
+                # trading).
+                if route == "/api/auth/logout":
+                    if api._accounts is None:
+                        self._json(
+                            HTTPStatus.SERVICE_UNAVAILABLE,
+                            {"error": "accounts not wired (fail closed)"},
+                        )
+                        return
+                    header = self.headers.get("Authorization", "")
+                    token = (
+                        header[len("Bearer "):].strip()
+                        if header.startswith("Bearer ")
+                        else ""
+                    )
+                    revoked = api._accounts.sessions.revoke(token)
+                    self._json(
+                        HTTPStatus.OK,
+                        {"revoked": bool(revoked)},
+                    )
+                    return
+                if route in (
+                    "/api/admin/accounts",
+                    "/api/admin/accounts/reset-2fa",
+                    "/api/admin/accounts/set-lock",
+                ):
+                    if api._accounts is None:
+                        self._json(
+                            HTTPStatus.SERVICE_UNAVAILABLE,
+                            {"error": "accounts not wired (fail closed)"},
+                        )
+                        return
+                    identity = self._identity()
+                    if identity is None:
+                        self._json(
+                            HTTPStatus.UNAUTHORIZED,
+                            {"error": "invalid or missing bearer token"},
+                        )
+                        return
+                    actor_role = (
+                        identity.get("role")
+                        if identity.get("kind") == "session"
+                        else "admin"
+                    )
+                    length = int(
+                        self.headers.get("Content-Length", "0") or 0
+                    )
+                    if length <= 0 or length > 4096:
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": "JSON body required (max 4096 bytes)"},
+                        )
+                        return
+                    try:
+                        admin_body = json.loads(
+                            self.rfile.read(length).decode("utf-8")
+                        )
+                    except (ValueError, UnicodeDecodeError):
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": "invalid JSON body"},
+                        )
+                        return
+                    if not isinstance(admin_body, dict):
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": "JSON object required"},
+                        )
+                        return
+                    from data_engine.runtime.accounts import (
+                        AccountError as _AccountError,
+                    )
+
+                    try:
+                        if route == "/api/admin/accounts":
+                            result = api._accounts.create_user(
+                                actor_role=actor_role,
+                                email=str(admin_body.get("email", "")),
+                                name=str(admin_body.get("name", "")),
+                                password=str(admin_body.get("password", "")),
+                                role=str(admin_body.get("role", "trader")),
+                            )
+                        elif route == "/api/admin/accounts/reset-2fa":
+                            result = api._accounts.reset_2fa(
+                                actor_role=actor_role,
+                                email=str(admin_body.get("email", "")),
+                            )
+                        else:
+                            raw_locked = admin_body.get("locked")
+                            if not isinstance(raw_locked, bool):
+                                raise _AccountError(
+                                    "locked must be true or false"
+                                )
+                            result = api._accounts.set_lock(
+                                actor_role=actor_role,
+                                email=str(admin_body.get("email", "")),
+                                locked=raw_locked,
+                            )
+                    except _AccountError as exc:
+                        status = (
+                            HTTPStatus.FORBIDDEN
+                            if "admin role required" in str(exc)
+                            else HTTPStatus.BAD_REQUEST
+                        )
+                        self._json(status, {"error": str(exc)})
+                        return
+                    self._json(HTTPStatus.OK, result)
+                    return
+                if route == "/api/hist/import":
+                    # v1.5.0: import VERIFIED REAL history into the lab
+                    # BarStore (bundled repo data first, then the
+                    # Binance Vision website fallback).
+                    if api._hist_service is None or api._lab is None:
+                        self._json(
+                            HTTPStatus.SERVICE_UNAVAILABLE,
+                            {"error": "historical data service not wired "
+                                     "(fail closed)"},
+                        )
+                        return
+                    length = int(
+                        self.headers.get("Content-Length", "0") or 0
+                    )
+                    if length <= 0 or length > 4096:
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": "JSON body required (max 4096 bytes)"},
+                        )
+                        return
+                    try:
+                        hist_body = json.loads(
+                            self.rfile.read(length).decode("utf-8")
+                        )
+                    except (ValueError, UnicodeDecodeError):
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": "invalid JSON body"},
+                        )
+                        return
+                    if not isinstance(hist_body, dict):
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": "JSON object required"},
+                        )
+                        return
+                    from data_engine.platform.historical_data import (
+                        HistoricalDataError as _HistError,
+                    )
+                    from data_engine.runtime.lab import (
+                        LabError as _LabError,
+                    )
+
+                    symbol = str(hist_body.get("symbol", ""))
+                    timeframe = str(hist_body.get("timeframe", "1m"))
+                    source = str(hist_body.get("source", "auto"))
+                    raw_months = hist_body.get("months", 1)
+                    if isinstance(raw_months, bool) or not isinstance(
+                        raw_months, int
+                    ):
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": "months must be an integer"},
+                        )
+                        return
+                    try:
+                        fetched = api._hist_service.fetch(
+                            symbol,
+                            timeframe,
+                            months=raw_months,
+                            source=source,
+                        )
+                        imported = api._hist_service.import_into_barstore(
+                            api._lab._bars, symbol, fetched["bars"]
+                        )
+                        imported["source_used"] = fetched["source_used"]
+                        imported["provenance"] = fetched["provenance"]
+                        imported["paper"] = api._lab.observe_symbol_update(
+                            symbol
+                        )
+                        self._json(HTTPStatus.OK, imported)
+                    except (_HistError, _LabError) as exc:
+                        self._json(
+                            HTTPStatus.BAD_REQUEST,
+                            {"error": str(exc)},
+                        )
+                        return
                 if route.startswith("/api/lab/"):
                     # v1.1.0 OWNER AI LAB POST surfaces (fail-closed on
                     # unwired lab; LabError -> 400; nothing here can
@@ -761,7 +1253,54 @@ class MonitoringAPI:
                                     str(body.get("symbol", ""))
                                 )
                             )
+                            # v1.5.0: opt-in preset auto-bootstrap —
+                            # when the FIRST bars land for a symbol that
+                            # has no strategies yet, create the TOP-5
+                            # YouTuber presets and open their paper
+                            # windows (activation still needs owner YES)
+                            if api._bootstrap_presets and int(
+                                result.get("total", 0) or 0
+                            ) > 0:
+                                try:
+                                    symbol_now = str(
+                                        body.get("symbol", "")
+                                    )
+                                    rows = api._lab.list()
+                                    if not any(
+                                        r.get("symbol") == symbol_now
+                                        for r in rows
+                                    ):
+                                        result["bootstrap"] = (
+                                            api._lab
+                                            .bootstrap_default_strategies(
+                                                symbol_now
+                                            )
+                                        )
+                                except _LabError:
+                                    pass  # honest skip (fail closed)
                             self._json(HTTPStatus.OK, result)
+                            return
+                        if route == "/api/lab/bootstrap":
+                            self._json(
+                                HTTPStatus.OK,
+                                api._lab.bootstrap_default_strategies(
+                                    str(body.get("symbol", ""))
+                                ),
+                            )
+                            return
+                        if route == "/api/lab/auto-scan":
+                            raw_top = body.get("top_n", 3)
+                            if isinstance(raw_top, bool) or not isinstance(
+                                raw_top, int
+                            ):
+                                raise _LabError("top_n must be an integer")
+                            self._json(
+                                HTTPStatus.OK,
+                                api._lab.auto_scan(
+                                    str(body.get("symbol", "")),
+                                    top_n=raw_top,
+                                ),
+                            )
                             return
                         if route == "/api/lab/assistant":
                             if api._lab.assistant is None:
@@ -864,10 +1403,10 @@ class MonitoringAPI:
                     self._json(
                         HTTPStatus.METHOD_NOT_ALLOWED,
                         {"error": "read-only surface; POST exists only "
-                                  "for the kill switch, the "
-                                  "strategy gate and the owner lab "
-                                  "(no order submission "
-                                  "route exists)"},
+                                  "for the kill switch, the strategy "
+                                  "gate, the owner lab, accounts and "
+                                  "the historical import (no order "
+                                  "submission route exists)"},
                     )
                     return
                 length = int(self.headers.get("Content-Length", "0") or 0)

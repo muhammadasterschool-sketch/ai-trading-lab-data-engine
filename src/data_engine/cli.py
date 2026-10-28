@@ -26,9 +26,7 @@ types — and therefore always exited 1).
 
 import sys
 import argparse
-import os
 from datetime import datetime, UTC
-from data_engine import DataIngester, DataValidator, DataStorage, DataQualityGate
 from data_engine.quant_boundary import LLMBoundary, CalculationType
 
 
@@ -64,6 +62,7 @@ def _build_monitoring_api(
     token_file: str,
     pairing_service=None,
     state_dir: str = "./monitor-state",
+    bootstrap_presets: bool = False,
 ):
     """Construct the authenticated monitoring API (Stage F/F1) with
     HONEST providers: the health endpoint reflects the supervisor's
@@ -133,6 +132,15 @@ def _build_monitoring_api(
         health_provider=health,
     )
 
+    # -- v1.5.0 ACCOUNTS (mandatory TOTP 2FA login) + HIST DATA --------
+    from data_engine.platform.historical_data import (
+        HistoricalDataService as _Hist,
+    )
+    from data_engine.runtime.accounts import AccountService as _Accounts
+
+    _accounts = _Accounts(state_root)
+    _hist = _Hist(cache_dir=state_root / "hist-cache")
+
     return MonitoringAPI(
         auth_token=token,
         host=bind,
@@ -144,6 +152,9 @@ def _build_monitoring_api(
         client_registry=client_registry,
         trade_ledger=trade_ledger,
         lab=_lab,
+        accounts=_accounts,
+        bootstrap_presets=bootstrap_presets,
+        hist_service=_hist,
     )
 
 
@@ -321,6 +332,16 @@ def main(argv=None):
             "path to the monitoring API bearer token file (600 perms). "
             "REQUIRED to enable the monitoring API; tokens are NEVER "
             "passed as CLI arguments (shell-history hygiene)."
+        ),
+    )
+    serve_parser.add_argument(
+        "--bootstrap-presets",
+        action="store_true",
+        help=(
+            "v1.5.0: auto-create the TOP-5 YouTuber strategy presets "
+            "(and open their 30-day paper windows) the first time bars "
+            "land for a symbol that has no strategies yet. Activation "
+            "still requires the owner's explicit YES (G6 unchanged)."
         ),
     )
     serve_parser.add_argument(
@@ -560,6 +581,58 @@ def main(argv=None):
         ),
     )
 
+    # -- v1.5.0: accounts (admin bootstrap) + historical data CLI -------
+    add_admin_parser = subparsers.add_parser(
+        "add-admin",
+        help=(
+            "v1.5.0: create the first ADMIN account (email + name; the "
+            "password is read from a hidden prompt or stdin — NEVER a "
+            "CLI argument). The account enrolls TOTP 2FA on first login."
+        ),
+    )
+    add_admin_parser.add_argument("--email", required=True)
+    add_admin_parser.add_argument("--name", required=True)
+    add_admin_parser.add_argument(
+        "--monitor-state-dir", default="./monitor-state"
+    )
+    add_admin_parser.add_argument(
+        "--password-stdin",
+        action="store_true",
+        help="read the password from stdin instead of a hidden prompt",
+    )
+    accounts_list_parser = subparsers.add_parser(
+        "accounts-list",
+        help="v1.5.0: list accounts (emails/roles/2FA state/last login)",
+    )
+    accounts_list_parser.add_argument(
+        "--monitor-state-dir", default="./monitor-state"
+    )
+    hist_datasets_parser = subparsers.add_parser(
+        "hist-datasets",
+        help=(
+            "v1.5.0: list the bundled VERIFIED REAL historical datasets "
+            "(sha256-checked against the source checksum)"
+        ),
+    )
+    hist_import_parser = subparsers.add_parser(
+        "hist-import",
+        help=(
+            "v1.5.0: import VERIFIED REAL history into the lab BarStore "
+            "(bundled repo data first; Binance Vision website fallback)"
+        ),
+    )
+    hist_import_parser.add_argument("--symbol", required=True)
+    hist_import_parser.add_argument("--timeframe", default="1m")
+    hist_import_parser.add_argument(
+        "--source",
+        default="auto",
+        choices=["auto", "bundled", "binance-vision"],
+    )
+    hist_import_parser.add_argument("--months", type=int, default=1)
+    hist_import_parser.add_argument(
+        "--monitor-state-dir", default="./monitor-state"
+    )
+
     args = parser.parse_args(argv)
 
     if args.command is None:
@@ -787,6 +860,7 @@ def main(argv=None):
                         token_file=args.monitor_token_file,
                         pairing_service=pairing_service,
                         state_dir=args.monitor_state_dir,
+                        bootstrap_presets=bool(args.bootstrap_presets),
                     )
                     print(
                         "[serve] durable owner controls wired from "
@@ -794,6 +868,12 @@ def main(argv=None):
                         "client registry + trade ledger; STOP from the "
                         "phone now persists; resume = control-reset on "
                         "the PC)"
+                    )
+                    print(
+                        "[serve] accounts + mandatory TOTP 2FA login "
+                        "wired (POST /api/auth/login); create the first "
+                        "admin with: data-engine add-admin --email ... "
+                        "--monitor-state-dir " + args.monitor_state_dir
                     )
                 if args.mdns_announce:
                     if monitoring_api is None:
@@ -891,6 +971,119 @@ def main(argv=None):
                 if mdns_announcement is not None:
                     mdns_announcement.stop()
 
+        elif args.command == "add-admin":
+            from data_engine.runtime.accounts import (
+                AccountError as _AccountError,
+                AccountService as _Accounts,
+            )
+
+            if args.password_stdin:
+                password = sys.stdin.readline().rstrip("\r\n")
+            else:
+                import getpass
+
+                password = getpass.getpass(
+                    f"Admin password for {args.email} (min 10 chars): "
+                )
+                confirm = getpass.getpass("Confirm password: ")
+                if password != confirm:
+                    print("[add-admin] passwords do not match", file=sys.stderr)
+                    raise SystemExit(2)
+            try:
+                service = _Accounts(args.monitor_state_dir)
+                record = service.store.create_account(
+                    args.email, args.name, password, "admin"
+                )
+            except _AccountError as exc:
+                print(f"[add-admin] REFUSED: {exc}", file=sys.stderr)
+                raise SystemExit(2)
+            print("[add-admin] ADMIN account created:")
+            print(f"  email : {record['email']}")
+            print(f"  name  : {record['name']}")
+            print(f"  role  : {record['role']}")
+            print(
+                "  2FA   : enroll on first login in the monitor app "
+                "(email + password -> the app shows the authenticator "
+                "secret -> login again with the 6-digit code)"
+            )
+            raise SystemExit(0)
+        elif args.command == "accounts-list":
+            from data_engine.runtime.accounts import (
+                AccountService as _Accounts,
+            )
+
+            service = _Accounts(args.monitor_state_dir)
+            rows = service.store.list_accounts()
+            if not rows:
+                print(
+                    "[accounts-list] no accounts yet — create the first "
+                    "admin with: data-engine add-admin --email ... --name ..."
+                )
+                raise SystemExit(0)
+            for row in rows:
+                print(
+                    f"{row['email']:<36} {row['role']:<7} "
+                    f"2FA={'yes' if row['totp_enrolled'] else 'PENDING'} "
+                    f"last_login={row['last_login_at'] or 'never'}"
+                )
+            raise SystemExit(0)
+        elif args.command == "hist-datasets":
+            from data_engine.platform.historical_data import (
+                list_bundled_datasets as _list_ds,
+            )
+
+            rows = _list_ds()
+            if not rows:
+                print("[hist-datasets] no bundled datasets found")
+                raise SystemExit(0)
+            for row in rows:
+                prov = row.get("coverage") or {}
+                print(
+                    f"{row['id']}: {row['rows']} bars "
+                    f"({prov.get('start', '?')} -> {prov.get('end', '?')}) "
+                    f"sha256={str(row.get('sha256', ''))[:16]}... "
+                    f"[{row.get('governance', '')}]"
+                )
+            print(
+                "[hist-datasets] all rows verified against the source's "
+                "official checksum; RESEARCH_BACKTEST_ONLY"
+            )
+            raise SystemExit(0)
+        elif args.command == "hist-import":
+            from pathlib import Path as _LocalPath
+
+            from data_engine.platform.historical_data import (
+                HistoricalDataService as _Hist,
+            )
+            from data_engine.runtime.lab import BarStore as _BarStore
+
+            try:
+                service = _Hist(
+                    cache_dir=_LocalPath(args.monitor_state_dir)
+                    / "hist-cache"
+                )
+                fetched = service.fetch(
+                    args.symbol,
+                    args.timeframe,
+                    months=args.months,
+                    source=args.source,
+                )
+                bar_store = _BarStore(
+                    _LocalPath(args.monitor_state_dir) / "bars"
+                )
+                result = service.import_into_barstore(
+                    bar_store, args.symbol, fetched["bars"]
+                )
+            except Exception as exc:  # noqa: BLE001 — CLI boundary
+                print(f"[hist-import] REFUSED: {exc}", file=sys.stderr)
+                raise SystemExit(2)
+            print(
+                f"[hist-import] {args.symbol} {args.timeframe}: imported "
+                f"{result['imported']} verified-real bars "
+                f"(source: {fetched['source_used']}; store now holds "
+                f"{result['total_in_store']})"
+            )
+            raise SystemExit(0)
         elif args.command == "check-boundary":
             calc_type = CalculationType(args.calc_type.lower()) if args.calc_type else None
             if calc_type:
@@ -911,7 +1104,7 @@ def main(argv=None):
                         "enforcement applies."
                     )
             else:
-                print(f"[Boundary] Valid calculation types:")
+                print("[Boundary] Valid calculation types:")
                 for ct in CalculationType:
                     print(f"  - {ct.value}")
 
