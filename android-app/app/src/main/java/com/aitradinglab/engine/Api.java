@@ -88,7 +88,7 @@ public class Api {
     private Res get(String path, String auth) throws Exception {
         if ("/".equals(path) || "/index.html".equals(path)) return Res.html(dashboardHtml);
         if ("/api/health".equals(path)) return Res.json(200, new JSONObject()
-                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "5.6.0"));
+                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "5.7.0"));
 
         Long uid = userId(auth);
         if (uid == null) return Res.error(401, "authentication required");
@@ -100,6 +100,10 @@ public class Api {
         if ("/api/logs".equals(path)) return logs();
         if ("/api/brokers".equals(path)) return brokers();
         if ("/api/settings".equals(path)) return settings();
+        // v5.7 FULL MOBILE CONTROL — owner admin endpoints (role=ADMIN required)
+        if ("/api/admin/users".equals(path)) return adminUsers(uid);
+        if ("/api/admin/invites".equals(path)) return adminInvites(uid);
+        if ("/api/admin/alerts".equals(path)) return adminAlerts(uid);
         return Res.error(404, "not found");
     }
 
@@ -124,6 +128,10 @@ public class Api {
             return Res.json(200, new JSONObject().put("ok", true).put("message", "Discovery + news scan started"));
         }
         if ("/api/settings".equals(path)) return saveSettings(body);
+        // v5.7 FULL MOBILE CONTROL — owner admin actions
+        if ("/api/admin/users".equals(path)) return adminUserAction(uid, body);
+        if ("/api/admin/invites".equals(path)) return adminInviteAction(uid, body);
+        if ("/api/admin/alerts".equals(path)) return adminAlertAction(uid, body);
         return Res.error(404, "not found");
     }
 
@@ -173,8 +181,22 @@ public class Api {
                 "INSERT OR IGNORE INTO accounts(user_id, balance, start_balance, peak, day_start, day_ts) VALUES(?,100000,100000,100000,100000,?)",
                 new Object[]{uid, System.currentTimeMillis() / 86400000L});
         db.log("INFO", "AUTH", "REGISTER", email + " (" + role + ") — account + paper account created");
-        // v5.6 — owner gets an instant status-bar alert for EVERY registration
-        Notifier.registration(appCtx, name, email, role, invite == null ? "" : invite.trim().toUpperCase());
+        // v5.7 — the owner now gets the alert THREE ways, instantly:
+        //   1) persistent in-app row (Control tab feed — survives reboots)
+        //   2) high-importance status-bar notification (Notifier)
+        //   3) system ledger entry (log above)
+        String code = invite == null ? "" : invite.trim().toUpperCase();
+        try {
+            String meta = new JSONObject().put("email", email).put("name", name)
+                    .put("invite", code).put("role", role).toString();
+            db.getWritableDatabase().execSQL(
+                    "INSERT INTO notifications(kind, title, body, meta, read, created_at) VALUES('REGISTER',?,?,?,0,?)",
+                    new Object[]{"New registration — " + name,
+                            name + " (" + email + ") joined via invitation code " + code
+                                    + " · role: " + role + " · paper account created",
+                            meta, System.currentTimeMillis()});
+        } catch (Throwable ignored) { /* feed row is best-effort — registration must succeed */ }
+        Notifier.registration(appCtx, name, email, role, code);
         return Res.json(200, new JSONObject().put("ok", true)
                 .put("message", "Account created. Sign in with name + email + password."));
     }
@@ -210,7 +232,7 @@ public class Api {
         String token = Auth.token();
         db.getWritableDatabase().execSQL("INSERT INTO sessions(token, user_id, created_at) VALUES(?,?,?)",
                 new Object[]{token, uid, System.currentTimeMillis()});
-        JSONObject user = new JSONObject().put("email", email).put("name", storedName);
+        JSONObject user = new JSONObject().put("id", uid).put("email", email).put("name", storedName);
         Cursor r = db.getReadableDatabase().rawQuery("SELECT role FROM users WHERE id=?", new String[]{String.valueOf(uid)});
         if (r.moveToFirst()) user.put("role", r.getString(0));
         r.close();
@@ -237,7 +259,7 @@ public class Api {
         db.getWritableDatabase().execSQL("INSERT INTO sessions(token, user_id, created_at) VALUES(?,?,?)",
                 new Object[]{token, uid, System.currentTimeMillis()});
         Cursor u = db.getReadableDatabase().rawQuery("SELECT email, name, role FROM users WHERE id=?", new String[]{String.valueOf(uid)});
-        JSONObject user = new JSONObject();
+        JSONObject user = new JSONObject().put("id", uid);
         if (u.moveToFirst()) user.put("email", u.getString(0)).put("name", u.getString(1)).put("role", u.getString(2));
         u.close();
         db.log("INFO", "AUTH", "LOGIN", email + " signed in (2FA verified)");
@@ -326,6 +348,14 @@ public class Api {
         JSONObject eng = new JSONObject();
         try { if (engine != null) eng = new JSONObject(engine.status()); } catch (Throwable t) { }
 
+        // v5.7: full identity on the dashboard payload — boot path uses it to restore
+        // USER (role drives Control-tab visibility) without a separate /api/me round trip
+        Cursor uc = db.getReadableDatabase().rawQuery(
+                "SELECT email, name, role FROM users WHERE id=?", new String[]{String.valueOf(uid)});
+        JSONObject me = new JSONObject().put("id", uid);
+        if (uc.moveToFirst()) me.put("email", uc.getString(0)).put("name", uc.getString(1)).put("role", uc.getString(2));
+        uc.close();
+
         return Res.json(200, new JSONObject()
                 .put("balance", round2(bal))
                 .put("start", round2(start))
@@ -336,7 +366,8 @@ public class Api {
                 .put("openCount", openCount).put("openPnl", round2(openPnl))
                 .put("closedCount", closed).put("winRate", closed > 0 ? round2(wins * 100.0 / closed) : 0)
                 .put("equity", eq)
-                .put("engine", eng));
+                .put("engine", eng)
+                .put("user", me));
     }
 
     private Res instruments() throws Exception {
@@ -470,7 +501,7 @@ public class Api {
     private Res settings() throws Exception {
         return Res.json(200, new JSONObject()
                 .put("engineOn", "1".equals(db.setting("engine_on", "1")))
-                .put("version", "5.6.0"));
+                .put("version", "5.7.0"));
     }
 
     private Res saveSettings(String body) throws Exception {
@@ -481,6 +512,180 @@ public class Api {
             db.log("INFO", "SYSTEM", on ? "ENGINE_ENABLED" : "ENGINE_DISABLED", "user toggled engine");
         }
         return settings();
+    }
+
+    // ================== v5.7 FULL MOBILE CONTROL (owner admin) ==================
+
+    /** Admin guard — only an active ADMIN-role account may use control endpoints. */
+    private boolean isAdmin(long uid) {
+        Cursor c = db.getReadableDatabase().rawQuery(
+                "SELECT role FROM users WHERE id=? AND active=1", new String[]{String.valueOf(uid)});
+        boolean ok = c.moveToFirst() && "ADMIN".equals(c.getString(0));
+        c.close();
+        return ok;
+    }
+
+    private Res adminGuard(long uid) {
+        return isAdmin(uid) ? null : Res.error(403, "Admin access required — owner account only");
+    }
+
+    /** GET /api/admin/users — full user register for the owner. */
+    private Res adminUsers(long uid) throws Exception {
+        Res g = adminGuard(uid); if (g != null) return g;
+        JSONArray arr = new JSONArray();
+        Cursor c = db.getReadableDatabase().rawQuery(
+                "SELECT id, name, email, role, active, created_at, (SELECT COUNT(*) FROM sessions s WHERE s.user_id=u.id) FROM users u ORDER BY id", null);
+        while (c.moveToNext()) {
+            arr.put(new JSONObject()
+                    .put("id", c.getLong(0)).put("name", c.getString(1))
+                    .put("email", c.getString(2)).put("role", c.getString(3))
+                    .put("active", c.getInt(4)).put("createdAt", c.getLong(5))
+                    .put("sessions", c.getInt(6)));
+        }
+        c.close();
+        Cursor sc = db.getReadableDatabase().rawQuery("SELECT COUNT(*), IFNULL(SUM(active),0) FROM users", null);
+        int total = 0, activeUsers = 0;
+        if (sc.moveToFirst()) { total = sc.getInt(0); activeUsers = sc.getInt(1); }
+        sc.close();
+        return Res.json(200, new JSONObject().put("users", arr)
+                .put("total", total).put("activeUsers", activeUsers));
+    }
+
+    /** POST /api/admin/users — {id, action: activate|deactivate|delete}. */
+    private Res adminUserAction(long uid, String body) throws Exception {
+        Res g = adminGuard(uid); if (g != null) return g;
+        JSONObject o = HttpServer.jObj(body);
+        long id = o.optLong("id", -1);
+        String action = HttpServer.jStr(o, "action");
+        if (id <= 0) return Res.error(400, "User id required");
+
+        if ("activate".equals(action) || "deactivate".equals(action)) {
+            if (id == uid) return Res.error(400, "You cannot deactivate your own owner account");
+            boolean on = "activate".equals(action);
+            Cursor ec = db.getReadableDatabase().rawQuery("SELECT id FROM users WHERE id=?", new String[]{String.valueOf(id)});
+            boolean exists = ec.moveToFirst(); ec.close();
+            if (!exists) return Res.error(404, "User not found");
+            db.getWritableDatabase().execSQL("UPDATE users SET active=? WHERE id=?", new Object[]{on ? 1 : 0, id});
+            if (!on) db.getWritableDatabase().execSQL("DELETE FROM sessions WHERE user_id=?", new Object[]{id});
+            db.log("INFO", "ADMIN", on ? "USER_ENABLED" : "USER_DISABLED", "user #" + id + " " + action + "d by owner");
+            return Res.json(200, new JSONObject().put("ok", true)
+                    .put("message", on ? "User enabled — they can sign in again" : "User disabled — all their sessions ended"));
+        }
+
+        if ("delete".equals(action)) {
+            if (id == uid) return Res.error(400, "You cannot delete your own owner account");
+            Cursor rc = db.getReadableDatabase().rawQuery("SELECT role, name FROM users WHERE id=?", new String[]{String.valueOf(id)});
+            if (!rc.moveToFirst()) { rc.close(); return Res.error(404, "User not found"); }
+            String role = rc.getString(0), name = rc.getString(1); rc.close();
+            if ("ADMIN".equals(role)) {
+                Cursor ac = db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM users WHERE role='ADMIN' AND active=1", null);
+                int admins = ac.moveToFirst() ? ac.getInt(0) : 0; ac.close();
+                if (admins <= 1) return Res.error(400, "Cannot delete the last admin account");
+            }
+            db.getWritableDatabase().execSQL("DELETE FROM sessions WHERE user_id=?", new Object[]{id});
+            db.getWritableDatabase().execSQL("DELETE FROM accounts WHERE user_id=?", new Object[]{id});
+            db.getWritableDatabase().execSQL("DELETE FROM trades WHERE user_id=?", new Object[]{id});
+            db.getWritableDatabase().execSQL("DELETE FROM users WHERE id=?", new Object[]{id});
+            db.log("INFO", "ADMIN", "USER_DELETED", name + " (#" + id + ") deleted by owner — sessions, paper account, trades removed");
+            return Res.json(200, new JSONObject().put("ok", true).put("message", name + " deleted permanently"));
+        }
+        return Res.error(400, "Unknown action");
+    }
+
+    /** GET /api/admin/invites — all invitation codes with usage. */
+    private Res adminInvites(long uid) throws Exception {
+        Res g = adminGuard(uid); if (g != null) return g;
+        JSONArray arr = new JSONArray();
+        Cursor c = db.getReadableDatabase().rawQuery(
+                "SELECT code, label, max_uses, uses, active FROM invites ORDER BY active DESC, code", null);
+        while (c.moveToNext()) {
+            arr.put(new JSONObject().put("code", c.getString(0)).put("label", c.getString(1))
+                    .put("maxUses", c.getInt(2)).put("uses", c.getInt(3)).put("active", c.getInt(4)));
+        }
+        c.close();
+        return Res.json(200, new JSONObject().put("invites", arr).put("total", arr.length()));
+    }
+
+    /** POST /api/admin/invites — {action: create|revoke|activate}. */
+    private Res adminInviteAction(long uid, String body) throws Exception {
+        Res g = adminGuard(uid); if (g != null) return g;
+        JSONObject o = HttpServer.jObj(body);
+        String action = HttpServer.jStr(o, "action");
+
+        if ("create".equals(action)) {
+            String label = HttpServer.jStr(o, "label");
+            int maxUses = o.optInt("maxUses", 0);
+            if (maxUses < 0) maxUses = 0;
+            if (label.isEmpty()) label = "Owner invite — " + new java.text.SimpleDateFormat("MMM d", Locale.US).format(new java.util.Date());
+            String code = null;
+            for (int t = 0; t < 5 && code == null; t++) {
+                String cand = Auth.newInviteCode();
+                Cursor cc = db.getReadableDatabase().rawQuery("SELECT code FROM invites WHERE code=?", new String[]{cand});
+                boolean taken = cc.moveToFirst(); cc.close();
+                if (!taken) code = cand;
+            }
+            if (code == null) return Res.error(500, "Could not generate a unique code — try again");
+            db.getWritableDatabase().execSQL(
+                    "INSERT OR IGNORE INTO invites(code, label, max_uses, uses, active) VALUES(?,?,?,0,1)",
+                    new Object[]{code, label, maxUses});
+            db.log("INFO", "ADMIN", "INVITE_CREATED", code + " created by owner — " + label + (maxUses > 0 ? " (max " + maxUses + ")" : " (unlimited)"));
+            return Res.json(200, new JSONObject().put("ok", true).put("code", code)
+                    .put("message", "Naya invite code ban gaya: " + code));
+        }
+
+        String code = HttpServer.jStr(o, "code").trim().toUpperCase();
+        if (code.isEmpty()) return Res.error(400, "Invite code required");
+        if ("revoke".equals(action)) {
+            db.getWritableDatabase().execSQL("UPDATE invites SET active=0 WHERE code=?", new Object[]{code});
+            db.log("INFO", "ADMIN", "INVITE_REVOKED", code + " revoked by owner — registrations with it now fail");
+            return Res.json(200, new JSONObject().put("ok", true).put("message", code + " revoked — is code se ab koi register nahi kar sakta"));
+        }
+        if ("activate".equals(action)) {
+            db.getWritableDatabase().execSQL("UPDATE invites SET active=1 WHERE code=?", new Object[]{code});
+            db.log("INFO", "ADMIN", "INVITE_ENABLED", code + " re-enabled by owner");
+            return Res.json(200, new JSONObject().put("ok", true).put("message", code + " enabled again"));
+        }
+        return Res.error(400, "Unknown action");
+    }
+
+    /** GET /api/admin/alerts — in-app alert feed (latest 100) + unread count. */
+    private Res adminAlerts(long uid) throws Exception {
+        Res g = adminGuard(uid); if (g != null) return g;
+        JSONArray arr = new JSONArray();
+        Cursor c = db.getReadableDatabase().rawQuery(
+                "SELECT id, kind, title, body, meta, read, created_at FROM notifications ORDER BY id DESC LIMIT 100", null);
+        while (c.moveToNext()) {
+            JSONObject n = new JSONObject();
+            n.put("id", c.getLong(0)).put("kind", c.getString(1)).put("title", c.getString(2))
+                    .put("body", c.getString(3)).put("read", c.getInt(5)).put("createdAt", c.getLong(6));
+            try { n.put("meta", new JSONObject(c.getString(4))); } catch (Throwable t) { n.put("meta", new JSONObject()); }
+            arr.put(n);
+        }
+        c.close();
+        Cursor uc = db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM notifications WHERE read=0", null);
+        int unread = uc.moveToFirst() ? uc.getInt(0) : 0; uc.close();
+        return Res.json(200, new JSONObject().put("alerts", arr).put("unreadCount", unread));
+    }
+
+    /** POST /api/admin/alerts — {action: read-all | read | clear} (+ optional id). */
+    private Res adminAlertAction(long uid, String body) throws Exception {
+        Res g = adminGuard(uid); if (g != null) return g;
+        JSONObject o = HttpServer.jObj(body);
+        String action = HttpServer.jStr(o, "action");
+        if ("read-all".equals(action)) {
+            db.getWritableDatabase().execSQL("UPDATE notifications SET read=1 WHERE read=0");
+            return Res.json(200, new JSONObject().put("ok", true).put("message", "Saare alerts parh liye gaye"));
+        }
+        if ("read".equals(action)) {
+            long id = o.optLong("id", -1);
+            if (id > 0) db.getWritableDatabase().execSQL("UPDATE notifications SET read=1 WHERE id=?", new Object[]{id});
+            return Res.json(200, new JSONObject().put("ok", true));
+        }
+        if ("clear".equals(action)) {
+            db.getWritableDatabase().execSQL("DELETE FROM notifications WHERE read=1");
+            return Res.json(200, new JSONObject().put("ok", true).put("message", "Read alerts cleared"));
+        }
+        return Res.error(400, "Unknown action");
     }
 
     static double round2(double v) { return Math.round(v * 100.0) / 100.0; }

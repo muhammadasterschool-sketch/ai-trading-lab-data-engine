@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">AI Trading Lab</string>
     <string name="connect_title">AI Trading Lab</string>
-    <string name="connect_subtitle">Data Engine · v5.6 · Invite-only</string>
+    <string name="connect_subtitle">Data Engine · v5.7 · Invite-only</string>
     <string name="hint_url">Server address</string>
     <string name="hint_local">Computer address, e.g. 192.168.1.10:81</string>
     <string name="hint_cloud">Cloud URL, e.g. https://your-domain.com</string>

@@ -258,3 +258,18 @@ Stage Summary:
   - Fresh orphan commit 8fe2cf5 "v5.6 full source" (220 files, largest bun.lock 337KB, ZERO secrets) → force-pushed main 4cc6782→8fe2cf5
   - Verified via API: 299 tree entries, secrets/binaries NONE, all key files present (register route, notifications route, Notifier.java, schema, build.gradle, RELEASE-v5.md)
   - GOTCHA: `git checkout --orphan | head -1` — head closes the pipe → SIGPIPE kills checkout mid-switch (first orphan attempt silently kept old parent; redo without pipe)
+
+## Task 16 — v5.7: FULL MOBILE CONTROL (owner admin panel in the phone dashboard)
+- User: "mujhe full control on mobile chahiye hai — Windows ka installer cancel kardo" → Windows installer CANCELED (no new Windows packages); all effort on the phone command center
+- AUDIT: lost-context session had already shipped v5.6 (Notifier + AdminNotification web panel + GitHub force-push 8fe2cf5); APK dashboard had NO admin UI (grep loadUsers/Control = 0) — that gap = "full control on mobile"
+- ANDROID (v5.7, versionCode 12):
+  - Db.java: VERSION 1→2 — new notifications table (kind/title/body/meta/read/created_at + index); onCreate + idempotent onUpgrade (old installs upgrade in place, no data loss)
+  - Api.java: register() now ALSO writes a notifications row (in-app feed, best-effort) before Notifier fires → owner gets alert 3 ways: in-app feed + status-bar + system ledger
+  - NEW admin endpoints (role=ADMIN guard, else 403): GET /api/admin/users (register + sessions count), POST users {activate|deactivate+session-kill|delete+data-purge} with self-guard + last-admin-guard; GET /api/admin/invites, POST {create (Auth.newInviteCode 8-char unambiguous alphabet)|revoke|activate}; GET /api/admin/alerts (latest 100 + unreadCount), POST {read-all|read|clear}
+  - login/verify2fa/dashboard payloads now include user id+role (boot restores USER without /api/me)
+  - dashboard.html: 🛡️ Control tab (ADMIN-only, hidden otherwise) — stats cards (users/active/invites/unread), alerts feed with NEW highlight + mark-all-read + clear, users table (DISABLE/ENABLE/DEL, self row protected), invites table (REVOKE/ENABLE) + generate-code form (label + max uses); red unread badge on the nav tab (30s polling); badge v5.7, health fallback 5.7, settings card mentions Control panel
+  - Auth.newInviteCode(), ServerService ENGINE_VERSION line, strings.xml v5.7
+- Build: gradle --offline OK; zipalign + apksigner v2 Verifies (same keystore atl); aapt: versionCode 12 / versionName 5.7; dex grep api/admin ✓; APK 103,440B
+- Deploy: v5.7 APK + source zip (script bumped) → download/ + public/downloads/ + .next/standalone/public/downloads/; v5.6 files removed everywhere; downloads.html v5.7 (badge, card, src link, footer); RELEASE-v5.md v5.7 section on top
+- Web: NO code change needed (v5.6 admin notifications panel already live) — server restart only for new public/ snapshot
+- Windows installer: CANCELED per user — v4 Windows zips left as-is, no new Windows builds

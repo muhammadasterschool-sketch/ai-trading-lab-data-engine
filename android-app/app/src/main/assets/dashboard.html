@@ -81,6 +81,9 @@ select{width:100%;background:#18181b;border:1px solid #27272a;border-radius:9px;
 .row .btn{margin-top:0}
 .logline{font-size:11.5px;padding:7px 0;border-bottom:1px solid #1b1b1f;line-height:1.5}
 .logline .cmp{color:#fbbf24;font-weight:700}
+.logline.unread{border-left:3px solid #f59e0b;padding-left:9px;background:rgba(245,158,11,.05)}
+.navbadge{display:inline-block;min-width:15px;padding:0 4px;border-radius:8px;background:#ef4444;color:#fff;font-size:9px;font-weight:800;line-height:14px;margin-top:1px}
+.pillbtn{border:0;cursor:pointer;margin-top:6px}
 .empty{color:#52525b;text-align:center;padding:28px 10px;font-size:12.5px}
 .small{font-size:11px;color:#71717a;line-height:1.6}
 #spark{width:100%;height:90px}
@@ -93,7 +96,7 @@ select{width:100%;background:#18181b;border:1px solid #27272a;border-radius:9px;
   <div class="logo">📈</div>
   <h1>AI Trading Lab <span style="color:#f59e0b">v5</span></h1>
   <div class="sub">Full trading engine on this device — paper trading</div>
-  <div class="sub" style="color:#fbbf24">v5.6</div>
+  <div class="sub" style="color:#fbbf24">v5.7 · Full Mobile Control</div>
   <div id="engStrip" class="eng">checking engine…</div>
   <div class="note">Pehli dafa? <b>Register</b> par account banayen (invite code pehle se bhara hai), phir <b>Sign in</b> — dashboard foran khulega. Kisi authenticator app ki zaroorat nahi.</div>
 
@@ -170,6 +173,7 @@ select{width:100%;background:#18181b;border:1px solid #27272a;border-radius:9px;
     <button data-t="logs" onclick="go('logs')"><span class="ic">📜</span>Logs</button>
     <button data-t="broker" onclick="go('broker')"><span class="ic">🔌</span>Broker</button>
     <button data-t="set" onclick="go('set')"><span class="ic">⚙️</span>Settings</button>
+    <button data-t="ctrl" id="navCtrl" class="hidden" onclick="go('ctrl')"><span class="ic">🛡️</span>Control<span id="ctrlBadge" class="navbadge" style="display:none"></span></button>
   </nav>
 </div>
 
@@ -268,7 +272,21 @@ function doLogout(){
 function enterApp(){
   document.getElementById('auth').style.display='none';
   document.getElementById('app').style.display='flex';
+  /* v5.7 — Control tab only for the owner (ADMIN role) + live unread badge */
+  if(USER && USER.role==='ADMIN'){
+    document.getElementById('navCtrl').classList.remove('hidden');
+    pollAlerts(); setInterval(pollAlerts, 30000);
+  }
   go('dash'); setInterval(refresh, 15000);
+}
+function pollAlerts(){
+  api('/api/admin/alerts').then(function(r){
+    var b = document.getElementById('ctrlBadge');
+    if(!b) return;
+    var n = (r.data && r.data.unreadCount) || 0;
+    b.textContent = n > 99 ? '99+' : n;
+    b.style.display = n > 0 ? 'inline-block' : 'none';
+  });
 }
 
 /* ---------------- tabs ---------------- */
@@ -286,6 +304,7 @@ function refresh(){
   else if(TAB==='logs') renderLogs();
   else if(TAB==='broker') renderBroker();
   else if(TAB==='set') renderSet();
+  else if(TAB==='ctrl') renderControl();
 }
 function renderDash(){
   api('/api/dashboard').then(function(r){
@@ -432,11 +451,95 @@ function renderSet(){
       '<button class="btn '+(on?'':'sec')+'" onclick="setEngine(false)">⏸ STOP</button></div>' +
       '<div class="small" style="margin-top:10px">Engine runs in background via Android foreground service. It survives app close and phone reboot. Risk: 1% per trade, daily −5% halt, −10% drawdown kill switch.</div></div>' +
       '<h2>Version</h2><div class="card full"><div class="k">AI Trading Lab</div><div class="v">'+r.data.version+' · Phone Server</div>' +
-      '<div class="small" style="margin-top:8px">Full system on this device: instruments ledger, news engine, system logs ledger, paper executor, broker vault. No PC needed.</div></div>';
+      '<div class="small" style="margin-top:8px">Full system on this device: instruments ledger, news engine, system logs ledger, paper executor, broker vault'+(USER&&USER.role==='ADMIN'?', owner Control panel (🛡️ users · invites · alerts)':'')+'. No PC needed.</div></div>';
   });
 }
 function setEngine(on){
   api('/api/settings',{method:'POST',body:{engineOn:on}}).then(function(){ renderSet(); });
+}
+
+/* --------- v5.7 FULL MOBILE CONTROL — owner ki poori taqat, ek tab me --------- */
+function renderControl(){
+  if(!USER || USER.role!=='ADMIN'){
+    document.getElementById('main').innerHTML = '<div class="banner red">Owner account required — ye section sirf owner ke liye hai</div>';
+    return;
+  }
+  api('/api/admin/alerts').then(function(a){
+    if(a.status!==200){ document.getElementById('main').innerHTML = '<div class="banner red">'+esc(a.data.error||'Control load failed')+'</div>'; return; }
+    api('/api/admin/users').then(function(u){
+      api('/api/admin/invites').then(function(iv){ paintControl(a.data, u.data, iv.data); });
+    });
+  });
+}
+function paintControl(al, us, iv){
+  var alerts = al.alerts||[], unread = al.unreadCount||0, users = us.users||[], invites = iv.invites||[];
+  var alHtml = '';
+  alerts.forEach(function(n){
+    alHtml += '<div class="logline'+(n.read?'':' unread')+'"><b>'+esc(n.title)+'</b><br>'+esc(n.body)+
+      '<br><span class="mut" style="font-size:10px">'+fmtTime(n.createdAt)+' · '+(n.read?'read':'<b style="color:#fbbf24">NEW</b>')+'</span></div>';
+  });
+  var uHtml = '';
+  users.forEach(function(x){
+    var self = (USER && USER.id===x.id);
+    uHtml += '<tr><td><b>'+esc(x.name)+'</b>'+(x.role==='ADMIN'?' <span class="pill ADMIN">ADMIN</span>':'')+
+      '<br><span class="mut" style="font-size:10px">'+esc(x.email)+' · joined '+fmtTime(x.createdAt)+' · '+x.sessions+' session(s)</span></td>'+
+      '<td style="text-align:right"><span class="pill '+(x.active?'ACTIVE':'ERROR')+'">'+(x.active?'ACTIVE':'OFF')+'</span><br>'+
+      (self? '<span class="mut" style="font-size:10px">you</span>' :
+        '<button class="pill '+(x.active?'WARN':'ACTIVE')+' pillbtn" onclick="userAction('+x.id+',\''+(x.active?'deactivate':'activate')+'\')">'+(x.active?'DISABLE':'ENABLE')+'</button> '+
+        '<button class="pill ERROR pillbtn" onclick="userAction('+x.id+',\'delete\')">DEL</button>')+
+      '</td></tr>';
+  });
+  var iHtml = '';
+  invites.forEach(function(c){
+    iHtml += '<tr><td><b style="letter-spacing:.06em">'+esc(c.code)+'</b><br><span class="mut" style="font-size:10px">'+esc(c.label||'')+' · '+c.uses+' uses / '+(c.maxUses>0?c.maxUses:'unlimited')+'</span></td>'+
+      '<td style="text-align:right"><span class="pill '+(c.active?'ACTIVE':'ERROR')+'">'+(c.active?'ACTIVE':'OFF')+'</span><br>'+
+      '<button class="pill '+(c.active?'ERROR':'ACTIVE')+' pillbtn" onclick="inviteAction(\''+esc(c.code)+'\',\''+(c.active?'revoke':'activate')+'\')">'+(c.active?'REVOKE':'ENABLE')+'</button>'+
+      '</td></tr>';
+  });
+  document.getElementById('main').innerHTML =
+    '<div class="banner green">🛡️ Owner Control — poora system aapke hath me: users, invites, alerts. Naya registration hote hi status-bar alert + yahan NEW entry.</div>'+
+    '<div class="grid">'+
+    card('Total Users', us.total!=null?us.total:'—','')+
+    card('Active Users', us.activeUsers!=null?us.activeUsers:'—','green')+
+    card('Invite Codes', iv.total!=null?iv.total:'—','')+
+    card('Unread Alerts', unread>0?'<span style="color:#fbbf24">'+unread+'</span>':'0', unread>0?'':'green')+
+    '</div>'+
+    '<h2>🔔 Registration Alerts '+(unread>0?'<span class="navbadge" style="vertical-align:middle">'+unread+'</span>':'')+'</h2>'+
+    '<div class="row"><button class="btn sec" onclick="alertAction(\'read-all\')">✓ Mark all read</button><button class="btn sec" onclick="alertAction(\'clear\')">🧹 Clear read</button></div>'+
+    (alHtml || '<div class="empty">Koi alert nahi — naya registration hote hi yahan + status-bar me foran aayega</div>')+
+    '<h2>👥 Users</h2>'+
+    (uHtml ? '<table>'+uHtml+'</table>' : '<div class="empty">No users yet</div>')+
+    '<h2>🎟️ Invitation Codes</h2>'+
+    '<div class="card full"><div class="k">Naya code banayen</div>'+
+    '<div class="field" style="margin-top:8px"><label>LABEL (optional)</label><input id="ivLabel" placeholder="e.g. Bhai ke liye"></div>'+
+    '<div class="field"><label>MAX USES (0 = unlimited)</label><input id="ivMax" inputmode="numeric" value="0"></div>'+
+    '<button class="btn" onclick="inviteCreate()">Generate new invite code</button></div>'+
+    (iHtml ? '<table>'+iHtml+'</table>' : '<div class="empty">No invite codes</div>')+
+    '<div class="small" style="margin-top:14px">Disabled user foran sign-out ho jata hai. Revoked code se registration fail hoti hai. Delete = user + uska paper data permanently remove.</div>';
+}
+
+function userAction(id, action){
+  if(action==='delete' && !confirm('Delete this user permanently? Their sessions, paper account and trades are removed.')) return;
+  api('/api/admin/users',{method:'POST',body:{id:id,action:action}}).then(function(r){
+    if(r.status!==200) alert(r.data.error||'action failed');
+    renderControl(); pollAlerts();
+  });
+}
+function inviteAction(code, action){
+  api('/api/admin/invites',{method:'POST',body:{code:code,action:action}}).then(function(r){
+    if(r.status!==200) alert(r.data.error||'action failed');
+    renderControl();
+  });
+}
+function inviteCreate(){
+  var b = {action:'create', label:document.getElementById('ivLabel').value.trim(), maxUses:parseInt(document.getElementById('ivMax').value||'0',10)||0};
+  api('/api/admin/invites',{method:'POST',body:b}).then(function(r){
+    if(r.status===200){ alert(r.data.message||('Naya code: '+r.data.code)); renderControl(); }
+    else alert(r.data.error||'code generate failed');
+  });
+}
+function alertAction(action){
+  api('/api/admin/alerts',{method:'POST',body:{action:action}}).then(function(){ renderControl(); pollAlerts(); });
 }
 
 /* ---------------- boot ---------------- */
@@ -445,7 +548,7 @@ function setEngine(on){
   api('/api/health').then(function(r){
     var el = document.getElementById('engStrip');
     if(el && r.status===200 && r.data.ok){
-      el.innerHTML = '● Engine running — v' + (r.data.version||'5.5') + ' · ready';
+      el.innerHTML = '● Engine running — v' + (r.data.version||'5.7') + ' · ready';
       el.className = 'eng ok';
     } else if(el){
       el.innerHTML = '● Engine offline — app band karke dobara kholein';
@@ -453,7 +556,7 @@ function setEngine(on){
     }
   });
   if(TOKEN){
-    api('/api/dashboard').then(function(r){ if(r.status===200){ enterApp(); } else { localStorage.removeItem('atl_token'); TOKEN=''; } });
+    api('/api/dashboard').then(function(r){ if(r.status===200){ if(!USER && r.data.user) USER = r.data.user; enterApp(); } else { localStorage.removeItem('atl_token'); TOKEN=''; } });
   }
 })();
 </script>

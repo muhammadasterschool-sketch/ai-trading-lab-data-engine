@@ -1,7 +1,35 @@
-# AI Trading Lab — v5.6 Release (Android + Web)
+# AI Trading Lab — v5.7 Release (Android)
 
 Release date: 2026-10-28
-APK: `AI-Trading-Lab-v5.6-Android.apk` (95 KB, versionCode 11)
+APK: `AI-Trading-Lab-v5.7-Android.apk` (101 KB, versionCode 12)
+
+## v5.7 feature — FULL MOBILE CONTROL: the owner runs everything from the phone
+
+Request: "mujhe full control on mobile chahiye." The dashboard already showed
+the owner their own trades — now the phone has a complete owner command center.
+A new **🛡️ Control** tab appears in the bottom navigation for the ADMIN account
+only (hidden for every other user), backed by six new endpoints in the phone
+engine (`GET/POST /api/admin/users`, `/api/admin/invites`, `/api/admin/alerts`,
+each guarded by a role check — non-admins get 403).
+
+1. **Registration alerts feed** — every signup is stored in a new
+   `notifications` table (db v1→v2, safe in-place upgrade) AND fires the v5.6
+   status-bar alert. The Control tab lists the last 100 alerts with NEW
+   highlighting, an amber unread badge on the tab itself (live 30 s polling,
+   red dot with count), "Mark all read" and "Clear read" actions.
+2. **Users management** — full register of every account: name, email, role
+   pill (ADMIN), join date, active sessions. One tap to DISABLE (account is
+   locked and all their sessions are killed instantly) or ENABLE. DELETE
+   removes the user with their sessions, paper account and trades — with
+   guards: you can never disable/delete your own owner account, and the last
+   active ADMIN cannot be deleted.
+3. **Invitation codes management** — every code with label, usage counter and
+   status. REVOKE kills a code instantly (registrations with it start failing),
+   ENABLE brings it back. "Generate new invite code" creates a fresh 8-character
+   code (unambiguous alphabet — no 0/O, 1/I/L confusion, SecureRandom) with an
+   optional label and a max-uses limit (0 = unlimited).
+
+Everything works offline on the phone engine — the same system, zero PC.
 
 ## v5.6 feature — instant REGISTRATION ALERTS for the owner
 

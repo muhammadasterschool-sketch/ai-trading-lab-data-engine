@@ -51,6 +51,17 @@ public class Auth {
 
     public static String totpSecret() { return base32(randomBytes(20)); }
 
+    /**
+     * v5.7: human-friendly invite code for the owner's Control tab — 8 chars from an
+     * unambiguous alphabet (no 0/O, 1/I/L confusion), SecureRandom, e.g. "K7RM2X9B".
+     */
+    public static String newInviteCode() {
+        String alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+        StringBuilder sb = new StringBuilder(8);
+        for (int i = 0; i < 8; i++) sb.append(alphabet.charAt(RND.nextInt(alphabet.length())));
+        return sb.toString();
+    }
+
     private static byte[] randomBytes(int n) { byte[] b = new byte[n]; RND.nextBytes(b); return b; }
 
     // ---------- base32 ----------

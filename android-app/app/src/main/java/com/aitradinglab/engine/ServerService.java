@@ -55,7 +55,7 @@ public class ServerService extends Service {
             engineThread = new Thread(engine, "engine-core");
             engineThread.start();
             db.log("INFO", "SYSTEM", "SERVICE_START", "phone server online on port " + HttpServer.PORT);
-            db.log("INFO", "SYSTEM", "ENGINE_VERSION", "v5.6 — instant registration alerts (Notifier) + admin notification feed");
+            db.log("INFO", "SYSTEM", "ENGINE_VERSION", "v5.7 — full mobile control: owner users/invites/alerts management + registration alert feed");
         } catch (Throwable e) {
             try { db.log("ERROR", "SYSTEM", "SERVICE_START_FAIL", String.valueOf(e)); } catch (Throwable ignored) { }
         }

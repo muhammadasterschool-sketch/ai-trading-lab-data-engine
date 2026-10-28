@@ -8,7 +8,9 @@ import android.database.sqlite.SQLiteOpenHelper;
 /** SQLite ledger store — instruments, logs, trades, news, brokers, users. */
 public class Db extends SQLiteOpenHelper {
     private static final String NAME = "atl-engine.db";
-    private static final int VERSION = 1;
+    // v5.7: VERSION 2 — adds the notifications table (in-app alert feed for the
+    // owner's Control tab). Existing v5.x installs upgrade in place via onUpgrade.
+    private static final int VERSION = 2;
 
     public Db(Context ctx) { super(ctx, NAME, null, VERSION); }
 
@@ -52,6 +54,10 @@ public class Db extends SQLiteOpenHelper {
         exec(d, "CREATE TABLE IF NOT EXISTS brokers(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, kind TEXT, api_key TEXT, api_secret TEXT, login TEXT, password TEXT, status TEXT, added_at INTEGER)");
         exec(d, "CREATE TABLE IF NOT EXISTS equity(ts INTEGER PRIMARY KEY, value REAL)");
         exec(d, "CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT)");
+        // v5.7: in-app admin alert feed — every registration lands here so the owner
+        // sees the full history in the Control tab (system notification + this row)
+        exec(d, "CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT DEFAULT 'REGISTER', title TEXT, body TEXT, meta TEXT DEFAULT '{}', read INTEGER DEFAULT 0, created_at INTEGER)");
+        exec(d, "CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read, created_at)");
         exec(d, "CREATE INDEX IF NOT EXISTS idx_logs_ts ON logs(ts)");
         exec(d, "CREATE INDEX IF NOT EXISTS idx_trades_uid ON trades(user_id, status)");
         exec(d, "CREATE INDEX IF NOT EXISTS idx_candles ON candles(symbol, ts)");
@@ -59,7 +65,13 @@ public class Db extends SQLiteOpenHelper {
         exec(d, "INSERT OR IGNORE INTO invites(code, label, max_uses, uses, active) VALUES('M2991474','Master invite — unlimited',0,0,1)");
     }
 
-    @Override public void onUpgrade(SQLiteDatabase d, int a, int b) { /* v1 */ }
+    @Override public void onUpgrade(SQLiteDatabase d, int a, int b) {
+        // v5.7 (db v1→v2): notifications feed table — idempotent, safe on any old install
+        if (a < 2) {
+            exec(d, "CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT DEFAULT 'REGISTER', title TEXT, body TEXT, meta TEXT DEFAULT '{}', read INTEGER DEFAULT 0, created_at INTEGER)");
+            exec(d, "CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read, created_at)");
+        }
+    }
 
     private void exec(SQLiteDatabase d, String sql) { d.execSQL(sql); }
 
