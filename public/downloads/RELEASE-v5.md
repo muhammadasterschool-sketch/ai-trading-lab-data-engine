@@ -1,7 +1,29 @@
-# AI Trading Lab — v5.9.1 Release (Android)
+# AI Trading Lab — v5.9.2 Release (Android)
 
 Release date: 2026-10-28
-APK: `AI-Trading-Lab-v5.9.1-Android.apk` (132 KB, versionCode 15)
+APK: `AI-Trading-Lab-v5.9.2-Android.apk` (132 KB, versionCode 16)
+
+## v5.9.2 fix — ENGINE NOW ACTUALLY TRADES + 40% CONSENSUS (user request)
+
+Problem reported by the owner: the engine was running but never opened a trade.
+
+Root cause (never-trades bug): Binance klines always return the CURRENT
+in-progress candle as the last element. Its timestamp is ALWAYS less than 60s
+old, so the v5.9 "confirmation candle" check
+(`now - lastCandle.ts < 60_000 → continue`) skipped EVERY symbol on EVERY scan
+— the executor could never reach openTrade(). Fixed by dropping the unclosed
+candle and evaluating signals on the last CLOSED 1m candle (true confirmation,
+and trades finally flow).
+
+Changes:
+1. scanAndTrade(): in-progress candle is trimmed before voting; signals run on
+   closed candles only.
+2. Consensus gate lowered 60% -> 40% (owner request): dominant side needs >=40%
+   of cast votes AND must strictly lead the opposite side (a 50/50 split cannot
+   fire). Participation gate unchanged (>=40% of 35 strategies must vote).
+3. Status line now reads "no >=40% consensus yet"; engine start log v5.9.2.
+4. Trade parameters unchanged: SL = 1.5x ATR, TP = 2.5x ATR, risk 1%/trade,
+   max 5 concurrent positions, daily halt -5%, kill switch -10%.
 
 ## v5.9.1 fix — FRESH-INSTALL LOGIN GUIDANCE
 

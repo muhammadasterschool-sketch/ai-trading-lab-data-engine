@@ -16,7 +16,7 @@ import org.json.JSONObject;
 /**
  * EngineCore v5.8 — 1-MINUTE 24H SCANNER edition.
  * Loop (30s): risk check -> manage open trades -> refresh candles -> scan signals
- *   -> consensus gate (>=60% of 10 indicators) -> paper execute -> log everything.
+ *   -> consensus gate (>=40% dominant of cast votes, >=40% participation) -> paper execute -> log everything.
  * Timeframe: 1m — paper trading decisions on the 1-minute chart, 24/7 nonstop.
  * Discovery (30 min): Binance ticker scan -> auto-register new instruments (top 150).
  * News (15 min): RSS -> sentiment -> high-impact pauses new entries 30 min.
@@ -55,7 +55,7 @@ public class EngineCore implements Runnable {
 
     // ================== MAIN LOOP ==================
     @Override public void run() {
-        db.log("INFO", "SYSTEM", "ENGINE_START", "v5.9 phone engine — 1m timeframe, 24h nonstop scanner, 35 strategies, PDF encyclopedia indicator library");
+        db.log("INFO", "SYSTEM", "ENGINE_START", "v5.9.2 phone engine — 1m timeframe, 24h nonstop scanner, 35 strategies, 40% consensus gate, closed-candle execution");
         while (running) {
             try {
                 long now = System.currentTimeMillis();
@@ -1690,8 +1690,14 @@ public class EngineCore implements Runnable {
 
                 List<Candle> k = loadCandles(sym);
                 if (k.size() < 60) continue;
-                // confirmation candle: last candle closed
-                if (System.currentTimeMillis() - k.get(k.size() - 1).ts < TF_MS) continue;
+                // v5.9.2 FIX — Binance returns the CURRENT in-progress candle last; its
+                // timestamp is ALWAYS < 60s old, so the old check skipped EVERY symbol on
+                // EVERY scan and the engine could never open a single trade. Now we drop
+                // the unclosed candle and trade on the last CLOSED 1m candle instead.
+                if (!k.isEmpty() && System.currentTimeMillis() - k.get(k.size() - 1).ts < TF_MS) {
+                    k = k.subList(0, k.size() - 1);
+                    if (k.size() < 60) continue;
+                }
 
                 int[] votes = {emaCross(k), rsiBollinger(k), macdStoch(k), vwapReversion(k), breakout(k),
                         supertrendVote(k), ichimokuVote(k), adxTrendVote(k), cciWilliamsVote(k),
@@ -1711,9 +1717,11 @@ public class EngineCore implements Runnable {
                 double consensusSell = participated > 0 ? sell / (double) participated : 0;
                 boolean enoughData = participated >= votes.length * 0.4;
 
-                if (enoughData && consensusBuy >= 0.6) { openTrade(uid, sym, "BUY", consensusBuy, k); open++; }
-                else if (enoughData && consensusSell >= 0.6) { openTrade(uid, sym, "SELL", consensusSell, k); open++; }
-                else lastConsensus = "24h scan #" + scanCount + " — " + activeSymbols + " instruments on 1m — 35 strategies watching, no >=60% consensus yet (best " + (int)(Math.max(consensusBuy, consensusSell) * 100) + "%)";
+                // v5.9.2 — user request: consensus gate 60% → 40% (dominant side must also
+                // strictly lead, so a 50/50 split cannot fire both directions).
+                if (enoughData && consensusBuy >= 0.4 && consensusBuy > consensusSell) { openTrade(uid, sym, "BUY", consensusBuy, k); open++; }
+                else if (enoughData && consensusSell >= 0.4 && consensusSell > consensusBuy) { openTrade(uid, sym, "SELL", consensusSell, k); open++; }
+                else lastConsensus = "24h scan #" + scanCount + " — " + activeSymbols + " instruments on 1m — 35 strategies watching, no >=40% consensus yet (best " + (int)(Math.max(consensusBuy, consensusSell) * 100) + "%)";
             }
         }
     }

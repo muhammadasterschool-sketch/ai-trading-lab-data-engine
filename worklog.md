@@ -321,3 +321,12 @@ Stage Summary:
 - Deploy: public/downloads/AI-Trading-Lab-v5.9.1-Android.apk (132 KB) + source zip renamed v5.9.1 (old v5.9 files removed); downloads.html all version strings → 5.9.1; RELEASE-v5.md v5.9.1 section prepended; download/ folder synced
 - CRITICAL LESSON RE-CONFIRMED: standalone bun serves .next/standalone/public/ (NOT ./public/) — new files must be copied to BOTH, then kill bun server.js and restart, else 404 (hit again this session: first restart gave 404 because files were only in ./public/)
 - Verified after restart: downloads.html 200, v5.9.1 APK 200 (132112b), source zip 200
+
+## Task 20 — v5.9.2: NEVER-TRADES BUG FIX + 40% CONSENSUS (user request)
+- User report: "abhi tak trade lena start nahi kar raha" + "consensus ko 40 percent par kardo"
+- ROOT CAUSE (critical): Binance klines return the in-progress candle LAST; its ts is ALWAYS <60s old → v5.9 confirmation check `now-last.ts < TF_MS → continue` skipped EVERY symbol EVERY scan → openTrade() unreachable. Engine could never open a trade since v5.9 confirmation check was added
+- FIX scanAndTrade(): trim unclosed last candle (subList 0..n-1), re-check >=60 closed candles, then vote — true closed-candle confirmation, trades now flow
+- CONSENSUS 60%→40% (user request): dominant side >=40% of cast votes AND strictly > opposite side (50/50 cannot fire); participation gate unchanged (>=40% of 35 strategies); status line "no >=40% consensus yet"
+- ENGINE_START log v5.9.2; header comment updated; trade params unchanged (SL 1.5x ATR, TP 2.5x ATR, risk 1%, max 5 positions, daily halt -5%, kill -10%)
+- build.gradle versionCode 15→16 / "5.9.2"; dashboard badge v5.9.2; gradle+zipalign+apksigner OK
+- Deploy: v5.9.2 APK (132 KB) + source zip to public/downloads AND .next/standalone/public (dual-copy lesson applied); bun restarted; downloads.html/RELEASE-v5.md/download/ synced; all 200 verified
