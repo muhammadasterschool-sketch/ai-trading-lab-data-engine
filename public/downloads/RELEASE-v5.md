@@ -1,3 +1,89 @@
+# AI Trading Lab — v5.9 Release (Android)
+
+Release date: 2026-10-28
+APK: `AI-Trading-Lab-v5.9-Android.apk` (132 KB, versionCode 14)
+
+## v5.9 feature — COMPLETE TRADING ENCYCLOPEDIA EDITION (PDF fully reconciled)
+
+The PDF from v5.8 (Google Drive `17qNZxcxH2G6Iq7mk6n2Juqz-BBP8tBQG`) was blocked
+then; the owner re-shared it and this release adds EVERYTHING that was missing:
+the full indicator library (200+ named indicators implemented across 82 library
+rows), candlestick + chart + harmonic patterns, SMC concepts, sentiment, and the
+complete all-world instrument universe (~270 symbols across 10 asset classes).
+
+1. **Indicator library — 82 rows, every PDF section covered**
+   - Moving Averages (16): SMA, EMA, WMA, SMMA/RMA, **HMA (Hull)**, DEMA, TEMA,
+     **KAMA**, **ALMA**, **T3**, ZLEMA, LSMA (LinReg), VWMA, **McGinley Dynamic**,
+     Golden/Death Cross, Guppy ribbon.
+   - Bands & Channels (6): Bollinger, Keltner, **Donchian**, Envelopes,
+     Standard Deviation, **Chandelier Exit**.
+   - Trend (16): MACD, ADX+DMI, PSAR, Supertrend, Ichimoku, Aroon, **Vortex**,
+     TRIX, **Mass Index**, **Alligator+Gator**, **Schaff Trend Cycle**,
+     **Choppiness Index**, **KST**, **Coppock**, APO/PPO, **DPO**,
+     Williams Fractals, ZigZag swings.
+   - Momentum (15): RSI, Stochastic, StochRSI, CCI, Williams %R, ROC,
+     **Awesome Oscillator**, Ultimate, **TSI**, **CMO**, **Fisher Transform**,
+     **DeMarker**, **SMI**, **Balance of Power**, **Laguerre RSI**, **RVI**,
+     **Elder Ray**.
+   - Volume & Flow (12): Volume MA, OBV, A/D line, **CMF**, **Chaikin Oscillator**,
+     MFI, VWAP, **Force Index**, **Ease of Movement**, **Klinger**, **PVT**,
+     **Volume Oscillator**.
+   - Support/Resistance (3): Pivot Points (classic PP/R1-R3/S1-S3),
+     **Fibonacci retracement** (auto swing 23.6-78.6), fractal swing S/R.
+2. **Patterns — PDF Part 3**
+   - Candlestick detector: Engulfing, Piercing, Dark Cloud, Hammer, Shooting
+     Star, Doji, Morning/Evening Star, Three White Soldiers, Three Black Crows,
+     Marubozu, Inside/Outside Bar (location-filtered by RSI).
+   - Harmonic scanner: **Gartley / Bat / Butterfly / Crab** detected on the last
+     five pivots via AB/XA and CD/BC Fibonacci ratios.
+   - SMC (Smart Money): **FVG (Fair Value Gap)**, **BOS (Break of Structure)**,
+     **Liquidity Sweep / Stop Hunt**.
+3. **Sentiment — crypto Fear & Greed** (alternative.me, cached 60 min) with a
+   contrarian vote (≤20 fear → buy bias, ≥80 greed → sell bias).
+4. **35-strategy consensus** (was 12) — new votes: candlestick, Donchian
+   breakout, Hull flip, KAMA trend, Vortex, Alligator, TSI, CMO, Fisher,
+   DeMarker, AO zero-cross, Force+EOM flow, CMF, Klinger, PVT+A/D, Fib bounce,
+   Pivot break, FVG, BOS, Sweep, Harmonic D, Schaff, Fear&Greed.
+   Consensus math upgraded to **participation-based**: ≥40% of strategies must
+   have an opinion, then the dominant side needs ≥60% of cast votes (abstentions
+   no longer dilute real signals). Trade tag `CONSENSUS_35`.
+5. **Instruments — PDF Part 1 complete (~270 seeded)**
+   - Forex 100+ pairs: 7 majors, 21 crosses, **65 exotics** (USD/PKR, USD/INR,
+     USD/TRY, USD/ZAR, EUR/TRY, GBP/SGD, TRY/JPY...), 8 currency indices (DXY,
+     EXY, BXY, JXY, AXY, CXY, SXY, ZXY).
+   - Metals 13: gold, silver, platinum, palladium, copper + LME aluminium/zinc/
+     nickel/lead/tin, lithium, iron ore, uranium.
+   - Energy 7: WTI, Brent, NatGas, gasoline, heating oil, coal, carbon (EUA).
+   - Agriculture 21: corn, wheat, soybeans (bean/meal/oil), rice, oats, canola,
+     coffee (arabica+robusta), cocoa, sugar, cotton, orange juice, cattle,
+     feeder, hogs, lumber, rubber, palm oil.
+   - Indices 50+: US majors (S&P, Nasdaq, Dow, Russell, SOX, VIX), Europe (DAX,
+     FTSE, CAC, Stoxx, IBEX, MIB, AEX, SMI, OMX, OBX, WIG, BIST), Asia (Nikkei,
+     TOPIX, HangSeng+Tech, SHCOMP, CSI300, KOSPI, TAIEX, **Nifty, Sensex, Bank
+     Nifty, KSE-100, KSE-30, KMI-30 (Pakistan)**, DSEX, NEPSE, STI, KLCI, SET,
+     JCI, PSEi, VN-Index), Oceania/Americas/MidEast (ASX, NZX, TSX, Bovespa,
+     IPC, TASI, DFM, TA-35, EGX, JSE).
+   - Stocks 55: global mega caps by sector + **13 PSX Pakistani stocks**
+     (HBL, UBL, MCB, Meezan, OGDC, PPL, PSO, Engro, Lucky, FFC, PTCL,
+     K-Electric, Hubco).
+   - Bonds 6 (US 2Y/10Y, Bund, Gilt, JGB, PK reference) + ETFs 14
+     (SPY, QQQ, GLD, SLV, IBIT...).
+   - Crypto 66: majors + L1s + L2s + DeFi (UNI, AAVE, MKR, CRV, LDO, COMP,
+     SNX, dYdX, GMX, CAKE, JUP, RAY) + memes (FLOKI, BONK, WIF) + AI (TAO,
+     RENDER, FET, GRT, AKT) + infra (SEI, TIA, KAS, HBAR, ICP, ZK, STRK, MNT).
+6. **Dashboard v5.9** — new **📏 Indicators tab**: live 1m snapshot for the
+   default symbol (RSI, MACD, Ichimoku, pivots, fibs, FVG/BOS/sweep, Fear&Greed,
+   detected candle pattern + harmonic) plus the full library grouped by PDF
+   section with default settings. Instruments tab gets **asset-class filter
+   chips** (ALL/AGRI/BOND/CRYPTO/ENERGY/FOREX/FUND/INDEX/METAL/STOCK). Home
+   status now shows 35 strategy votes + 82 indicators + F&G value.
+
+Version bumps: versionCode 14 / versionName "5.9", health → 5.9.0.
+Engine start log: "v5.9 — 1m timeframe, 24h nonstop scanner, 35 strategies,
+PDF encyclopedia indicator library".
+
+---
+
 # AI Trading Lab — v5.8 Release (Android)
 
 Release date: 2026-10-28

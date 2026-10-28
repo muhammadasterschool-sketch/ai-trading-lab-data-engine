@@ -96,7 +96,7 @@ select{width:100%;background:#18181b;border:1px solid #27272a;border-radius:9px;
   <div class="logo">📈</div>
   <h1>AI Trading Lab <span style="color:#f59e0b">v5</span></h1>
   <div class="sub">Full trading engine on this device — paper trading</div>
-  <div class="sub" style="color:#fbbf24">v5.8 · 1-Minute 24h Scanner</div>
+  <div class="sub" style="color:#fbbf24">v5.9 · PDF Encyclopedia · 1m 24h Scanner</div>
   <div id="engStrip" class="eng">checking engine…</div>
   <div class="note">Pehli dafa? <b>Register</b> par account banayen (invite code pehle se bhara hai), phir <b>Sign in</b> — dashboard foran khulega. Kisi authenticator app ki zaroorat nahi.</div>
 
@@ -168,6 +168,7 @@ select{width:100%;background:#18181b;border:1px solid #27272a;border-radius:9px;
   <nav>
     <button data-t="dash" class="on" onclick="go('dash')"><span class="ic">📊</span>Home</button>
     <button data-t="inst" onclick="go('inst')"><span class="ic">🗂️</span>Instruments</button>
+    <button data-t="ind" onclick="go('ind')"><span class="ic">📏</span>Indicators</button>
     <button data-t="news" onclick="go('news')"><span class="ic">📰</span>News</button>
     <button data-t="trades" onclick="go('trades')"><span class="ic">💱</span>Trades</button>
     <button data-t="logs" onclick="go('logs')"><span class="ic">📜</span>Logs</button>
@@ -299,6 +300,7 @@ function go(t){
 function refresh(){
   if(TAB==='dash') renderDash();
   else if(TAB==='inst') renderInst();
+  else if(TAB==='ind') renderInd();
   else if(TAB==='news') renderNews();
   else if(TAB==='trades') renderTrades();
   else if(TAB==='logs') renderLogs();
@@ -327,8 +329,8 @@ function renderDash(){
       '<div class="card full"><div class="k">Equity (last 12h)</div><div id="sparkwrap">'+spark+'</div></div>' +
       '<div class="card full"><div class="k">Engine Status</div>' +
         '<table style="margin-top:6px"><tr><td class="mut">Consensus</td><td>'+esc(e.consensus||'')+'</td></tr>' +
-        '<tr><td class="mut">Timeframe</td><td><b>'+(e.timeframe||'1m')+'</b> · '+(e.strategy_count||12)+' indicator votes (need ≥60%)</td></tr>' +
-        '<tr><td class="mut">Market scanner</td><td>'+(e.scanner||'24h')+' nonstop · scan #'+(e.scan_count||0)+'</td></tr>' +
+        '<tr><td class="mut">Timeframe</td><td><b>'+(e.timeframe||'1m')+'</b> · '+(e.strategy_count||35)+' strategy votes (need ≥60%) · '+(e.indicator_count||82)+' indicators</td></tr>' +
+        '<tr><td class="mut">Market scanner</td><td>'+(e.scanner||'24h')+' nonstop · scan #'+(e.scan_count||0)+(e.fear_greed>=0?' · F&G '+e.fear_greed:'')+'</td></tr>' +
         '<tr><td class="mut">Instruments trading</td><td>'+e.active_symbols+'</td></tr>' +
         '<tr><td class="mut">Data feed</td><td>'+esc((e.data_host||'').replace('https://',''))+'</td></tr>' +
         '<tr><td class="mut">Risk</td><td>1% / trade · 5% daily halt · 10% kill</td></tr></table></div>' +
@@ -348,22 +350,97 @@ function sparkSvg(a){
 function renderInst(){
   api('/api/instruments').then(function(r){
     var d = r.data, rows = '';
+    var classes = [];
+    (d.instruments||[]).forEach(function(i){ if(classes.indexOf(i.assetClass)<0) classes.push(i.assetClass); });
+    classes.sort();
+    var chips = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin:10px 0">' +
+      ['ALL'].concat(classes).map(function(c){
+        var on = INST_CLASS===c;
+        return '<button class="btn '+(on?'':'sec')+'" style="padding:5px 10px;font-size:12px" onclick="filterInst(\''+c+'\')">'+c+'</button>';
+      }).join('') + '</div>';
+    var shown = 0;
     (d.instruments||[]).forEach(function(i){
-      rows += '<tr><td><b>'+esc(i.symbol)+'</b><br><span class="mut" style="font-size:10px">'+esc(i.exchange)+' · '+esc(i.assetClass)+'</span></td>' +
+      if (INST_CLASS !== 'ALL' && i.assetClass !== INST_CLASS) return;
+      shown++;
+      rows += '<tr><td><b>'+esc(i.symbol)+'</b><br><span class="mut" style="font-size:10px">'+esc(i.exchange)+' · '+esc(i.assetClass)+'</span>' +
+        '<br><span class="mut" style="font-size:10px">'+esc((i.note||'').substring(0,46))+'</span></td>' +
         '<td><span class="pill '+i.status+'">'+i.status.replace('PENDING_BROKER','PENDING').replace('_',' ')+'</span>' +
         (i.lastDataAt? '<br><span class="mut" style="font-size:10px">'+fmtTime(i.lastDataAt)+'</span>':'') + '</td></tr>';
     });
     document.getElementById('main').innerHTML =
       '<div class="banner green">Auto-discovery ON — new instruments register themselves and trading starts automatically.<br>' +
-      '<b>'+d.active+'</b> trading · <b>'+d.watching+'</b> watching · <b>'+d.pending+'</b> pending broker · total <b>'+d.total+'</b></div>' +
+      '<b>'+d.active+'</b> trading · <b>'+d.watching+'</b> watching · <b>'+d.pending+'</b> pending broker · total <b>'+d.total+'</b> (PDF encyclopedia universe)</div>' +
       '<button class="btn sec" onclick="scanNow()">🔍 Scan for new instruments now</button>' +
-      '<h2>Instruments Ledger</h2>' +
+      chips +
+      '<h2>Instruments Ledger ('+shown+')</h2>' +
       (rows ? '<table>'+rows+'</table>' : '<div class="empty">First discovery scan running — refresh in a minute</div>');
   });
 }
 function scanNow(){
   api('/api/instruments/scan',{method:'POST'}).then(function(r){ alert(r.data.message||'scan started'); });
 }
+/* ---- v5.9 Indicators tab — full PDF encyclopedia library + live values ---- */
+function renderInd(){
+  api('/api/indicators').then(function(r){
+    var d = r.data || {};
+    var lib = d.library || [];
+    var groups = {};
+    lib.forEach(function(row){ var g = row[0]; if(!groups[g]) groups[g] = []; groups[g].push(row); });
+    var v = d.values || {};
+    function fnum(x, dig){ return (typeof x === 'number' && isFinite(x)) ? x.toFixed(dig===undefined?2:dig) : '—'; }
+    function line(name, val){
+      if (val === null || val === undefined) return '';
+      var s;
+      if (Array.isArray(val)) s = val.map(function(z){ return typeof z === 'number' && isFinite(z) ? z.toFixed(4) : esc(z); }).join(' / ');
+      else if (typeof val === 'number') s = fnum(val, 4);
+      else s = esc(val);
+      return '<tr><td class="mut">'+esc(name)+'</td><td style="text-align:right"><b>'+s+'</b></td></tr>';
+    }
+    var live = '';
+    if (d.ok) {
+      live = '<div class="banner green">Live 1m indicator snapshot — <b>'+esc(d.symbol)+'</b>'+(v.candlePattern?' · pattern: <b>'+esc(v.candlePattern)+'</b>':'')+(v.harmonic?' · harmonic: <b>'+esc(v.harmonic)+'</b>':'')+'</div>' +
+        '<table>' +
+        line('Price', v.price) +
+        line('RSI 14', v.rsi14) + line('Stochastic K/D', v.stoch) + line('StochRSI K/D', v.stochRsi) +
+        line('MACD line/signal', v.macd) + line('ADX / +DI / -DI', v.adx ? [v.adx, v.plusDi, v.minusDi] : null) +
+        line('Bollinger L/M/U', v.bb) + line('Keltner', v.keltner) + line('Donchian U/M/L', v.donchian) +
+        line('EMA 9 / 21 / 50', [v.ema9, v.ema21, v.ema50]) + line('HMA 21', v.hma21) + line('KAMA', v.kama) +
+        line('ALMA 9', v.alma9) + line('T3', v.t3) + line('ZLEMA 20', v.zlema20) + line('McGinley 14', v.mcginley14) +
+        line('PSAR (dir)', v.psar) + line('Supertrend (dir)', v.supertrend) +
+        line('Ichimoku T/K/A/B', v.ichimoku) + line('Aroon Up/Down', v.aroon) + line('Vortex VI+/VI-', v.vortex) +
+        line('Alligator J/T/L', v.alligator) +
+        line('CCI 20', v.cci20) + line('Williams %R', v.williamsR) + line('ROC 9', v.roc9) +
+        line('TSI', v.tsi) + line('CMO 14', v.cmo14) + line('Fisher', v.fisher) + line('DeMarker', v.deMarker) +
+        line('SMI', v.smi) + line('BOP', v.bop14) + line('Laguerre RSI', v.laguerreRsi) + line('RVI 10', v.rvi10) +
+        line('Awesome Osc', v.awesomeOsc) + line('Schaff TC', v.schaff) + line('KST', v.kst) + line('Coppock', v.coppock) +
+        line('TRIX 15', v.trix15) + line('Mass Index', v.massIndex) + line('Choppiness', v.choppiness14) + line('DPO 20', v.dpo20) +
+        line('ATR 14', v.atr14) + line('StDev 20', v.stdev20) + line('Chandelier Exit', v.chandelier22) +
+        line('MFI 14', v.mfi14) + line('OBV slope', v.obvSlope) + line('A/D slope', v.adSlope) +
+        line('CMF 20', v.cmf20) + line('Chaikin Osc', v.chaikinOsc) + line('Force Index', v.forceIndex) +
+        line('EOM 14', v.eom14) + line('Klinger', v.klinger) + line('PVT slope', v.pvtSlope) + line('Volume Osc', v.volumeOsc) +
+        line('VWAP', v.vwap) + line('Pivots PP/R1/S1', v.pivots ? [v.pivots[0], v.pivots[1], v.pivots[4]] : null) +
+        line('Fib 50 / 61.8', v.fib ? [v.fib[2], v.fib[3]] : null) + line('Fractals up/dn', v.fractals) +
+        line('FVG / BOS / Sweep', [v.fvg, v.bos, v.sweep]) + line('Fear & Greed', v.fearGreed) +
+        '</table>';
+    } else {
+      live = '<div class="empty">'+esc(d.reason || 'warming up — first 1m candles loading...')+'</div>';
+    }
+    var html = '<div class="banner green">📏 Complete Trading Encyclopedia — <b>'+lib.length+' indicators</b> live on the 1m chart · 35 strategies vote on every candle</div>';
+    html += live;
+    html += '<h2>Indicator Library</h2>';
+    Object.keys(groups).forEach(function(g){
+      html += '<h3 style="margin:14px 0 6px;font-size:14px;color:#8b9cff">'+esc(g)+' <span class="mut" style="font-size:11px">('+groups[g].length+')</span></h3><table>';
+      groups[g].forEach(function(row){
+        html += '<tr><td><b>'+esc(row[1])+'</b></td><td style="text-align:right"><span class="mut" style="font-size:11px">'+esc(row[2])+'</span></td></tr>';
+      });
+      html += '</table>';
+    });
+    document.getElementById('main').innerHTML = html;
+  });
+}
+/* ---- v5.9 instruments asset-class filter ---- */
+var INST_CLASS = 'ALL';
+function filterInst(cls){ INST_CLASS = cls; renderInst(); }
 function renderNews(){
   api('/api/news').then(function(r){
     var d = r.data, rows = '';

@@ -1,0 +1,2583 @@
+COMPLETE TRADING
+ENCYCLOPEDIA
+Financial Instruments, Technical Indicators, Patterns, Methods and Metrics
+Contents
+PART 1: Financial Instruments (forex, commodities, indices, stocks, crypto, bonds, derivatives, funds, alternative
+assets)
+PART 2: Technical Indicators (200+ with default settings)
+PART 3: Candlestick, Chart and Harmonic Patterns
+PART 4: Trading Methodologies (Dow, Elliott, Wyckoff, Gann, ICT/SMC, Market Profile)
+PART 5: Fundamental and Economic Indicators
+PART 6: Intermarket Relationships
+PART 7: Risk, Performance Metrics, Order Types, Sessions
+PART 8: MT4/MT5 Built-in and Popular Custom Indicators
+Note: Yeh educational reference hai. Koi bhi instrument ya indicator profit guarantee nahi karta. Naye instruments har
+saal aate hain, isliye 'har cheez' ki final list possible nahi, lekin yeh ab tak ki sab se badi practical collection hai.
+Defaults (jaise RSI 14) common settings hain, aap change kar sakte hain.
+
+Complete Trading Encyclopedia - Educational Reference
+
+Page 1
+
+PART 1: FINANCIAL INSTRUMENTS
+1.1 World Currencies Used in Forex (ISO codes)
+Group
+
+Currencies
+
+G10
+
+USD (US Dollar), EUR (Euro), JPY (Yen), GBP (Pound), CHF (Swiss Franc), AUD, NZD, CAD, SEK
+(Swedish Krona), NOK (Norwegian Krone)
+
+Asia
+
+CNY/CNH (Yuan), HKD, SGD, INR, PKR, BDT, LKR, NPR, IDR, MYR, THB, PHP, VND, KRW, TWD
+
+Middle East / Africa
+
+AED, SAR, QAR, KWD, BHD, OMR, ILS, TRY, EGP, ZAR, NGN, KES, GHS, MAD
+
+Europe (non-euro)
+
+PLN, CZK, HUF, RON, DKK, ISK, RUB, UAH, RSD
+
+Americas
+
+MXN, BRL, ARS, CLP, COP, PEN
+
+1.2 Forex Major Pairs (with USD, most liquid)
+Pair
+
+Nickname
+
+Characteristics
+
+EUR/USD
+
+Fiber
+
+Most traded pair in the world, tight spread, active London/NY
+
+USD/JPY
+
+Gopher / Ninja
+
+Sensitive to US yields and BoJ policy, safe haven flows
+
+GBP/USD
+
+Cable
+
+Volatile, UK data and BoE driven
+
+USD/CHF
+
+Swissie
+
+Safe haven, inverse correlation with EUR/USD
+
+AUD/USD
+
+Aussie
+
+Commodity and China risk proxy
+
+USD/CAD
+
+Loonie
+
+Oil correlated
+
+NZD/USD
+
+Kiwi
+
+Dairy and risk sentiment
+
+1.3 Forex Minor / Cross Pairs
+Base
+
+Pairs
+
+EUR
+
+EUR/GBP, EUR/JPY, EUR/CHF, EUR/AUD, EUR/CAD, EUR/NZD
+
+GBP
+
+GBP/JPY (Guppy/Dragon), GBP/CHF, GBP/AUD, GBP/CAD, GBP/NZD
+
+AUD
+
+AUD/JPY, AUD/CHF, AUD/CAD, AUD/NZD
+
+NZD
+
+NZD/JPY, NZD/CHF, NZD/CAD
+
+CAD / CHF
+
+CAD/JPY, CAD/CHF, CHF/JPY
+
+1.4 Forex Exotic Pairs
+Region
+
+Pairs
+
+USD vs Asia
+
+USD/CNH, USD/CNY, USD/HKD, USD/SGD, USD/INR, USD/PKR, USD/BDT, USD/LKR, USD/IDR,
+USD/MYR, USD/THB, USD/PHP, USD/KRW, USD/TWD, USD/VND
+
+USD vs Middle East /
+Africa
+
+USD/TRY, USD/ILS, USD/AED, USD/SAR, USD/QAR, USD/KWD, USD/EGP, USD/ZAR, USD/NGN,
+USD/KES, USD/MAD
+
+USD vs Europe
+
+USD/PLN, USD/CZK, USD/HUF, USD/RON, USD/SEK, USD/NOK, USD/DKK, USD/RUB, USD/UAH
+
+USD vs Americas
+
+USD/MXN, USD/BRL, USD/ARS, USD/CLP, USD/COP, USD/PEN
+
+EUR exotics
+
+EUR/TRY, EUR/ZAR, EUR/PLN, EUR/CZK, EUR/HUF, EUR/RON, EUR/SEK, EUR/NOK, EUR/DKK,
+EUR/MXN, EUR/ILS, EUR/SGD, EUR/HKD
+
+GBP exotics
+
+GBP/ZAR, GBP/TRY, GBP/PLN, GBP/SEK, GBP/NOK, GBP/DKK, GBP/MXN, GBP/SGD
+
+Other
+
+SGD/JPY, ZAR/JPY, NOK/SEK, TRY/JPY, MXN/JPY, CNH/JPY, AUD/SGD, CHF/SGD
+
+1.5 Other FX Instruments
+Instrument
+
+Description
+
+Spot FX
+
+Immediate exchange (T+2, T+1 for USD/CAD)
+
+FX Forwards / Outright Forwards
+
+Fixed future rate
+
+FX Swaps / Currency Swaps
+
+Exchange and reverse exchange at set dates
+
+NDF (Non-Deliverable Forwards)
+
+Cash settled forwards for restricted currencies (INR, CNY, KRW, BRL, TWD, IDR)
+
+FX Futures (CME 6E, 6J, 6B, 6A, 6C, 6S,
+6N, 6M)
+
+Exchange traded currency futures
+
+Complete Trading Encyclopedia - Educational Reference
+
+Page 2
+
+Instrument
+
+Description
+
+FX Options
+
+Vanilla and exotic (barrier, digital, one-touch, range, Asian, lookback)
+
+Currency Indices
+
+DXY (USD Index), EXY (Euro Index), BXY (GBP), JXY (JPY), AXY (AUD), CXY
+(CAD), SXY (CHF), ZXY (NZD)
+
+Currency Strength Meters
+
+Custom baskets (8 major currencies)
+
+Crypto/Fiat Pairs
+
+BTC/USD, ETH/EUR, USDT/PKR etc.
+
+Metal/Fiat Pairs
+
+XAU/USD, XAU/EUR, XAU/GBP, XAU/AUD, XAU/CHF, XAU/JPY, XAG/USD,
+XAG/EUR, XAU/XAG (ratio)
+
+1.6 Precious and Industrial Metals
+Symbol
+
+Instrument
+
+Notes
+
+XAU
+
+Gold
+
+Safe haven, inflation hedge, quoted per troy oz
+
+XAG
+
+Silver
+
+Industrial plus monetary, more volatile than gold
+
+XPT
+
+Platinum
+
+Auto catalysts, jewelry
+
+XPD
+
+Palladium
+
+Auto catalysts (gasoline)
+
+XRH / Rhodium, Iridium,
+Ruthenium, Osmium
+
+Rare platinum group metals
+
+OTC, very illiquid
+
+HG (COMEX)
+
+Copper
+
+Economic health barometer ('Dr. Copper')
+
+LME Aluminium
+
+Aluminium
+
+Packaging, auto, aerospace
+
+LME Zinc, Nickel, Lead, Tin
+
+Base metals
+
+Galvanizing, batteries, solder
+
+Cobalt, Lithium
+(carbonate/hydroxide),
+Manganese
+
+Battery metals
+
+EV supply chain
+
+Iron Ore (SGX/DCE), Steel
+(HRC, Rebar)
+
+Steel chain
+
+China driven
+
+Rare Earths (Neodymium,
+Dysprosium, etc.)
+
+Specialty
+
+Magnets, electronics
+
+Uranium (U3O8)
+
+Nuclear fuel
+
+Spot and term pricing
+
+Titanium, Molybdenum,
+Vanadium, Tungsten, Gallium,
+Germanium
+
+Minor metals
+
+Strategic materials
+
+1.7 Energy
+Symbol
+
+Instrument
+
+Notes
+
+WTI (CL)
+
+US Light Sweet Crude
+
+NYMEX benchmark, Cushing delivery
+
+Brent (BZ / LCO)
+
+North Sea Crude
+
+Global benchmark (ICE)
+
+Dubai / Oman / Murban
+
+Middle East benchmarks
+
+Asia pricing
+
+OPEC Basket, Urals, WCS,
+Tapis
+
+Other crude grades
+
+NG (Henry Hub)
+
+US Natural Gas
+
+Weather and storage driven
+
+TTF, NBP, JKM
+
+European, UK, Asian gas
+
+LNG benchmarks
+
+RB (RBOB Gasoline), HO
+(Heating Oil), ULSD, Gasoil,
+Jet Fuel
+
+Refined products
+
+Crack spreads
+
+Propane, Ethane, Butane
+
+NGLs
+
+Coal (Newcastle,
+Rotterdam, API2)
+
+Thermal coal
+
+Electricity (PJM, Nord Pool,
+EEX)
+
+Power futures
+
+Regional
+
+EUA, UKA, CCA, RGGI
+
+Carbon emission allowances
+
+Compliance carbon markets
+
+Renewable Energy
+Certificates (RECs)
+
+Green certificates
+
+1.8 Agricultural Commodities
+
+Complete Trading Encyclopedia - Educational Reference
+
+Page 3
+
+Group
+
+Instruments
+
+Grains
+
+Corn, Wheat (Chicago SRW, KC HRW, MGEX Spring), Soybeans, Soybean Meal, Soybean Oil, Oats,
+Rough Rice, Barley, Rapeseed/Canola, Sorghum
+
+Softs
+
+Coffee (Arabica, Robusta), Cocoa, Sugar #11, White Sugar, Cotton #2, Orange Juice (FCOJ)
+
+Livestock and Dairy
+
+Live Cattle, Feeder Cattle, Lean Hogs, Class III Milk, Butter, Cheese, Whey, Pork Bellies (historical)
+
+Fibers / Others
+
+Lumber, Rubber, Wool, Palm Oil, Coconut Oil, Tea, Potatoes, Eggs, Fertilizer (Urea, DAP, Potash),
+Ethanol, Oats
+
+1.9 Stock Indices by Country
+Region
+
+Indices
+
+USA
+
+S&P 500, Dow Jones Industrial (US30), Nasdaq 100 (NAS100), Nasdaq Composite, Russell
+2000/1000/3000, S&P 400 MidCap, S&P 600 SmallCap, NYSE Composite, NYSE FANG+, Wilshire
+5000, Philadelphia Semiconductor (SOX), Dow Transports, Dow Utilities, VIX, MOVE (bond vol)
+
+Canada / Latin America
+
+S&P/TSX Composite, TSX 60, Bovespa (Brazil), IPC (Mexico), Merval (Argentina), IPSA (Chile),
+COLCAP (Colombia), S&P/BVL Peru
+
+UK / Ireland
+
+FTSE 100, FTSE 250, FTSE All-Share, AIM, ISEQ 20
+
+Eurozone
+
+Euro Stoxx 50, Stoxx 600, DAX 40 (Germany), MDAX, SDAX, CAC 40 (France), AEX (Netherlands), BEL
+20, IBEX 35 (Spain), FTSE MIB (Italy), PSI (Portugal), ATX (Austria), ATHEX (Greece), OMX Helsinki
+
+Other Europe
+
+SMI (Switzerland), OMX Stockholm 30, OBX (Norway), OMX Copenhagen 25, WIG20 (Poland), PX
+(Czech), BUX (Hungary), BIST 100 (Turkey), MOEX Russia, RTS, PFTS (Ukraine)
+
+East Asia
+
+Nikkei 225, TOPIX, Hang Seng, Hang Seng Tech, Shanghai Composite, SSE 50, Shenzhen Component,
+CSI 300, ChiNext, STAR 50, KOSPI, KOSDAQ, TAIEX
+
+South / Southeast Asia
+
+Nifty 50, Sensex, Bank Nifty, Nifty Midcap, KSE-100 (Pakistan), KSE-30, KMI-30, DSEX (Bangladesh),
+CSE All Share (Sri Lanka), NEPSE, STI (Singapore), KLCI (Malaysia), SET (Thailand), JCI (Indonesia),
+PSEi (Philippines), VN-Index
+
+Oceania
+
+ASX 200, All Ordinaries, NZX 50
+
+Middle East / Africa
+
+Tadawul (TASI, Saudi), DFM General, ADX General, QE Index (Qatar), Kuwait Main, Bahrain All Share,
+MSM 30 (Oman), TA-35 (Israel), EGX 30 (Egypt), JSE Top 40 (South Africa), NGX All Share (Nigeria),
+NSE 20 (Kenya), MASI (Morocco)
+
+Global
+
+MSCI World, MSCI ACWI, MSCI EM, MSCI Frontier, FTSE All-World, S&P Global 1200
+
+1.10 Stock Exchanges of the World (major)
+Region
+
+Exchanges
+
+North America
+
+NYSE, Nasdaq, NYSE American, Cboe, TSX/TSXV, Mexican BMV
+
+Europe
+
+London SE, Euronext (Paris, Amsterdam, Brussels, Lisbon, Dublin, Milan, Oslo), Deutsche Boerse
+(Xetra, Frankfurt), SIX Swiss, Nasdaq Nordic, BME (Spain), Warsaw, Vienna, Athens, Borsa Istanbul,
+Moscow Exchange
+
+Asia-Pacific
+
+Japan Exchange Group (Tokyo), HKEX, Shanghai SE, Shenzhen SE, Beijing SE, Korea Exchange,
+Taiwan SE, NSE India, BSE India, Singapore Exchange, Bursa Malaysia, IDX Indonesia, SET Thailand,
+PSE Philippines, HOSE/HNX Vietnam, ASX, NZX, Pakistan Stock Exchange (PSX), Dhaka SE, Colombo
+SE
+
+Middle East / Africa
+
+Saudi Exchange (Tadawul), DFM, ADX, Qatar SE, Boursa Kuwait, Bahrain Bourse, Muscat, Tel Aviv SE,
+Egyptian Exchange, JSE (Johannesburg), Nigerian Exchange, Nairobi SE, Casablanca
+
+Latin America
+
+B3 (Brazil), Buenos Aires, Santiago, Bogota, Lima
+
+1.11 Stocks by Sector (Examples)
+Sector
+
+Examples
+
+Technology
+
+Apple, Microsoft, Alphabet, Amazon, Meta, Nvidia, Tesla, Broadcom, TSMC, Samsung, ASML, Oracle,
+SAP, Adobe, Salesforce, AMD, Intel, Qualcomm, Cisco, IBM, Palantir, Tencent, Alibaba
+
+Financials
+
+JPMorgan, Bank of America, Goldman Sachs, Morgan Stanley, Visa, Mastercard, PayPal, HSBC, UBS,
+HBL, UBL, MCB, Meezan Bank, ICBC, Berkshire Hathaway
+
+Energy
+
+ExxonMobil, Chevron, Shell, BP, TotalEnergies, Saudi Aramco, OGDC, PPL, PSO, Schlumberger
+
+Healthcare
+
+Eli Lilly, Novo Nordisk, UnitedHealth, J&J, Pfizer, Merck, AbbVie, Roche, Novartis, AstraZeneca
+
+Consumer
+
+Walmart, Costco, Coca-Cola, PepsiCo, P&G, Nestle, Unilever, McDonald's, Nike, LVMH, Toyota, Ford,
+BYD, Engro, Lucky Cement, Fauji Fertilizer
+
+Industrials / Defense
+
+Boeing, Airbus, Caterpillar, GE, Lockheed Martin, RTX, Siemens, Honeywell
+
+Complete Trading Encyclopedia - Educational Reference
+
+Page 4
+
+Sector
+
+Examples
+
+Telecom / Media
+
+Verizon, AT&T, T-Mobile, Disney, Netflix, Comcast, PTCL, Jazz
+
+Real Estate / Utilities
+
+Prologis, American Tower, NextEra, Duke Energy, K-Electric, Hubco
+
+Stock types: Common, Preferred, ADR/GDR, Dual-class, Penny stocks, Blue chip, Growth, Value, Dividend, IPO,
+SPAC, REIT shares, Tracking stocks, Rights issues, Bonus shares.
+
+1.12 Cryptocurrencies and Digital Assets
+Category
+
+Examples
+
+Store of value / Large cap
+
+BTC, ETH, BNB, XRP, SOL, ADA, TRX, TON, AVAX, DOT, LTC, BCH, XLM, ETC, XMR, ZEC
+
+Layer 1 / Smart contract
+
+Ethereum, Solana, Cardano, Avalanche, Polkadot, Cosmos (ATOM), NEAR, Aptos, Sui, Algorand,
+Tezos, Hedera, Fantom/Sonic, Kaspa, Injective
+
+Layer 2
+
+Arbitrum, Optimism, Base, Polygon, zkSync, Starknet, Mantle, Linea, Scroll
+
+DeFi
+
+Uniswap, Aave, Maker/Sky, Curve, Lido, Compound, Synthetix, dYdX, GMX, PancakeSwap, Jupiter,
+Raydium
+
+Stablecoins
+
+USDT, USDC, DAI, USDe, FDUSD, PYUSD, TUSD, EURC, plus gold backed (PAXG, XAUT)
+
+Meme coins
+
+DOGE, SHIB, PEPE, FLOKI, BONK, WIF
+
+AI / Compute
+
+TAO, RENDER, FET, GRT, AKT, IO
+
+Oracles / Infra
+
+Chainlink, Pyth, Band, The Graph, Filecoin, Arweave
+
+Gaming / Metaverse
+
+AXS, SAND, MANA, GALA, IMX
+
+Exchange tokens
+
+BNB, OKB, CRO, KCS, LEO
+
+NFTs
+
+Art, collectibles, gaming items, domain names (ENS)
+
+Tokenized / RWA
+
+Tokenized treasuries, stocks, gold, real estate
+
+Crypto Derivatives
+
+Perpetual swaps, futures, options (Deribit), leveraged tokens, funding rate arbitrage
+
+Crypto ETFs / Trusts
+
+Spot Bitcoin and Ether ETFs, GBTC, Grayscale trusts
+
+Indices
+
+CMC 100, CoinDesk 20, Bitwise 10, Crypto Fear and Greed
+
+1.13 Fixed Income (Bonds and Rates)
+Type
+
+Instruments
+
+Government bonds
+
+US Treasuries (T-Bills, 2Y, 5Y, 7Y, 10Y, 20Y, 30Y, TIPS, STRIPS), UK Gilts, German
+Bunds/Bobls/Schatz, French OATs, Italian BTPs, Spanish Bonos, JGBs, Canadian GoC, Australian
+ACGBs, Indian G-Secs, PIBs and T-Bills (Pakistan), Sukuk
+
+Corporate
+
+Investment grade, High yield (junk), Convertible, Floating rate notes, Perpetual, Green bonds, Sukuk
+(corporate)
+
+Municipal / Agency
+
+US Munis, GSE bonds (Fannie, Freddie), Supranationals (World Bank, ADB, EIB)
+
+Securitized
+
+MBS, ABS, CMO, CLO, CDO, Covered bonds
+
+Rates and benchmarks
+
+Fed Funds, SOFR, ESTR, SONIA, TONA, EURIBOR, KIBOR, KORIBOR, repo rates, prime rate
+
+Rate derivatives
+
+Interest rate swaps, FRAs, Eurodollar/SOFR futures, Bond futures (ZN, ZB, ZF, ZT, Bund, Gilt, JGB),
+Swaptions, Caps and Floors
+
+Credit derivatives
+
+CDS, CDX, iTraxx, Total return swaps
+
+Inflation
+
+TIPS, Breakeven rates, inflation swaps, I-bonds
+
+1.14 Derivatives and Structured Products
+Type
+
+Description
+
+Futures
+
+Standardized, exchange traded (commodities, indices, FX, rates, crypto, volatility)
+
+Options (Calls/Puts)
+
+American, European, Bermudan styles on stocks, indices, ETFs, futures, FX
+
+Exotic options
+
+Barrier (knock-in/out), Digital/Binary, Asian, Lookback, Chooser, Compound, Rainbow, Basket,
+Quanto, Cliquet, Range accrual
+
+Options strategies
+
+Covered call, protective put, straddle, strangle, iron condor, iron butterfly, butterfly, calendar,
+diagonal, ratio spread, collar, bull/bear spreads, jade lizard
+
+CFDs and Spread bets
+
+Leveraged OTC contracts via brokers
+
+Swaps
+
+Interest rate, currency, commodity, equity, credit default, total return, variance, volatility
+
+Forwards
+
+OTC customized contracts
+
+Complete Trading Encyclopedia - Educational Reference
+
+Page 5
+
+Type
+
+Description
+
+Warrants / Rights
+
+Long dated equity options issued by companies
+
+Structured notes
+
+Capital protected notes, reverse convertibles, autocallables, participation notes
+
+Binary / Fixed odds
+
+One touch, high/low (regulated in some regions only)
+
+Volatility products
+
+VIX futures/options, VXX, UVXY, SVXY, variance swaps, VSTOXX, V-Nikkei, India VIX
+
+Leveraged / Inverse ETFs
+
+TQQQ, SQQQ, SPXL, SPXS, UPRO, SOXL
+
+Spreads
+
+Calendar, inter-commodity (crack, crush, spark), TED, NOB, butterfly
+
+1.15 Funds and Pooled Instruments
+Type
+
+Examples
+
+Index ETFs
+
+SPY, VOO, IVV, QQQ, DIA, IWM, VTI, VT, EFA, EEM, VWO
+
+Sector ETFs
+
+XLK, XLF, XLE, XLV, XLY, XLP, XLI, XLU, XLB, XLRE, SMH, ARKK
+
+Commodity ETFs
+
+GLD, IAU, SLV, USO, UNG, DBC, PDBC, CPER, URA
+
+Bond ETFs
+
+TLT, IEF, SHY, AGG, BND, LQD, HYG, JNK, TIP, EMB
+
+Crypto ETFs
+
+IBIT, FBTC, ETHA, BITO
+
+Mutual funds
+
+Equity, bond, balanced, index, money market, target date
+
+Closed-end funds, REITs
+
+Property trusts (equity, mortgage, hybrid)
+
+Hedge funds / Private equity
+/ VC
+
+Alternative pooled investments
+
+Islamic funds
+
+Shariah compliant equity and sukuk funds
+
+Pension / Sovereign funds
+
+Long horizon institutional vehicles
+
+1.16 Alternative and Unusual Instruments
+Instrument
+
+Description
+
+Real estate
+
+Residential, commercial, land, REITs, crowdfunding, tokenized property
+
+Art, wine, whisky, watches, classic cars,
+collectibles
+
+Passion assets, platforms like Masterworks, Rally
+
+Weather derivatives
+
+HDD/CDD contracts (CME)
+
+Freight / Shipping
+
+Baltic Dry Index, FFA (Forward Freight Agreements), container rates (SCFI, Drewry)
+
+Catastrophe bonds
+
+Insurance linked securities
+
+Carbon credits
+
+Voluntary and compliance
+
+Prediction markets
+
+Event contracts (Kalshi, Polymarket)
+
+Peer-to-peer lending, Invoice financing
+
+Alternative credit
+
+Royalties
+
+Music and patent royalties
+
+Commodities physical
+
+Gold bars/coins, silver, diamonds
+
+Domain names, Websites, SaaS
+businesses
+
+Digital assets
+
+Gaming / In-game items, Loyalty points
+
+Niche digital
+
+Life settlements
+
+Insurance policy trading
+
+Complete Trading Encyclopedia - Educational Reference
+
+Page 6
+
+PART 2: TECHNICAL INDICATORS (200+)
+Format: Indicator, What it does, Typical default setting / signal.
+
+2.1 Moving Averages and Overlays
+Indicator
+
+Purpose
+
+Default / Signal
+
+SMA
+
+Simple average of closes
+
+50, 100, 200. Price above = bullish
+
+EMA
+
+Recent price weighted
+
+9, 12, 20, 21, 26, 50, 200
+
+WMA
+
+Linearly weighted
+
+Fast response
+
+SMMA / RMA / Wilder MA
+
+Smoothed MA (used inside RSI, ATR)
+
+14
+
+HMA (Hull)
+
+Low lag, smooth
+
+9, 21
+
+DEMA / TEMA
+
+Double / triple EMA, less lag
+
+20
+
+KAMA (Kaufman Adaptive)
+
+Adapts to noise
+
+10, 2, 30
+
+VIDYA
+
+Variable index dynamic average
+
+Volatility adaptive
+
+FRAMA
+
+Fractal adaptive MA
+
+16
+
+ALMA (Arnaud Legoux)
+
+Gaussian weighted
+
+9, 0.85, 6
+
+T3 (Tillson)
+
+Very smooth
+
+5, 0.7
+
+ZLEMA
+
+Zero lag EMA
+
+20
+
+LSMA / Linear Regression Line
+
+Least squares fit
+
+25
+
+VWMA
+
+Volume weighted MA
+
+20
+
+McGinley Dynamic
+
+Self adjusting MA
+
+14
+
+Jurik MA (JMA)
+
+Smooth and fast
+
+Proprietary
+
+Displaced MA
+
+Shifted forward/back
+
+Shift 3-5
+
+MA Ribbon / Guppy MMA
+
+Many EMAs (3,5,8,10,12,15 and
+30,35,40,45,50,60)
+
+Trend compression/expansion
+
+Golden Cross / Death Cross
+
+50 SMA crossing 200 SMA
+
+Long term trend signal
+
+Bollinger Bands
+
+SMA +/- 2 std dev
+
+20, 2
+
+Keltner Channel
+
+EMA +/- 2 ATR
+
+20, 10, 2
+
+Donchian Channel
+
+Highest high / lowest low
+
+20 (Turtle breakout 20/55)
+
+Envelopes
+
+SMA +/- percent
+
+20, 2.5%
+
+Price Channels, Starc Bands
+
+Range based channels
+
+15, 6
+
+Parabolic SAR
+
+Trailing dots
+
+0.02, 0.2
+
+Supertrend
+
+ATR trailing trend line
+
+10, 3
+
+Ichimoku Cloud
+
+Tenkan, Kijun, Senkou A/B, Chikou
+
+9, 26, 52
+
+Chandelier Exit
+
+ATR trailing stop from highs
+
+22, 3
+
+Kase Dev Stop, Volatility Stop
+
+ATR stops
+
+Pivot Points (Classic, Fibonacci,
+Camarilla, Woodie, DeMark)
+
+Daily/weekly levels
+
+PP, R1-R3, S1-S3
+
+VWAP, Anchored VWAP, VWAP
+Bands
+
+Volume weighted average price
+
+Session or anchored
+
+Zig Zag
+
+Filters swings
+
+5% or 12/5/3
+
+Heikin Ashi, Renko, Kagi, Point and
+Figure, Three Line Break, Range Bars
+
+Alternate chart types
+
+Noise reduction
+
+Fractals (Williams)
+
+Local highs/lows
+
+5 bar
+
+Linear Regression Channel
+
+Trend +/- deviation
+
+100, 2
+
+Andrews Pitchfork
+
+Median line and parallels
+
+3 pivots
+
+2.2 Trend Strength and Direction
+Indicator
+
+Purpose
+
+Default / Signal
+
+MACD
+
+EMA12 - EMA26, signal 9, histogram
+
+12, 26, 9
+
+ADX
+
+Trend strength (not direction)
+
+14. Above 25 = strong trend
+
+Complete Trading Encyclopedia - Educational Reference
+
+Page 7
+
+Indicator
+
+Purpose
+
+Default / Signal
+
+DMI (+DI / -DI)
+
+Direction
+
+14
+
+ADXR
+
+Smoothed ADX
+
+14
+
+Aroon Up/Down/Oscillator
+
+Time since high/low
+
+25
+
+Vortex Indicator (VI+/VI-)
+
+Trend start
+
+14
+
+TRIX
+
+Triple EMA rate of change
+
+15
+
+Mass Index
+
+Range expansion reversals
+
+25, 9. Reversal bulge 27/26.5
+
+Alligator (Jaw, Teeth, Lips)
+
+Trend vs sleeping
+
+13/8, 8/5, 5/3
+
+Gator Oscillator
+
+Alligator convergence
+
+-
+
+Schaff Trend Cycle
+
+Fast cycle trend
+
+23, 50, 10
+
+Choppiness Index
+
+Trend vs range
+
+14. Above 61.8 = choppy
+
+Trend Intensity Index, Efficiency Ratio
+
+Trend quality
+
+30, 10
+
+Hurst Exponent
+
+Persistence / mean reversion
+
+Above 0.5 trending
+
+Qstick
+
+Candle body average
+
+8
+
+Elder Impulse System
+
+EMA + MACD hist coloring
+
+13, 12-26-9
+
+Know Sure Thing (KST)
+
+Weighted ROC
+
+10-15-20-30
+
+Coppock Curve
+
+Long term bottoms
+
+14, 11, 10
+
+Price Oscillator (APO/PPO)
+
+MA difference
+
+12, 26
+
+DPO
+
+Detrended price oscillator
+
+20
+
+Rainbow Oscillator, Trend Detection
+Index
+
+Trend variants
+
+SuperTrend with ADX filter, Half
+Trend, UT Bot, Range Filter,
+Nadaraya-Watson Envelope
+
+Popular custom trend tools
+
+TradingView community
+
+Indicator
+
+Purpose
+
+Default / Signal
+
+RSI
+
+Strength 0-100
+
+14. 70/30 (80/20 in trends)
+
+Stochastic (Fast/Slow/Full)
+
+Close in range
+
+14,3,3. 80/20
+
+Stochastic RSI
+
+RSI stochastic
+
+14,14,3,3
+
+CCI
+
+Deviation from mean
+
+20. +/-100, +/-200
+
+Williams %R
+
+Inverted stochastic
+
+14. -20/-80
+
+ROC / Momentum
+
+Price change
+
+12 / 10
+
+Awesome Oscillator (AO)
+
+5 vs 34 median SMA
+
+5, 34
+
+Accelerator Oscillator (AC)
+
+AO acceleration
+
+-
+
+Ultimate Oscillator
+
+3 timeframes
+
+7, 14, 28
+
+TSI
+
+Double smoothed momentum
+
+25, 13
+
+CMO (Chande)
+
+Momentum -100 to 100
+
+14
+
+Fisher Transform
+
+Gaussian transform
+
+9-10
+
+Inverse Fisher Transform
+
+Bounded RSI
+
+-
+
+Connors RSI
+
+RSI + streak + percent rank
+
+3, 2, 100
+
+RVI (Relative Vigor)
+
+Close vs open vs range
+
+10
+
+Elder Ray (Bull/Bear Power)
+
+High/low vs EMA13
+
+13
+
+DeMarker (DeM)
+
+Demand strength
+
+14. 0.7/0.3
+
+Stochastic Momentum Index (SMI)
+
+Refined stochastic
+
+10, 3, 3
+
+Balance of Power (BoP)
+
+Buyer vs seller power
+
+14
+
+Relative Momentum Index (RMI)
+
+RSI with momentum lag
+
+14, 5
+
+Laguerre RSI
+
+Smooth fast RSI
+
+gamma 0.5
+
+Klinger, PMO, Detrended Stoch
+
+Other oscillators
+
+Ehlers: Cyber Cycle, Sine Wave,
+Stochastic CG, MESA Adaptive MA
+(MAMA/FAMA)
+
+Cycle/DSP indicators
+
+2.3 Momentum Oscillators
+
+Complete Trading Encyclopedia - Educational Reference
+
+John Ehlers
+
+Page 8
+
+Indicator
+
+Purpose
+
+Default / Signal
+
+Squeeze Momentum (LazyBear)
+
+BB inside KC plus momentum
+
+20, 2, 1.5
+
+Waddah Attar Explosion
+
+Trend plus volatility
+
+-
+
+QQE, STC, WaveTrend, Vortex,
+Divergence indicators
+
+Popular custom
+
+MT4/TV
+
+Indicator
+
+Purpose
+
+Default / Signal
+
+ATR
+
+Average true range
+
+14. Stop = 1.5-3x ATR
+
+Bollinger Bandwidth, %B
+
+Squeeze and position
+
+20, 2
+
+Standard Deviation
+
+Dispersion
+
+20
+
+Historical / Realized Volatility
+
+Annualized stdev
+
+20, 30 days
+
+Implied Volatility (IV), IV Rank, IV
+Percentile
+
+Options priced volatility
+
+-
+
+VIX, VXN, OVX, GVZ, MOVE,
+VSTOXX
+
+Fear gauges (equity, nasdaq, oil, gold,
+bonds, Europe)
+
+VIX above 30 = fear
+
+Chaikin Volatility
+
+Range ROC
+
+10, 10
+
+Normalized ATR (NATR)
+
+ATR percent
+
+14
+
+Ulcer Index
+
+Downside volatility
+
+14
+
+Volatility Ratio, Relative Volatility
+Index (RVI)
+
+Volatility strength
+
+10, 14
+
+True Range, Average Daily Range
+(ADR), Average Weekly Range
+
+Range stats
+
+14, 20
+
+Parkinson, Garman-Klass,
+Yang-Zhang
+
+Range-based volatility estimators
+
+Quant
+
+GARCH models
+
+Volatility forecasting
+
+Quant
+
+2.4 Volatility
+
+2.5 Volume and Money Flow
+Indicator
+
+Purpose
+
+Default / Signal
+
+Volume, Volume MA
+
+Activity
+
+20
+
+OBV
+
+Cumulative signed volume
+
+Divergence
+
+Accumulation/Distribution
+
+Close location x volume
+
+-
+
+Chaikin Money Flow (CMF)
+
+Buy/sell pressure
+
+20
+
+Chaikin Oscillator
+
+MACD of A/D
+
+3, 10
+
+Money Flow Index (MFI)
+
+Volume RSI
+
+14. 80/20
+
+VWAP
+
+Fair value
+
+Session
+
+Volume Profile (VPVR, VPSV,
+Session Volume Profile)
+
+Volume by price
+
+POC, VAH, VAL
+
+Force Index
+
+Price change x volume
+
+13
+
+Ease of Movement
+
+Move per volume
+
+14
+
+Klinger Volume Oscillator
+
+Long term flow
+
+34, 55, 13
+
+Price Volume Trend (PVT)
+
+Cumulative PV
+
+-
+
+Negative/Positive Volume Index
+
+Smart vs dumb money
+
+255 EMA
+
+Volume Oscillator
+
+Fast vs slow volume MA
+
+5, 10
+
+Market Facilitation Index (BW MFI)
+
+Range per volume (4 color bars)
+
+Green/Fade/Fake/Squat
+
+Delta, Cumulative Delta, Footprint,
+CVD
+
+Order flow
+
+Bid vs ask volume
+
+Depth of Market (DOM), Level 2, Time
+and Sales, Heatmap (Bookmap)
+
+Order book tools
+
+Futures/crypto
+
+Tick Volume, Real Volume
+
+Forex volume proxies
+
+MT4 uses tick
+
+Open Interest
+
+Outstanding contracts
+
+Futures/options
+
+Volume Weighted RSI, Twiggs Money
+Flow, Intraday Intensity
+
+Variants
+
+Complete Trading Encyclopedia - Educational Reference
+
+Page 9
+
+Indicator
+
+Purpose
+
+Anchored VWAP, TPO Value Area
+
+Auction levels
+
+Default / Signal
+
+2.6 Support, Resistance, Cycles and Geometry
+Tool
+
+Purpose
+
+Levels / Notes
+
+Horizontal S/R, Trendlines, Channels
+
+Basic structure
+
+Draw on swings
+
+Fibonacci Retracement
+
+Pullback levels
+
+23.6, 38.2, 50, 61.8, 78.6
+
+Fibonacci Extension / Projection
+
+Targets
+
+61.8, 100, 127.2, 161.8, 261.8
+
+Fibonacci Fan, Arcs, Channel, Time Zones,
+Spiral
+
+Fib geometry
+
+Gann Fan, Gann Box, Square of 9, Square
+of 144, Hexagon, Angles (1x1, 2x1, etc.)
+
+Gann geometry
+
+W.D. Gann
+
+Murrey Math Lines
+
+8/8 to 0/8 grid
+
+-
+
+Pivot Points (see overlays)
+
+Levels
+
+Round numbers, Psychological levels
+
+00 and 50 levels
+
+Supply and Demand Zones, Order Blocks
+
+Institutional zones
+
+Previous Day/Week/Month High, Low,
+Close, Open
+
+Reference levels
+
+Opening Range (ORB)
+
+First 15-60 min range
+
+Breakout
+
+Initial Balance (IB)
+
+First hour range
+
+Market profile
+
+Time cycles, Lunar cycles, Seasonality,
+Presidential cycle
+
+Time analysis
+
+Elliott Wave tools, Fibonacci time
+
+Wave counts
+
+Regression channels, Standard error bands
+
+Statistical
+
+Speed Resistance Lines, Quadrant Lines,
+Cycle Lines, Tirone Levels
+
+Other drawing tools
+
+2.7 Breadth, Sentiment and Positioning
+Indicator
+
+Purpose
+
+Advance/Decline Line, A/D Ratio
+
+Market breadth
+
+McClellan Oscillator and Summation Index
+
+Breadth momentum
+
+TRIN / Arms Index, TICK Index
+
+Intraday breadth
+
+% of stocks above 50/200 DMA
+
+Participation
+
+New Highs / New Lows, High-Low Index
+
+Breadth
+
+Up/Down Volume
+
+Volume breadth
+
+Put/Call Ratio, Skew Index (CBOE SKEW)
+
+Options sentiment
+
+AAII Sentiment, Investors Intelligence, CNN Fear and
+Greed, Crypto Fear and Greed
+
+Survey / composite sentiment
+
+COT Report (Commitment of Traders), TFF, Disaggregated
+
+Futures positioning (commercials vs speculators)
+
+Retail Positioning (OANDA/IG/MyFXBook/Dukascopy
+SWFX)
+
+Retail long/short ratios (contrarian)
+
+Margin Debt, Fund Manager Survey (BofA), Short Interest,
+Days to Cover
+
+Equity positioning
+
+Funding Rate, Open Interest, Long/Short Ratio, Liquidations,
+Basis
+
+Crypto derivatives sentiment
+
+Google Trends, Social volume, News sentiment (NLP)
+
+Alternative data
+
+DXY, Currency Strength Meter, Correlation Matrix
+
+Intermarket
+
+2.8 Crypto On-chain Indicators
+Indicator
+
+Purpose
+
+MVRV, MVRV Z-Score, NUPL, SOPR, Realized Price
+
+Profit/loss of holders
+
+Hash Rate, Difficulty, Hash Ribbons, Miner Outflow
+
+Miner health
+
+Exchange Netflow, Exchange Reserve
+
+Sell/buy pressure
+
+Complete Trading Encyclopedia - Educational Reference
+
+Page 10
+
+Indicator
+
+Purpose
+
+Active Addresses, New Addresses, Transaction Count, Gas
+fees
+
+Network usage
+
+Whale Transactions, Holder distribution
+
+Large players
+
+Stock-to-Flow, Rainbow Chart, Pi Cycle Top, Puell Multiple,
+Mayer Multiple
+
+Cycle models
+
+Bitcoin Dominance (BTC.D), ETH/BTC, Altcoin Season
+Index, Total Market Cap
+
+Market structure
+
+Stablecoin Supply Ratio (SSR), Stablecoin Market Cap
+
+Dry powder
+
+TVL (Total Value Locked), DEX volume, Protocol revenue
+
+DeFi health
+
+Coin Days Destroyed, Dormancy, Liveliness, Reserve Risk
+
+HODLer behavior
+
+Complete Trading Encyclopedia - Educational Reference
+
+Page 11
+
+PART 3: PATTERNS
+3.1 Japanese Candlestick Patterns
+Type
+
+Patterns
+
+Single candle
+
+Doji (standard, long-legged, dragonfly, gravestone), Hammer, Inverted Hammer, Hanging Man,
+Shooting Star, Spinning Top, Marubozu (white/black), High Wave, Belt Hold
+
+Bullish reversal (2-3
+candle)
+
+Bullish Engulfing, Piercing Line, Bullish Harami, Harami Cross, Tweezer Bottom, Morning Star,
+Morning Doji Star, Three White Soldiers, Three Inside Up, Three Outside Up, Bullish Kicker, Homing
+Pigeon, Matching Low, Unique Three River Bottom, Abandoned Baby (bullish), Ladder Bottom
+
+Bearish reversal
+
+Bearish Engulfing, Dark Cloud Cover, Bearish Harami, Tweezer Top, Evening Star, Evening Doji Star,
+Three Black Crows, Three Inside Down, Three Outside Down, Bearish Kicker, Abandoned Baby
+(bearish), Advance Block, Deliberation, Upside Gap Two Crows, Identical Three Crows
+
+Continuation
+
+Rising Three Methods, Falling Three Methods, Mat Hold, Separating Lines, Side-by-Side White Lines,
+Upside/Downside Tasuki Gap, Upside/Downside Gap Three Methods, In-Neck, On-Neck, Thrusting
+
+Gap patterns
+
+Breakaway Gap, Runaway/Measuring Gap, Exhaustion Gap, Common Gap, Island Reversal
+
+3.2 Classical Chart Patterns
+Type
+
+Patterns
+
+Reversal
+
+Head and Shoulders, Inverse H&S, Double Top/Bottom, Triple Top/Bottom, Rounding Top/Bottom
+(Saucer), V-Top/V-Bottom, Diamond Top/Bottom, Broadening Top, Island Reversal, Rising/Falling
+Wedge, Adam and Eve
+
+Continuation
+
+Bull/Bear Flag, Pennant, Ascending Triangle, Descending Triangle, Symmetrical Triangle, Rectangle
+(Range), Cup and Handle, Ascending/Descending Channel, Measured Move, Three Drives
+
+Special
+
+Broadening Formation (Megaphone), Triangle Expanding, Wolfe Waves, Head and Shoulders
+Complex, Bump and Run
+
+3.3 Harmonic Patterns
+Pattern
+
+Key Fibonacci ratios
+
+Gartley
+
+B 0.618 of XA, D 0.786 of XA
+
+Bat
+
+B 0.382-0.5, D 0.886 of XA
+
+Alternate Bat
+
+B 0.382, D 1.13 of XA
+
+Butterfly
+
+B 0.786, D 1.27-1.618 of XA
+
+Crab
+
+B 0.382-0.618, D 1.618 of XA
+
+Deep Crab
+
+B 0.886, D 1.618 of XA
+
+Shark
+
+0.886-1.13 of OX, 5-0 relation
+
+Cypher
+
+B 0.382-0.618 of XA, C 1.272-1.414 of XA, D 0.786 of XC
+
+ABCD
+
+CD = AB (equal legs) or 1.272/1.618 of BC
+
+Three Drives
+
+Drives at 1.272 or 1.618 extensions
+
+5-0, Nen Star, Anti patterns, Black
+Swan, White Swan
+
+Advanced harmonic variants
+
+3.4 Price Action / Smart Money Concepts
+Concept
+
+Meaning
+
+Market Structure: HH, HL, LH, LL
+
+Trend definition
+
+BOS (Break of Structure)
+
+Trend continuation break
+
+CHoCH (Change of Character) / MSS
+
+First sign of reversal
+
+Order Block (OB), Breaker Block, Mitigation Block
+
+Last opposite candle before impulsive move
+
+Fair Value Gap (FVG) / Imbalance / Inefficiency
+
+3-candle gap price tends to revisit
+
+Liquidity (Buy-side / Sell-side), Equal Highs/Lows,
+Stop Hunt, Liquidity Sweep
+
+Resting stop orders
+
+Premium / Discount, Equilibrium (50%)
+
+Range pricing
+
+Optimal Trade Entry (OTE)
+
+62-79% retracement
+
+Inducement, Turtle Soup, Judas Swing
+
+Fake moves
+
+Complete Trading Encyclopedia - Educational Reference
+
+Page 12
+
+Concept
+
+Meaning
+
+Killzones (London, NY AM/PM, Asia)
+
+High probability time windows
+
+Power of 3 (Accumulation, Manipulation,
+Distribution)
+
+Daily range model
+
+Supply/Demand, Rally-Base-Rally, Drop-Base-Drop
+
+Zone theory
+
+Pin Bar, Inside Bar, Outside Bar, Fakey, 2B pattern,
+Spring/Upthrust
+
+Price action setups (Nial Fuller, Al Brooks)
+
+Complete Trading Encyclopedia - Educational Reference
+
+Page 13
+
+PART 4: TRADING METHODOLOGIES AND THEORIES
+Method
+
+Key idea
+
+Dow Theory
+
+Primary, secondary, minor trends. Averages must confirm. Volume confirms trend.
+
+Elliott Wave
+
+5 impulse waves + 3 corrective (ABC). Fibonacci relations. Patterns: impulse, diagonal
+(leading/ending), zigzag, flat, triangle, WXY combinations.
+
+Wyckoff Method
+
+Accumulation (PS, SC, AR, ST, Spring, SOS, LPS) and Distribution (PSY, BC, AR, UT,
+UTAD, SOW, LPSY). Composite man, cause and effect.
+
+Gann Theory
+
+Time/price squares, angles, cycles, Square of 9
+
+Ichimoku Kinko Hyo
+
+Cloud based complete system
+
+Market Profile (TPO) and Auction
+Market Theory
+
+Value area, POC, balanced vs imbalanced days
+
+Volume Spread Analysis (VSA)
+
+Tom Williams. Effort vs result
+
+Price Action Trading
+
+Naked chart, S/R, patterns
+
+Smart Money Concepts / ICT
+
+Inner Circle Trader methods (see 3.4)
+
+Supply and Demand (Sam Seiden)
+
+Institutional order zones
+
+Turtle Trading
+
+Donchian 20/55 breakouts, ATR sizing
+
+Trend Following
+
+Moving average systems, CTAs
+
+Mean Reversion
+
+RSI/BB extremes, pairs trading, stat arb
+
+Breakout / Momentum Trading
+
+Range expansion
+
+Scalping, Day trading, Swing,
+Position trading
+
+Timeframe styles
+
+Grid and Martingale systems
+
+Averaging (high risk)
+
+Carry Trade
+
+Borrow low-yield, hold high-yield currency
+
+Arbitrage
+
+Triangular, statistical, cross-exchange, funding
+
+Algorithmic / HFT / Market Making
+
+Automated systems
+
+Machine Learning / AI Models
+
+Regression, trees, LSTM, transformers, reinforcement learning
+
+Quantitative Factor Models
+
+Value, momentum, quality, size, low vol (Fama-French)
+
+Fundamental Analysis
+
+DCF, ratios, macro
+
+Sentiment and Contrarian
+
+Fade the crowd
+
+Intermarket Analysis (John Murphy)
+
+Bonds, stocks, commodities, USD relationships
+
+Seasonality, Calendar Effects
+
+Sell in May, Santa Rally, January effect, turn of month
+
+Event / News Trading
+
+NFP, CPI, FOMC, earnings
+
+Renko, Point and Figure, Kagi
+systems
+
+Time-independent charting
+
+Fibonacci, Harmonic Trading (Scott
+Carney)
+
+Ratio based
+
+Heikin Ashi trend riding, Pivot Boss,
+CPR (Central Pivot Range)
+
+Popular retail systems
+
+PART 5: FUNDAMENTAL AND ECONOMIC INDICATORS
+Category
+
+Indicators
+
+Growth
+
+GDP (QoQ, YoY), GDP Nowcast (Atlanta Fed), PMI (Manufacturing, Services, Composite: S&P Global,
+ISM, Caixin, Au Jibun), Industrial Production, Capacity Utilization, Factory Orders, Durable Goods, Retail
+Sales, Business Inventories, Leading Economic Index
+
+Inflation
+
+CPI, Core CPI, PPI, PCE, Core PCE, Import/Export Prices, Employment Cost Index, Inflation
+Expectations (UMich, Breakevens), Trimmed Mean, Wage Growth
+
+Labor
+
+Non-Farm Payrolls, Unemployment Rate, U-6, Participation Rate, ADP, Jobless Claims
+(Initial/Continuing), JOLTS, Average Hourly Earnings, Employment Change (AU, CA, UK), Claimant
+Count
+
+Central Banks
+
+Fed (FOMC, Dot Plot, Minutes, Beige Book, Jackson Hole), ECB, BoE, BoJ, SNB, RBA, RBNZ, BoC,
+SBP, RBI, PBoC, CBRT, SARB, Banxico, BCB. Rate decisions, QE/QT, forward guidance, yield curve
+control
+
+Complete Trading Encyclopedia - Educational Reference
+
+Page 14
+
+Category
+
+Indicators
+
+Trade and External
+
+Trade Balance, Current Account, Capital Flows (TIC), FX Reserves, Remittances (key for Pakistan),
+Exports/Imports, Terms of Trade, FDI
+
+Fiscal
+
+Budget deficit, Debt/GDP, Treasury auctions (bid-to-cover), Sovereign ratings (Moody's, S&P, Fitch),
+CDS spreads
+
+Consumer and Business
+
+Consumer Confidence (CB, UMich), ZEW, Ifo, Sentix, Tankan, NFIB, Empire State, Philly Fed, Richmond
+Fed, Chicago PMI, Beige Book
+
+Housing
+
+Housing Starts, Building Permits, Existing/New Home Sales, Pending Sales, Case-Shiller, NAHB,
+Mortgage Rates, MBA Applications
+
+Money and Credit
+
+M0, M1, M2, M3, Bank Lending, Credit Spreads, Yield Curve (2s10s, 3m10y), TED Spread, Libor-OIS
+
+Commodity Reports
+
+EIA Crude Inventories, API, Baker Hughes Rig Count, OPEC MOMR, WASDE, Crop Progress, Natural
+Gas Storage, LME Stocks, China customs data
+
+Stock Fundamentals
+
+EPS, Revenue, P/E, Forward P/E, PEG, P/B, P/S, EV/EBITDA, ROE, ROA, ROIC, Debt/Equity, Current
+Ratio, Interest Coverage, Dividend Yield, Payout Ratio, FCF Yield, Gross/Operating/Net Margin, Beta,
+Short Interest, Insider Buying, Altman Z-Score, Piotroski F-Score
+
+Crypto Fundamentals
+
+Market cap, FDV, Circulating vs Total supply, Tokenomics, Unlock schedules, Developer activity, TVL,
+Revenue, Active users
+
+PART 6: INTERMARKET RELATIONSHIPS (Rules of Thumb)
+Relationship
+
+Typical behavior (can change)
+
+USD vs Gold
+
+Usually inverse
+
+USD vs EUR/USD
+
+Strongly inverse (EUR is 57% of DXY)
+
+Oil vs CAD
+
+Higher oil tends to support CAD (USD/CAD down)
+
+Oil vs inflation
+
+Oil up raises inflation expectations
+
+Gold vs real yields (TIPS)
+
+Inverse
+
+US 10Y yield vs USD/JPY
+
+Positively correlated
+
+AUD vs China data, Copper, Iron ore
+
+Positive
+
+Risk-on
+
+Stocks, AUD, NZD, crypto up; JPY, CHF, gold, USD (sometimes) down
+
+Risk-off
+
+Reverse of risk-on; VIX up
+
+Bonds vs stocks
+
+Often inverse, breaks in inflation shocks
+
+BTC vs Nasdaq
+
+Often positively correlated
+
+Silver vs Gold (Gold/Silver ratio)
+
+Ratio rises in fear
+
+Copper/Gold ratio
+
+Growth vs safety
+
+Yield curve inversion
+
+Recession signal historically
+
+EUR/USD vs GBP/USD
+
+High positive correlation
+
+USD/CHF vs EUR/USD
+
+High negative correlation
+
+PART 7: RISK, PERFORMANCE METRICS, ORDERS, SESSIONS
+7.1 Order Types
+Order
+
+Meaning
+
+Market
+
+Immediate at best price
+
+Limit
+
+At price or better
+
+Stop / Stop-Loss
+
+Triggers market order at level
+
+Stop-Limit
+
+Triggers limit order
+
+Buy Stop / Sell Stop / Buy Limit / Sell Limit
+
+Pending orders in MT4
+
+Take Profit (TP)
+
+Exit at target
+
+Trailing Stop
+
+Moves with price
+
+OCO (One Cancels Other)
+
+Linked orders
+
+Bracket
+
+Entry + TP + SL
+
+IOC / FOK / GTC / GTD / Day
+
+Time in force
+
+Complete Trading Encyclopedia - Educational Reference
+
+Page 15
+
+Order
+
+Meaning
+
+Iceberg, TWAP, VWAP orders
+
+Algorithmic execution
+
+Break-even stop
+
+SL moved to entry
+
+Partial close, Scale in/out
+
+Position management
+
+7.2 Risk and Money Management Metrics
+Metric
+
+Meaning
+
+Risk per trade
+
+Typically 0.5-2% of equity
+
+Position size
+
+Risk amount / (stop distance x pip value)
+
+Risk:Reward (R:R)
+
+Target distance / stop distance
+
+Expectancy
+
+(Win% x Avg Win) - (Loss% x Avg Loss)
+
+Kelly Criterion, Fractional Kelly
+
+Optimal bet fraction
+
+Fixed Fractional, Fixed Ratio,
+Anti-Martingale
+
+Sizing models
+
+Leverage, Margin, Margin Level, Free
+Margin, Margin Call, Stop Out
+
+Broker mechanics
+
+Pip, Pipette, Point, Tick, Lot (Standard 100k,
+Mini, Micro, Nano)
+
+Units
+
+Spread, Commission, Swap/Rollover,
+Slippage
+
+Costs
+
+Correlation risk, Exposure, VaR,
+CVaR/Expected Shortfall
+
+Portfolio risk
+
+7.3 Performance Metrics
+Metric
+
+Meaning
+
+Win Rate
+
+Percent winning trades
+
+Profit Factor
+
+Gross profit / gross loss (above 1.5 good)
+
+Max Drawdown, Average Drawdown,
+Recovery Factor
+
+Equity decline measures
+
+Sharpe Ratio
+
+Return per total volatility
+
+Sortino Ratio
+
+Return per downside volatility
+
+Calmar Ratio
+
+CAGR / Max drawdown
+
+Omega, Information Ratio, Treynor
+
+Other ratios
+
+CAGR, Monthly returns, Equity curve slope
+
+Growth
+
+MAE / MFE
+
+Max adverse / favorable excursion
+
+Walk-forward, Monte Carlo, Out-of-sample
+testing
+
+Backtest validation
+
+Overfitting, Curve fitting, Look-ahead bias,
+Survivorship bias
+
+Backtest pitfalls
+
+7.4 Trading Sessions (approx. GMT)
+Session
+
+Hours
+
+Notes
+
+Sydney
+
+21:00 - 06:00
+
+Quiet, AUD/NZD
+
+Tokyo / Asia
+
+00:00 - 09:00
+
+JPY, AUD, range moves
+
+London
+
+07:00 - 16:00
+
+Highest volume, trends start
+
+New York
+
+12:00 - 21:00
+
+USD news, overlaps London 12-16
+
+Karachi (PKT = GMT+5)
+
+Add 5 hours
+
+London open about 12:00 PKT, NY open about 18:00 PKT
+
+Complete Trading Encyclopedia - Educational Reference
+
+Page 16
+
+PART 8: MT4 / MT5 INDICATORS
+8.1 Built-in (Standard)
+Group
+
+Indicators
+
+Trend
+
+Average Directional Movement Index, Bollinger Bands, Envelopes, Ichimoku Kinko Hyo, Moving
+Average, Parabolic SAR, Standard Deviation (MT5 adds DEMA, TEMA, FRAMA, VIDYA, AMA)
+
+Oscillators
+
+ATR, Bears Power, Bulls Power, CCI, DeMarker, Force Index, MACD, Momentum, Moving Average of
+Oscillator (OsMA), RSI, Relative Vigor Index, Stochastic, Williams %R, TriX (MT5)
+
+Volumes
+
+Accumulation/Distribution, Money Flow Index, On Balance Volume, Volumes
+
+Bill Williams
+
+Accelerator, Alligator, Awesome, Fractals, Gator, Market Facilitation Index
+
+Examples (MT5)
+
+ADXW, Chaikin Oscillator, Bands, Volumes, Price Channel
+
+8.2 Popular Custom MT4 Indicators (free community)
+Indicator
+
+Use
+
+Super Trend, Half Trend, Trend Magic, Hull
+MA colored
+
+Trend direction
+
+Currency Strength Meter, Correlation Matrix
+
+Pair selection
+
+Supply and Demand Zones, Support
+Resistance auto, Pivot Level auto
+
+Zones
+
+ZigZag with Fibonacci auto, Harmonic
+Pattern Scanner
+
+Patterns
+
+Order Block / FVG indicators, Smart Money
+Concept dashboards
+
+SMC
+
+Session Boxes (Asia/London/NY), Market
+Clock, Spread/ATR panel
+
+Context
+
+Volume Profile, Order Flow (MT5 DOM),
+Market Profile
+
+Advanced
+
+News Calendar / Economic news indicators
+
+Events
+
+Trade Panels, Risk Calculator, Lot Size
+Calculator, One-click trading EAs
+
+Execution helpers
+
+Expert Advisors (EAs): grid, scalper, trend
+EA, news EA, copy trader, signal copier
+
+Automation (test on demo only)
+
+Disclaimer: Educational purpose only. Trading mein capital loss ka risk hai. Pehle demo account par practice karein,
+aur sirf utna risk lein jo afford kar saken.
+
+Complete Trading Encyclopedia - Educational Reference
+
+Page 17
+
+

@@ -1,9 +1,9 @@
 #!/bin/bash
-# Build v5.8 Android source zip (excludes build/, .gradle/, local.properties)
+# Build v5.9 Android source zip (excludes build/, .gradle/, local.properties)
 set -e
 cd /home/z/my-project
-OUT_DL="download/AI-Trading-Lab-v5.8-Android-source.zip"
-OUT_PUB="public/downloads/AI-Trading-Lab-v5.8-Android-source.zip"
+OUT_DL="download/AI-Trading-Lab-v5.9-Android-source.zip"
+OUT_PUB="public/downloads/AI-Trading-Lab-v5.9-Android-source.zip"
 cd android-app
 rm -f "/home/z/my-project/$OUT_DL" "/home/z/my-project/$OUT_PUB"
 zip -r "/home/z/my-project/$OUT_DL" . \

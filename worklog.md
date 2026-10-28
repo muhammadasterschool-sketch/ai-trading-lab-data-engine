@@ -292,3 +292,20 @@ Stage Summary:
 - RELEASE-v5.md: v5.8 section prepended; worklog entry added
 - Web: binanceVision.ts SYMBOLS 2→14 (BTC ETH BNB SOL XRP ADA DOGE AVAX DOT LINK TRX LTC EUR + PAXG) for backtest/autoscan; NO TF change on web (web is backtest/analysis side; phone engine owns live 1m paper trading)
 - NOTE: PDF still locked → v5.9 reconciliation pending once user re-shares with "Anyone with link"
+
+## Task 18 — v5.9: PDF ENCYCLOPEDIA RECONCILIATION (PDF finally unlocked + full merge)
+- PDF downloaded OK this time (drive.google.com uc?export=download, 17 pages, "Complete Trading Encyclopedia" — 8 parts, 200+ indicators, all-world instruments). Previous block was the sharing setting; user fixed it ("Done")
+- GAP ANALYSIS vs v5.8: app had 78 instruments + 12 votes; PDF wanted ~270 instruments + 200 indicators + patterns + SMC + sentiment
+- ANDROID (v5.9, versionCode 14):
+  - EngineCore INDICATORS v5.9 suite added: wma, smma, hma, dema, tema, kama, alma, t3, zlema, lsma, vwma, mcginley, donchian, envelopes, stdev, chandelier, fractals, vortex, massIndex, alligator, choppiness, schaff(+stochOfSeries), kst, coppock, apoPpo, dpo, awesomeOsc, tsi, cmo, fisher, deMarker, smi, bop, laguerreRsi, rvi, elderRay, adSlope, cmf, chaikinOsc, forceIndex, eom, klinger, pvtSlope, volumeOsc, pivotPoints, fibLevels, candlePattern(12 patterns), harmonicPattern(Gartley/Bat/Butterfly/Crab), fvg, bosVoteCalc, sweepVoteCalc
+  - STRATEGIES 12→35 votes (candle, donchian, hull, kama, vortex, alligator, tsi, cmo, fisher, demarker, ao, volumeFlow, cmf, klinger, pvtAd, fib, pivot, fvg, bos, sweep, harmonic, schaff, fng); consensus upgraded to participation-based (≥40% of strategies vote, dominant side ≥60% of cast votes); tag CONSENSUS_12→CONSENSUS_35
+  - SENTIMENT: fetchFearGreed() alternative.me F&G every 60 min, contrarian vote (≤20 buy, ≥80 sell), status exposes fear_greed
+  - INSTRUMENTS 78→~270 seeded (PDF Part 1 complete): metals 13, energy 7, agri 21, forex 100+ (majors+crosses+65 exotics+PKR/INR/TRY/ZAR...), currency indices 8, stock indices 50+ (incl KSE-100/KSE-30/KMI-30 Nifty/Sensex/BankNifty), global stocks 55 + PSX 13 (HBL UBL MCB Meezan OGDC PPL PSO Engro LUCK FFC PTC KEL HUBC), bonds 6, ETFs 14, crypto 66 (L2/DeFi/meme/AI); seed flag seeded_v59; class field GOLD/SILVER→METAL
+  - status(): strategy_count 35, indicator_count INDICATOR_LIBRARY.length(82), fear_greed, last_pattern; ENGINE_START log v5.9
+  - INDICATOR_LIBRARY public static String[][] (group/name/defaults) + indicatorSnapshot(symbol) live values for dashboard
+- Api.java: +/api/indicators?symbol= route (safeD NaN sanitizer, double[]/Object[]/Map wrapping), health 5.9.0; +import java.util.Map
+- dashboard.html: badge "v5.9 · PDF Encyclopedia · 1m 24h Scanner"; NEW 📏 Indicators tab (live snapshot table + library grouped by section); Instruments tab asset-class filter chips + note text; Home status 35 votes + 82 indicators + F&G
+- build.gradle versionCode 14 / "5.9"; build-source-zip.sh → v5.9; zip rebuilt (114.6 KB, EngineCore 122 KB)
+- Build: gradle --offline OK; apksigner verify OK; deploy: public/downloads/AI-Trading-Lab-v5.9-Android.apk (132 KB)
+- docs: downloads.html v5.9 (badge/card/src/footer/steps), RELEASE-v5.md v5.9 section prepended, worklog entry
+- NOTE: broker-class instruments stay PENDING_BROKER (live phase); crypto trades now; 1m TF + 24h scan from v5.8 unchanged

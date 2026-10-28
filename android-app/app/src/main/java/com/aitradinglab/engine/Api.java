@@ -3,6 +3,7 @@ package com.aitradinglab.engine;
 import android.content.Context;
 import android.database.Cursor;
 import java.util.Locale;
+import java.util.Map;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -88,13 +89,14 @@ public class Api {
     private Res get(String path, String auth) throws Exception {
         if ("/".equals(path) || "/index.html".equals(path)) return Res.html(dashboardHtml);
         if ("/api/health".equals(path)) return Res.json(200, new JSONObject()
-                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "5.8.0").put("timeframe", "1m").put("scanner", "24h"));
+                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "5.9.0").put("timeframe", "1m").put("scanner", "24h"));
 
         Long uid = userId(auth);
         if (uid == null) return Res.error(401, "authentication required");
 
         if ("/api/dashboard".equals(path)) return dashboard(uid);
         if ("/api/instruments".equals(path)) return instruments();
+        if (path.startsWith("/api/indicators")) return indicators(path);
         if ("/api/news".equals(path)) return news();
         if ("/api/trades".equals(path)) return trades(uid);
         if ("/api/logs".equals(path)) return logs();
@@ -388,6 +390,51 @@ public class Api {
         return Res.json(200, new JSONObject()
                 .put("instruments", arr).put("active", active).put("watching", watching)
                 .put("pending", pending).put("total", arr.length()));
+    }
+
+    /** v5.9 — PDF encyclopedia indicator library + live values for one symbol. */
+    private static double safeD(double d) { return Double.isNaN(d) || Double.isInfinite(d) ? 0 : d; }
+
+    private Res indicators(String path) throws Exception {
+        String symbol = "BTCUSDT";
+        int q = path.indexOf("?symbol=");
+        if (q > 0) symbol = path.substring(q + 8).toUpperCase().trim();
+        if (engine == null) return Res.error(503, "engine not ready");
+        Map<String, Object> snap = engine.indicatorSnapshot(symbol);
+        snap.remove("library"); // String[][] can't go straight into JSONObject
+        JSONObject o = new JSONObject();
+        for (Map.Entry<String, Object> e : snap.entrySet()) {
+            Object v = e.getValue();
+            if (v instanceof double[]) {
+                JSONArray a = new JSONArray();
+                for (double d : (double[]) v) a.put(safeD(d));
+                o.put(e.getKey(), a);
+            } else if (v instanceof Object[]) {
+                JSONArray a = new JSONArray();
+                for (Object d : (Object[]) v) a.put(d == null ? "" : String.valueOf(d));
+                o.put(e.getKey(), a);
+            } else if (v instanceof Map) {
+                JSONObject sub = new JSONObject();
+                for (Map.Entry<?, ?> se : ((Map<?, ?>) v).entrySet()) {
+                    Object sv = se.getValue();
+                    if (sv instanceof Number) sub.put(String.valueOf(se.getKey()), safeD(((Number) sv).doubleValue()));
+                    else sub.put(String.valueOf(se.getKey()), String.valueOf(sv));
+                }
+                o.put(e.getKey(), sub);
+            } else if (v instanceof Number) {
+                o.put(e.getKey(), safeD(((Number) v).doubleValue()));
+            } else if (v instanceof Boolean) {
+                o.put(e.getKey(), (Boolean) v);
+            } else {
+                o.put(e.getKey(), String.valueOf(v));
+            }
+        }
+        JSONArray lib = new JSONArray();
+        for (String[] row : EngineCore.INDICATOR_LIBRARY) {
+            lib.put(new JSONArray().put(row[0]).put(row[1]).put(row[2]));
+        }
+        o.put("library", lib);
+        return Res.json(200, o);
     }
 
     private Res news() throws Exception {
