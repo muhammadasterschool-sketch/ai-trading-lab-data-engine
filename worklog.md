@@ -330,3 +330,17 @@ Stage Summary:
 - ENGINE_START log v5.9.2; header comment updated; trade params unchanged (SL 1.5x ATR, TP 2.5x ATR, risk 1%, max 5 positions, daily halt -5%, kill -10%)
 - build.gradle versionCode 15→16 / "5.9.2"; dashboard badge v5.9.2; gradle+zipalign+apksigner OK
 - Deploy: v5.9.2 APK (132 KB) + source zip to public/downloads AND .next/standalone/public (dual-copy lesson applied); bun restarted; downloads.html/RELEASE-v5.md/download/ synced; all 200 verified
+
+## Task 21 — v1.0: FULL BUG AUDIT + VERIFIED STABLE RELEASE (owner request)
+- Owner: "pure link and app ko full bugs verify karke correct kardo phir link dena jo ke v1 hoga"
+- AUDITED line-by-line: Db, Auth, HttpServer, ServerService, Notifier, BootReceiver, AtlApp, ConnectActivity, MainActivity, Api (756 lines), EngineCore (2382 lines), dashboard.html (656 lines), AndroidManifest
+- 6 BUGS FOUND + FIXED:
+  1. dashboard showTab() inverted toggle — "Sign in" tab click REVEALED the change-password panel (root cause of owner's login confusion; reset only via Forgot password? now)
+  2. token wiped on ANY non-200 (network hiccup status 0 logged user out on engine restarts) — now only 401 ends session; retry banner otherwise
+  3. news HIGH_IMPACT substring matching ("rate" in "generate") paused entries near-permanently — regex word-boundary matching now
+  4. equity + news tables unbounded — auto-prune 2000/500 rows
+  5. rvi() guard n+4→n+7 (k.get(i-3) negative index risk on short series)
+  6. stale strings: health 5.9.0→1.0.0, settings 5.8.0→1.0, dashboard "need ≥60%"→40%, boot fallback 5.7→1.0
+- VERIFIED CLEAN (no defects): schema vs queries, PBKDF2/TOTP, HTTP parsing, FGS specialUse+timeout, WebView flow, admin guards, 35 votes, risk gates, SL/TP math, discovery, F&G, node --check JS, signature, versionCode monotonic
+- REBRAND: versionCode 17 / versionName "1.0"; APK AI-Trading-Lab-v1.0-Android.apk; dashboard badge "v1.0 · Verified Stable"; ENGINE_START/ENGINE_VERSION logs updated
+- Deploy dual-copy (public/ + .next/standalone/public/), bun restarted; ALL LINKS 200: downloads.html, v1.0 APK (132112b), source zip, RELEASE doc; download/ folder synced

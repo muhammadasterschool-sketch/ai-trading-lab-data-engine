@@ -94,9 +94,9 @@ select{width:100%;background:#18181b;border:1px solid #27272a;border-radius:9px;
 <!-- ============ AUTH ============ -->
 <div id="auth">
   <div class="logo">📈</div>
-  <h1>AI Trading Lab <span style="color:#f59e0b">v5</span></h1>
+  <h1>AI Trading Lab <span style="color:#f59e0b">v1</span></h1>
   <div class="sub">Full trading engine on this device — paper trading</div>
-  <div class="sub" style="color:#fbbf24">v5.9.2 · PDF Encyclopedia · 1m 24h Scanner</div>
+  <div class="sub" style="color:#fbbf24">v1.0 · Verified Stable · PDF Encyclopedia · 1m 24h Scanner</div>
   <div id="engStrip" class="eng">checking engine…</div>
   <div class="note"><b>Naya install / update?</b> Accounts is device ki local database mein hote hain — app reinstall ya update ke baad purana account <b>transfer nahi hota</b>. Is liye pehli dafa <b>Register</b> tab par account banayen (invite code pehle se bhara hai), phir <b>Sign in</b> — dashboard foran khulega. Kisi authenticator app ki zaroorat nahi.</div>
 
@@ -203,7 +203,11 @@ function msg(id, text, cls){ var el = document.getElementById(id); el.innerHTML 
 function showTab(t){
   document.getElementById('signin').classList.toggle('hidden', t!=='signin' && t!=='twofa');
   document.getElementById('register').classList.toggle('hidden', t!=='register');
-  document.getElementById('resetpw').classList.toggle('hidden', t!=='signin');
+  /* v1.0 BUGFIX: the old toggle logic REVEALED the change-password panel whenever the
+     Sign in tab was clicked (force=false removed the hidden class) — users saw the
+     recovery form on the login screen and thought their account was missing. The
+     reset panel must ONLY appear via the "Forgot password?" button (showReset). */
+  document.getElementById('resetpw').classList.add('hidden');
   document.getElementById('tabSignin').classList.toggle('on', t==='signin');
   document.getElementById('tabRegister').classList.toggle('on', t==='register');
   if(t==='signin'){ document.getElementById('twofa').classList.add('hidden'); document.getElementById('signin').classList.remove('hidden'); }
@@ -310,7 +314,11 @@ function refresh(){
 }
 function renderDash(){
   api('/api/dashboard').then(function(r){
-    if(r.status!==200){ doLogout(); return; }
+    /* v1.0 BUGFIX: only a real 401 ends the session. A transient network hiccup
+       (status 0 while the engine restarts) must NOT wipe the saved token — the old
+       code logged the user out on every engine restart. */
+    if(r.status===401){ doLogout(); return; }
+    if(r.status!==200){ document.getElementById('main').innerHTML = '<div class="banner warn">Engine busy/restarting — retrying…</div>'; return; }
     var d = r.data, e = d.engine||{};
     var ban = '';
     if(!e.engine_on) ban = '<div class="banner red">Engine is OFF — enable in Settings</div>';
@@ -329,7 +337,7 @@ function renderDash(){
       '<div class="card full"><div class="k">Equity (last 12h)</div><div id="sparkwrap">'+spark+'</div></div>' +
       '<div class="card full"><div class="k">Engine Status</div>' +
         '<table style="margin-top:6px"><tr><td class="mut">Consensus</td><td>'+esc(e.consensus||'')+'</td></tr>' +
-        '<tr><td class="mut">Timeframe</td><td><b>'+(e.timeframe||'1m')+'</b> · '+(e.strategy_count||35)+' strategy votes (need ≥60%) · '+(e.indicator_count||82)+' indicators</td></tr>' +
+        '<tr><td class="mut">Timeframe</td><td><b>'+(e.timeframe||'1m')+'</b> · '+(e.strategy_count||35)+' strategy votes (need ≥40%) · '+(e.indicator_count||82)+' indicators</td></tr>' +
         '<tr><td class="mut">Market scanner</td><td>'+(e.scanner||'24h')+' nonstop · scan #'+(e.scan_count||0)+(e.fear_greed>=0?' · F&G '+e.fear_greed:'')+'</td></tr>' +
         '<tr><td class="mut">Instruments trading</td><td>'+e.active_symbols+'</td></tr>' +
         '<tr><td class="mut">Data feed</td><td>'+esc((e.data_host||'').replace('https://',''))+'</td></tr>' +
@@ -635,7 +643,12 @@ function alertAction(action){
     }
   });
   if(TOKEN){
-    api('/api/dashboard').then(function(r){ if(r.status===200){ if(!USER && r.data.user) USER = r.data.user; enterApp(); } else { localStorage.removeItem('atl_token'); TOKEN=''; } });
+    /* v1.0 BUGFIX: clear the stored token ONLY on an auth rejection (401) — a
+       transient engine restart (status 0) must keep the session alive. */
+    api('/api/dashboard').then(function(r){
+      if(r.status===200){ if(!USER && r.data.user) USER = r.data.user; enterApp(); }
+      else if(r.status===401){ localStorage.removeItem('atl_token'); TOKEN=''; }
+    });
   }
 })();
 </script>

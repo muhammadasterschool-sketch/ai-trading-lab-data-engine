@@ -89,7 +89,7 @@ public class Api {
     private Res get(String path, String auth) throws Exception {
         if ("/".equals(path) || "/index.html".equals(path)) return Res.html(dashboardHtml);
         if ("/api/health".equals(path)) return Res.json(200, new JSONObject()
-                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "5.9.0").put("timeframe", "1m").put("scanner", "24h"));
+                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "1.0.0").put("timeframe", "1m").put("scanner", "24h"));
 
         Long uid = userId(auth);
         if (uid == null) return Res.error(401, "authentication required");
@@ -564,7 +564,7 @@ public class Api {
     private Res settings() throws Exception {
         return Res.json(200, new JSONObject()
                 .put("engineOn", "1".equals(db.setting("engine_on", "1")))
-                .put("version", "5.8.0"));
+                .put("version", "1.0"));
     }
 
     private Res saveSettings(String body) throws Exception {

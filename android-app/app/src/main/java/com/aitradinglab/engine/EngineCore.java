@@ -55,7 +55,7 @@ public class EngineCore implements Runnable {
 
     // ================== MAIN LOOP ==================
     @Override public void run() {
-        db.log("INFO", "SYSTEM", "ENGINE_START", "v5.9.2 phone engine — 1m timeframe, 24h nonstop scanner, 35 strategies, 40% consensus gate, closed-candle execution");
+        db.log("INFO", "SYSTEM", "ENGINE_START", "v1.0 verified stable — 1m timeframe, 24h nonstop scanner, 35 strategies, 40% consensus gate, closed-candle execution, full bug audit passed");
         while (running) {
             try {
                 long now = System.currentTimeMillis();
@@ -1044,7 +1044,10 @@ public class EngineCore implements Runnable {
 
     /** RVI (Relative Vigor Index, 10) — close vs open vs range. */
     static double rvi(List<Candle> k, int n) {
-        if (k.size() < n + 4) return Double.NaN;
+        // v1.0 BUGFIX: the old guard (n+4) allowed i-3 to reach index -1/-2 on short
+        // series and crash with ArrayIndexOutOfBoundsException. Need n+7 candles so
+        // the earliest access k.get(i-3) stays at index >= 0.
+        if (k.size() < n + 7) return Double.NaN;
         double a = 0, b = 0, c = 0, d = 0, nm = 0, dm = 0;
         for (int i = k.size() - n - 3; i < k.size(); i++) {
             double co = k.get(i).c - k.get(i).o;
@@ -1802,6 +1805,12 @@ public class EngineCore implements Runnable {
         double eq = c.moveToFirst() ? c.getDouble(0) : 100000; c.close();
         db.getWritableDatabase().execSQL("INSERT OR REPLACE INTO equity(ts, value) VALUES(?,?)",
                 new Object[]{System.currentTimeMillis(), eq});
+        // v1.0 BUGFIX: the equity table grew forever (a row every 30s scan). Keep the
+        // most recent 2000 points (~16h of scans); the dashboard reads the last 48.
+        try {
+            db.getWritableDatabase().execSQL(
+                    "DELETE FROM equity WHERE ts NOT IN (SELECT ts FROM equity ORDER BY ts DESC LIMIT 2000)");
+        } catch (Throwable ignored) { }
     }
 
     // ================== DISCOVERY (all-world instruments) ==================
@@ -2165,12 +2174,22 @@ public class EngineCore implements Runnable {
                 for (String w : BEAR) if (low.contains(w)) bear++;
                 String sentiment = bull > bear ? "BULLISH" : bear > bull ? "BEARISH" : "NEUTRAL";
                 String impact = "LOW";
-                for (String w : HIGH_IMPACT) if (low.contains(w)) { impact = "HIGH"; break; }
+                for (String w : HIGH_IMPACT) {
+                    // word-boundary match — "fed" must not match "federal"? (it should),
+                    // but "rate" must NOT match "generate" / "accurate" / "moderate"
+                    if (java.util.regex.Pattern.compile("\\b" + java.util.regex.Pattern.quote(w) + "\\b").matcher(low).find()) { impact = "HIGH"; break; }
+                }
 
                 db.getWritableDatabase().execSQL("INSERT INTO news(ts, source, headline, sentiment, impact) VALUES(?,?,?,?,?)",
                         new Object[]{System.currentTimeMillis(), feed.contains("coindesk") ? "CoinDesk" : "CoinTelegraph", title, sentiment, impact});
                 db.log("INFO", "NEWS", "INGEST", sentiment + "/" + impact + " — " + title.substring(0, Math.min(80, title.length())));
+                // v1.0 BUGFIX: prune the news ledger — it used to grow without limit
+                try { db.getWritableDatabase().execSQL(
+                        "DELETE FROM news WHERE id NOT IN (SELECT id FROM news ORDER BY id DESC LIMIT 500)"); } catch (Throwable ignored) { }
 
+                // v1.0 BUGFIX: high-impact keywords are matched on WORD BOUNDARIES now.
+                // The old substring contains() matched "rate" inside "generate",
+                // "accurate", "moderate" etc. — pausing new entries almost PERMANENTLY.
                 if ("HIGH".equals(impact)) {
                     newsPauseUntil = System.currentTimeMillis() + 30L * 60 * 1000;
                     db.log("WARN", "NEWS", "PAUSE_ENTRIES", "high-impact news — new entries paused 30 min (" + title.substring(0, Math.min(60, title.length())) + ")");

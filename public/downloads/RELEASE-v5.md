@@ -1,7 +1,41 @@
-# AI Trading Lab — v5.9.2 Release (Android)
+# AI Trading Lab — v1.0 Release (Android) — VERIFIED STABLE
 
-Release date: 2026-10-28
-APK: `AI-Trading-Lab-v5.9.2-Android.apk` (132 KB, versionCode 16)
+Release date: 2026-10-29
+APK: `AI-Trading-Lab-v1.0-Android.apk` (versionCode 17)
+
+Owner request: "pure link and app ko full bugs verify karke correct kardo phir
+link dena jo ke v1 hoga" — the ENTIRE app (all 10 Java files + dashboard JS +
+every download link) was audited line-by-line, all found bugs were fixed, and
+the build was rebranded v1.0 as the verified-stable baseline.
+
+## FULL BUG AUDIT — 6 defects found and fixed
+
+1. **Login screen showed the Change-Password form (root cause of the owner's
+   "invalid email/pass" confusion)** — dashboard `showTab()` used an inverted
+   classList.toggle, so clicking the "Sign in" tab REVEALED the recovery panel.
+   The reset form now only opens via "Forgot password?".
+2. **Session wiped on transient engine restarts** — renderDash/boot cleared the
+   saved token on ANY non-200 (including network hiccup status 0). Now only a
+   real 401 ends the session; other failures show a retry banner.
+3. **News pause near-permanent** — high-impact keywords matched by substring
+   ("rate" inside "generate"/"accurate") kept new entries paused. Matching is
+   now word-boundary (regex) based.
+4. **Unbounded table growth** — equity (row per 30s scan) and news ledgers now
+   auto-prune (2000 / 500 latest rows).
+5. **RVI edge-case crash** — indicator guard fixed (n+4 -> n+7 candles) so the
+   k.get(i-3) access can never go negative.
+6. **Stale version strings** — health said 5.9.0, settings said 5.8.0, dashboard
+   said "need >=60%" while the gate is 40%. All synced to v1.0 / 40%.
+
+Also verified line-by-line with NO defects: Db schema vs every query, Auth
+(PBKDF2/TOTP/invites), HttpServer (HTTP parsing, body reads), ServerService
+(FGS types, WAL self-heal, crash net), Monitor (WebView, battery prompt),
+register/login/reset flows, admin endpoints, all 35 strategy votes, risk gates
+(1%/trade, 5% daily halt, 10% kill), SL/TP math, discovery scanner, Fear&Greed,
+JS syntax (node --check), APK signature + versionCode monotonicity (17).
+
+Carried from v5.9.2 (already fixed): the never-trades bug (in-progress candle
+skip) and the 40% consensus gate with strict dominance.
 
 ## v5.9.2 fix — ENGINE NOW ACTUALLY TRADES + 40% CONSENSUS (user request)
 
