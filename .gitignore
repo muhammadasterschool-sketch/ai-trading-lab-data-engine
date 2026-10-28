@@ -1,0 +1,48 @@
+# ============ secrets (NEVER commit) ============
+.env
+.env.*
+!.env.example
+android-app/ai-trading-lab.keystore
+android-app/local.properties
+*.jks
+*.pem
+
+# ============ databases (live user data) ============
+db/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+
+# ============ dependencies / builds ============
+node_modules/
+.next/
+out/
+tsconfig.tsbuildinfo
+android-app/.gradle/
+android-app/app/build/
+android-app/build/
+
+# ============ deliverables / large binaries ============
+download/
+public/downloads/*.zip
+public/downloads/*.apk
+*.apk
+!android-app/app/src/main/res/**/*.png
+
+# ============ workspace internals ============
+skills/
+upload/
+tool-results/
+agent-ctx/
+*.log
+dev.log
+engine.log
+web.log
+server.log
+nohup.out
+
+# ============ misc ============
+.DS_Store
+*.pnp
+coverage/

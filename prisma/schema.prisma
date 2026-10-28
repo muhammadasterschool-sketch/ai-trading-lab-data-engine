@@ -1,0 +1,357 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ============ AUTH & USERS (2FA mandatory) ============
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  passwordHash  String
+  role          String    @default("TRADER") // ADMIN | TRADER
+  totpSecret    String? // base32 secret
+  totpEnabled   Boolean   @default(false)
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastLoginAt   DateTime?
+  sessions      Session[]
+  paperAccounts PaperAccount[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  stage     String   @default("FULL") // PASSWORD_OK (awaiting 2FA) | FULL
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+// ============ INVITATION CODES (invite-only access, v4) ============
+
+model InvitationCode {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  label       String    @default("") // e.g. "Family", "Trading group"
+  maxUses     Int       @default(0) // 0 = unlimited
+  uses        Int       @default(0)
+  active      Boolean   @default(true)
+  createdBy   String    @default("muhammad")
+  createdAt   DateTime  @default(now())
+  lastUsedAt  DateTime?
+}
+
+// ============ MARKET DATA (real, provenance-tracked) ============
+
+model DataBundle {
+  id         String   @id @default(cuid())
+  symbol     String // PAXGUSDT (gold), BTCUSDT
+  timeframe  String   @default("1m")
+  source     String   @default("binance-vision-repo")
+  sourceUrl  String
+  period     String // e.g. 2026-09
+  startDate  DateTime
+  endDate    DateTime
+  barCount   Int      @default(0)
+  gaps       Int      @default(0)
+  duplicates Int      @default(0)
+  outliers   Int      @default(0)
+  quality    String   @default("PASSED") // PASSED | WARN | FAILED
+  provenance String   @default("{}") // JSON: url, sha256, fetchedAt, rows
+  status     String   @default("READY") // FETCHING | READY | FAILED
+  error      String?
+  fetchedAt  DateTime @default(now())
+  bars       Bar[]
+}
+
+model Bar {
+  id       Int    @id @default(autoincrement())
+  bundleId String
+  bundle   DataBundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  ts       DateTime
+  open     Float
+  high     Float
+  low      Float
+  close    Float
+  volume   Float
+
+  @@unique([bundleId, ts])
+  @@index([ts])
+}
+
+// ============ STRATEGIES (Top-5 YouTuber classics, M1) ============
+
+model Strategy {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  name        String
+  family      String // trend | mean-reversion | breakout | momentum | institutional
+  description String
+  youtuberRef String // which classic setup it implements
+  params      String // JSON — active params
+  paramGrid   String // JSON — auto-scan grid
+  weight      Float    @default(1.0)
+  status      String   @default("ACTIVE") // PROPOSED | ACTIVE | PAUSED | REJECTED
+  createdBy   String   @default("system")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ============ AUTO-SCAN (v1.2) ============
+
+model ScanRun {
+  id          String    @id @default(cuid())
+  symbol      String
+  days        Int       @default(30)
+  strategies  String // JSON list of keys scanned
+  status      String    @default("RUNNING") // RUNNING | DONE | FAILED
+  trials      Int       @default(0)
+  noiseBar    Float     @default(0) // DSR expected max noise Sharpe
+  error       String?
+  startedAt   DateTime  @default(now())
+  finishedAt  DateTime?
+  results     ScanResult[]
+}
+
+model ScanResult {
+  id             String  @id @default(cuid())
+  scanId         String
+  scan           ScanRun @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  strategyKey    String
+  params         String // JSON
+  trades         Int
+  winRate        Float
+  sharpe         Float
+  sortino        Float
+  maxDrawdown    Float
+  netReturn      Float
+  profitFactor   Float
+  oosSharpe      Float? // walk-forward out-of-sample
+  oosReturn      Float?
+  rank           Int?
+}
+
+// ============ BACKTEST RUNS (v1.3 reality modelling) ============
+
+model BacktestRun {
+  id           String   @id @default(cuid())
+  symbol       String
+  strategyKey  String
+  params       String // JSON
+  startDate    DateTime
+  endDate      DateTime
+  costsApplied Boolean  @default(true)
+  walkForward  Boolean  @default(false)
+  metrics      String // JSON
+  equityCurve  String // JSON [[ts, equity]]
+  foldStats    String // JSON
+  tradeSample  String // JSON (last 50)
+  createdAt    DateTime @default(now())
+}
+
+// ============ PAPER TRADING ============
+
+model PaperAccount {
+  id                 String   @id @default(cuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name               String   @default("Primary Paper Account")
+  symbol             String   @default("PAXGUSDT")
+  startBalance       Float    @default(100000)
+  balance            Float    @default(100000)
+  equity             Float    @default(100000)
+  highWaterMark      Float    @default(100000)
+  dayStartEquity     Float    @default(100000)
+  dayKey             String   @default("") // YYYY-MM-DD UTC
+  dailyLossLimitPct  Float    @default(5)
+  maxDrawdownPct     Float    @default(10)
+  perTradeRiskPct    Float    @default(1)
+  burstRiskPct       Float    @default(0.1)
+  maxBurstTrades     Int      @default(60)
+  consensusThreshold Float    @default(60)
+  status             String   @default("ACTIVE") // ACTIVE | HALTED_DAILY | HALTED_DD | KILLED
+  autopilot          Boolean  @default(false)
+  burstEnabled       Boolean  @default(true)
+  cooldownUntil      DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  orders             PaperOrder[]
+  trades             PaperTrade[]
+  positions          PaperPosition[]
+  riskEvents         RiskEvent[]
+}
+
+model PaperPosition {
+  id          String    @id @default(cuid())
+  accountId   String
+  account     PaperAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  symbol      String
+  side        String // LONG | SHORT
+  qty         Float
+  avgPrice    Float
+  strategyKey String?
+  mode        String    @default("NORMAL")
+  openedAt    DateTime  @default(now())
+  status      String    @default("OPEN")
+  closedAt    DateTime?
+  realizedPnl Float     @default(0)
+}
+
+model PaperOrder {
+  id             String      @id @default(cuid())
+  accountId      String
+  account        PaperAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  strategyKey    String?
+  symbol         String
+  side           String // BUY | SELL
+  qty            Float
+  requestedPrice Float
+  decisionPrice  Float // arrival mid at signal time (TCA)
+  fillPrice      Float?
+  spreadCost     Float?
+  fee            Float?
+  slippage       Float?
+  impactEstimate Float?
+  mode           String      @default("NORMAL") // NORMAL | BURST | MANUAL
+  burstSeq       Int?
+  status         String      @default("FILLED") // FILLED | REJECTED
+  rejectReason   String?
+  reason         String? // human-readable signal description
+  createdAt      DateTime    @default(now())
+}
+
+model PaperTrade {
+  id          String      @id @default(cuid())
+  accountId   String
+  account     PaperAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  strategyKey String?
+  symbol      String
+  side        String // LONG | SHORT
+  qty         Float
+  entryPrice  Float
+  exitPrice   Float?
+  entryAt     DateTime    @default(now())
+  exitAt      DateTime?
+  pnl         Float?
+  fees        Float       @default(0)
+  mode        String      @default("NORMAL")
+  status      String      @default("OPEN") // OPEN | CLOSED
+  confidence  Float?
+  tcaBps      Float? // total cost in basis points for this round trip
+}
+
+// ============ CONSENSUS / BURST ============
+
+model ConsensusLog {
+  id                   String   @id @default(cuid())
+  ts                   DateTime
+  symbol               String
+  bullishScore         Float
+  bearishScore         Float
+  direction            String // BULLISH | BEARISH | NEUTRAL
+  thresholdMet         Boolean  @default(false)
+  pendingSince         DateTime?
+  confirmationCandleAt DateTime?
+  burstActive          Boolean  @default(false)
+  votes                String // JSON strategy votes
+}
+
+// ============ PREDICTIONS & CRASH ============
+
+model Prediction {
+  id          String    @id @default(cuid())
+  ts          DateTime
+  symbol      String
+  direction   String // UP | DOWN
+  confidence  Float
+  horizonMin  Int       @default(5)
+  model       String    @default("ensemble-v1")
+  refPrice    Float
+  resolvedAt  DateTime?
+  targetPrice Float?
+  actualPrice Float?
+  correct     Boolean?
+  features    String // JSON
+}
+
+model CrashAlert {
+  id          String   @id @default(cuid())
+  ts          DateTime
+  symbol      String
+  probability Float
+  severity    String // LOW | MEDIUM | HIGH | CRITICAL
+  direction   String // DOWN | UP
+  indicators  String // JSON breakdown
+  actionTaken String?
+  acknowledged Boolean @default(false)
+}
+
+// ============ RISK EVENTS ============
+
+model RiskEvent {
+  id          String   @id @default(cuid())
+  accountId   String
+  account     PaperAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  ts          DateTime @default(now())
+  type        String // DAILY_LOSS_BREACH | TRAILING_DD_BREACH | PER_TRADE_CAP | KILL_SWITCH | COOLDOWN | CRASH_PAUSE
+  detail      String // JSON
+  actionTaken String
+}
+
+// ============ APPROVAL INBOX (governance) ============
+
+model ApprovalRequest {
+  id         String    @id @default(cuid())
+  type       String    @default("STRATEGY") // STRATEGY | SCAN_WINNER
+  refKey     String? // strategy key
+  title      String
+  evidence   String // JSON metrics
+  status     String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  requestedBy String   @default("system")
+  decidedBy  String?
+  decidedAt  DateTime?
+  note       String?
+  createdAt  DateTime  @default(now())
+}
+
+// ============ ADMIN NOTIFICATIONS (v5.6) ============
+// One row per registration event — the owner sees EVERY new signup instantly
+// in the Admin tab (unread badge), before anything else.
+
+model AdminNotification {
+  id        String   @id @default(cuid())
+  kind      String   @default("REGISTER") // REGISTER | SYSTEM
+  title     String
+  body      String
+  meta      String   @default("{}") // JSON: email, name, inviteCode, ip, role
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([read, createdAt])
+}
+
+// ============ ENGINE STATE (singleton row) ============
+
+model EngineState {
+  id            String   @id @default("singleton")
+  running       Boolean  @default(false)
+  autopilot     Boolean  @default(false)
+  closeAll      Boolean  @default(false)
+  startedAt     DateTime?
+  stoppedAt     DateTime?
+  lastTickAt    DateTime?
+  lastPriceGold Float?
+  lastPriceBtc  Float?
+  lastBarTs     DateTime?
+  burstState    String   @default("{}") // JSON snapshot
+  killSwitch    Boolean  @default(false)
+  updatedAt     DateTime @updatedAt
+}

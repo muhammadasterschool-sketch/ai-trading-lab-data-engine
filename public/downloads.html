@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Trading Lab v4.0 — Downloads</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: #0a0e14; color: #e2e8f0; min-height: 100vh;
+    padding: 40px 16px;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 26px; letter-spacing: .5px; margin-bottom: 6px; }
+  h1 .gold { color: #f0b429; }
+  .badge {
+    display:inline-block; background: rgba(240,180,41,.15); border:1px solid rgba(240,180,41,.35);
+    color:#f0b429; font-size:11px; font-weight:600; padding:2px 8px; border-radius:4px; margin-bottom:18px;
+  }
+  .sub { color:#8b98ab; font-size:14px; margin-bottom:28px; line-height:1.5; }
+  .sub code { background:#161d29; padding:2px 6px; border-radius:4px; color:#f0b429; font-size:12px; }
+  .card {
+    background:#111823; border:1px solid #1f2a3a; border-radius:12px;
+    padding:18px 20px; margin-bottom:14px; display:flex; align-items:center; gap:16px;
+  }
+  .icon { font-size:30px; flex-shrink:0; width:44px; text-align:center; }
+  .info { flex:1; min-width:0; }
+  .name { font-weight:600; font-size:15px; margin-bottom:3px; }
+  .meta { color:#8b98ab; font-size:12.5px; line-height:1.45; }
+  a.btn {
+    display:inline-block; background:#f0b429; color:#0a0e14; font-weight:700; font-size:13px;
+    padding:10px 18px; border-radius:8px; text-decoration:none; white-space:nowrap; transition:.15s;
+  }
+  a.btn:hover { background:#ffc94d; }
+  a.btn.ghost { background:#1a2332; color:#e2e8f0; border:1px solid #2a3648; }
+  a.btn.ghost:hover { background:#243044; }
+  .steps { background:#111823; border:1px solid #1f2a3a; border-radius:12px; padding:18px 20px; margin-top:24px; }
+  .steps h2 { font-size:15px; color:#f0b429; margin-bottom:10px; }
+  .steps ol { margin-left:18px; color:#aeb9c9; font-size:13.5px; line-height:1.9; }
+  .steps code { background:#0a0e14; padding:1px 6px; border-radius:4px; color:#f0b429; font-size:12px; }
+  .warn { color:#e07856; font-size:12.5px; margin-top:12px; line-height:1.5; }
+  .footer { text-align:center; color:#5a6678; font-size:11.5px; margin-top:28px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AI Trading Lab <span class="gold">— Data Engine</span></h1>
+  <span class="badge">v5.6 · PRIVATE BUILD · NOT PUBLISHED</span>
+  <p class="sub">
+    Direct downloads — click a button and the file saves to your device.<br>
+    <b style="color:#fbbf24">NEW v5:</b> Android app ab poora system hai — phone par hi engine chalta hai (no PC needed).
+  </p>
+
+  <div class="card" style="border-color:#f59e0b;">
+    <div class="icon">🚀</div>
+    <div class="info">
+      <div class="name">Android FULL SYSTEM (v5.6) — Phone Server</div>
+      <div class="meta">95 KB · signed · v5.6 registration alerts · Android 7.0+ · <b>PC ki zaroorat NAHI</b><br>
+      NEW: koi bhi invite code se register ho to owner ko FORAN notification milti hai (phone alert + Admin tab feed)</div>
+    </div>
+    <a class="btn" href="/downloads/AI-Trading-Lab-v5.6-Android.apk" download>Download v5.6 APK</a>
+  </div>
+
+  <div class="card">
+    <div class="icon">🖥️</div>
+    <div class="info">
+      <div class="name">Windows SERVER — Mini-Services (full engine)</div>
+      <div class="meta">11 MB · trading-engine + web app + gateway + database (253k real bars)<br>Run this on the PC that hosts the engine — see START-HERE-WINDOWS.txt inside</div>
+    </div>
+    <a class="btn" href="/downloads/AI-Trading-Lab-v4.0-Windows-Server-mini-services.zip" download>Download ZIP</a>
+  </div>
+
+  <div class="card">
+    <div class="icon">🪟</div>
+    <div class="info">
+      <div class="name">Windows App (client monitor)</div>
+      <div class="meta">110 MB · portable Electron shell — no installer, no admin rights<br>Unzip anywhere → run "AI Trading Lab.exe" → enter server URL</div>
+    </div>
+    <a class="btn" href="/downloads/AI-Trading-Lab-v4.0-Windows.zip" download>Download ZIP</a>
+  </div>
+
+  <div class="card">
+    <div class="icon">🍏</div>
+    <div class="info">
+      <div class="name">iPhone — PWA (no Mac needed)</div>
+      <div class="meta">Koi file download nahi karni: ye page <b>Safari</b> mein kholo → Share → Add to Home Screen.<br>App icon ban jayega aur full-screen chalega.</div>
+    </div>
+    <a class="btn ghost" href="/" >Open Web App</a>
+  </div>
+
+  <div class="card">
+    <div class="icon">🛠️</div>
+    <div class="info">
+      <div class="name">Source packages (rebuild yourself)</div>
+      <div class="meta">Android Gradle source (v5 full engine) · Windows Electron source · release notes</div>
+    </div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
+      <a class="btn ghost" href="/downloads/AI-Trading-Lab-v5.6-Android-source.zip" download>Android src (v5.6)</a>
+      <a class="btn ghost" href="/downloads/AI-Trading-Lab-v4.0-Windows-source.zip" download>Windows src</a>
+      <a class="btn ghost" href="/downloads/RELEASE-v5.md" download>RELEASE-v5.md</a>
+      <a class="btn ghost" href="/downloads/RELEASE-v4.md" download>RELEASE-v4.md</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="icon">⚡</div>
+    <div class="info">
+      <div class="name">One-Click Windows Setup (PowerShell)</div>
+      <div class="meta">setup-atl.ps1 · download + extract + install + build + start + dashboard — sab ek command mein<br>PowerShell kholo aur 2 lines paste karo — 10-15 min mein dashboard khul jayega</div>
+    </div>
+    <a class="btn" href="/downloads/setup-atl.ps1" download>Download .ps1</a>
+  </div>
+
+  <div class="steps">
+    <h2>⚡ Quick start — 3 steps</h2>
+    <ol>
+      <li><b>PC:</b> Windows SERVER zip download karo → unzip → Node.js LTS (nodejs.org) → double-click <code>deploy\start-local-windows.bat</code></li>
+      <li><b>Phone:</b> v5 APK install karo → app kholo → <b>THIS DEVICE</b> mode (green card) — sab kuch phone par hi chalega, koi URL nahi chahiye. PC engine se connect karna ho to LOCAL mode → <code>http://&lt;PC-IP&gt;:81</code></li>
+      <li><b>Login:</b> Pehli dafa? <b>Register</b> (invite code pehle se bhara hai) → phir <b>Sign in</b> → dashboard turant khulega · Password bhool gaye? <b>Forgot password?</b> · Admin web: <code>muhammadasterschool@gmail.com</code></li>
+    </ol>
+    <p class="warn">⚠ USB mode (best connection): <code>adb reverse tcp:81 tcp:81</code> → app URL: <code>http://127.0.0.1:81</code> · Invitation code: <b>M2991474</b> · v5.5: Sign in → dashboard foran khulta hai (koi authenticator app nahi chahiye).</p>
+  </div>
+
+  <div class="footer">AI Trading Lab — v5.6 · private build · paper trading only</div>
+</div>
+</body>
+</html>

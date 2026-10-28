@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>AI Trading Lab</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{background:#09090b;color:#fafafa;font-family:-apple-system,'Segoe UI',Roboto,sans-serif;min-height:100vh;font-size:14px}
+button{font-family:inherit}
+.hidden{display:none!important}
+/* ---------- auth ---------- */
+#auth{max-width:420px;margin:0 auto;padding:32px 20px}
+.logo{width:64px;height:64px;border-radius:16px;background:linear-gradient(135deg,#fbbf24,#d97706);display:flex;align-items:center;justify-content:center;font-size:30px;margin:0 auto}
+h1{font-size:19px;text-align:center;margin-top:14px}
+.sub{color:#71717a;font-size:11.5px;text-align:center;margin-top:4px}
+.eng{margin-top:12px;text-align:center;font-size:11.5px;padding:7px 10px;border-radius:8px;border:1px solid #27272a;color:#71717a;background:#101013}
+.eng.ok{color:#4ade80;border-color:rgba(74,222,128,.3);background:rgba(74,222,128,.07)}
+.eng.bad{color:#f87171;border-color:rgba(248,113,113,.3);background:rgba(248,113,113,.07)}
+.tabs{display:flex;gap:8px;margin-top:22px;background:#18181b;border:1px solid #27272a;border-radius:10px;padding:4px}
+.tabs button{flex:1;background:none;border:0;color:#a1a1aa;padding:9px;border-radius:7px;font-size:13.5px;font-weight:600}
+.tabs button.on{background:#f59e0b;color:#09090b}
+.field{margin-top:12px}
+.field label{display:block;font-size:11px;color:#a1a1aa;margin-bottom:5px;font-weight:600;letter-spacing:.03em}
+.field input{width:100%;background:#18181b;border:1px solid #27272a;border-radius:9px;color:#fafafa;padding:12px 13px;font-size:15px;outline:none}
+.field input:focus{border-color:#f59e0b}
+.note{background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.25);color:#fbbf24;font-size:11.5px;border-radius:8px;padding:8px 10px;margin-top:14px;line-height:1.5}
+.btn{width:100%;background:#f59e0b;color:#09090b;border:0;border-radius:10px;padding:13px;font-size:15px;font-weight:700;margin-top:16px;cursor:pointer}
+.btn:disabled{opacity:.4}
+.btn.sec{background:#27272a;color:#fafafa}
+.err{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);color:#f87171;font-size:12.5px;border-radius:8px;padding:9px 11px;margin-top:12px}
+.ok{background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.3);color:#4ade80;font-size:12.5px;border-radius:8px;padding:9px 11px;margin-top:12px}
+.secret{font-family:monospace;font-size:16px;letter-spacing:.08em;background:#18181b;border:1px dashed #f59e0b;border-radius:10px;padding:14px;text-align:center;color:#fbbf24;user-select:all;margin-top:10px}
+.steps{font-size:12px;color:#a1a1aa;line-height:1.7;margin-top:12px;padding-left:16px}
+/* ---------- app ---------- */
+#app{display:none;flex-direction:column;height:100vh}
+header{display:flex;align-items:center;gap:10px;padding:12px 14px;background:#0d0d10;border-bottom:1px solid #1f1f23;position:sticky;top:0;z-index:5}
+header .dot{width:9px;height:9px;border-radius:50%;background:#22c55e;box-shadow:0 0 8px #22c55e}
+header .ttl{font-weight:800;font-size:14.5px}
+header .st{font-size:10.5px;color:#71717a}
+header .out{margin-left:auto;background:none;border:1px solid #27272a;color:#a1a1aa;border-radius:8px;padding:6px 10px;font-size:11.5px}
+main{flex:1;overflow-y:auto;padding:14px;padding-bottom:80px}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:#0d0d10;border-top:1px solid #1f1f23;padding:6px 4px calc(6px + env(safe-area-inset-bottom))}
+nav button{flex:1;background:none;border:0;color:#71717a;font-size:9.5px;padding:5px 2px;display:flex;flex-direction:column;gap:3px;align-items:center}
+nav button .ic{font-size:18px;line-height:1}
+nav button.on{color:#f59e0b}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.07em;color:#a1a1aa;margin:18px 0 10px}
+h2:first-child{margin-top:0}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.card{background:#141417;border:1px solid #232328;border-radius:12px;padding:13px}
+.card .k{font-size:10px;color:#71717a;text-transform:uppercase;letter-spacing:.05em}
+.card .v{font-size:19px;font-weight:800;margin-top:4px}
+.card .v.green{color:#4ade80}.card .v.red{color:#f87171}
+.card.full{grid-column:1/-1}
+.banner{border-radius:10px;padding:10px 12px;font-size:12px;margin-bottom:12px;line-height:1.5}
+.banner.warn{background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.3);color:#fbbf24}
+.banner.red{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.3);color:#f87171}
+.banner.green{background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.25);color:#4ade80}
+table{width:100%;border-collapse:collapse;font-size:11.5px}
+th{color:#71717a;text-align:left;font-weight:600;padding:7px 6px;border-bottom:1px solid #232328;font-size:10px;text-transform:uppercase;letter-spacing:.04em}
+td{padding:8px 6px;border-bottom:1px solid #1b1b1f;vertical-align:top}
+.pill{display:inline-block;border-radius:5px;padding:2px 7px;font-size:9.5px;font-weight:700;letter-spacing:.03em}
+.pill.ACTIVE{background:rgba(34,197,94,.15);color:#4ade80}
+.pill.WATCHING{background:rgba(59,130,246,.15);color:#60a5fa}
+.pill.PENDING_BROKER,.pill.SAVED{background:rgba(245,158,11,.15);color:#fbbf24}
+.pill.BULLISH{background:rgba(34,197,94,.15);color:#4ade80}
+.pill.BEARISH{background:rgba(239,68,68,.15);color:#f87171}
+.pill.NEUTRAL{background:rgba(161,161,170,.15);color:#a1a1aa}
+.pill.HIGH{background:rgba(239,68,68,.2);color:#f87171}
+.pill.LOW{background:rgba(161,161,170,.12);color:#a1a1aa}
+.pill.OPEN{background:rgba(59,130,246,.15);color:#60a5fa}
+.pill.BUY{background:rgba(34,197,94,.15);color:#4ade80}
+.pill.SELL{background:rgba(239,68,68,.15);color:#f87171}
+.pill.ERROR{background:rgba(239,68,68,.15);color:#f87171}
+.pill.WARN{background:rgba(245,158,11,.15);color:#fbbf24}
+.pill.INFO{background:rgba(161,161,170,.12);color:#a1a1aa}
+.pill.ADMIN{background:rgba(245,158,11,.2);color:#fbbf24}
+.mut{color:#71717a}
+select{width:100%;background:#18181b;border:1px solid #27272a;border-radius:9px;color:#fafafa;padding:12px 13px;font-size:15px;outline:none}
+.row{display:flex;gap:8px;margin-top:10px}
+.row .btn{margin-top:0}
+.logline{font-size:11.5px;padding:7px 0;border-bottom:1px solid #1b1b1f;line-height:1.5}
+.logline .cmp{color:#fbbf24;font-weight:700}
+.empty{color:#52525b;text-align:center;padding:28px 10px;font-size:12.5px}
+.small{font-size:11px;color:#71717a;line-height:1.6}
+#spark{width:100%;height:90px}
+</style>
+</head>
+<body>
+
+<!-- ============ AUTH ============ -->
+<div id="auth">
+  <div class="logo">📈</div>
+  <h1>AI Trading Lab <span style="color:#f59e0b">v5</span></h1>
+  <div class="sub">Full trading engine on this device — paper trading</div>
+  <div class="sub" style="color:#fbbf24">v5.6</div>
+  <div id="engStrip" class="eng">checking engine…</div>
+  <div class="note">Pehli dafa? <b>Register</b> par account banayen (invite code pehle se bhara hai), phir <b>Sign in</b> — dashboard foran khulega. Kisi authenticator app ki zaroorat nahi.</div>
+
+  <div class="tabs">
+    <button id="tabSignin" class="on" onclick="showTab('signin')">Sign in</button>
+    <button id="tabRegister" onclick="showTab('register')">Register</button>
+  </div>
+
+  <!-- sign in -->
+  <div id="signin">
+    <div class="field"><label>NAME</label><input id="liName" autocomplete="name" placeholder="Your registered name"></div>
+    <div class="field"><label>EMAIL</label><input id="liEmail" type="email" autocomplete="email" placeholder="you@gmail.com"></div>
+    <div class="field"><label>PASSWORD</label><input id="liPass" type="password" placeholder="••••••••"></div>
+    <button class="btn" onclick="doLogin()">Sign in</button>
+    <button class="btn sec" style="margin-top:8px" onclick="showReset()">Forgot password?</button>
+    <div id="signinMsg"></div>
+  </div>
+
+  <!-- reset password (v5.3) -->
+  <div id="resetpw" class="hidden">
+    <div class="note">Password recovery — needs your invitation code. After reset, sign in with the new password.</div>
+    <div class="field"><label>INVITATION CODE</label><input id="rsInvite" value="M2991474"></div>
+    <div class="field"><label>FULL NAME</label><input id="rsName" placeholder="The name on the account"></div>
+    <div class="field"><label>EMAIL</label><input id="rsEmail" type="email" placeholder="you@gmail.com"></div>
+    <div class="field"><label>NEW PASSWORD</label><input id="rsPass" type="password" placeholder="Min 8 chars, letters + numbers"></div>
+    <button class="btn" onclick="doReset()">Change password</button>
+    <button class="btn sec" style="margin-top:8px" onclick="showTab('signin')">Back to sign in</button>
+    <div id="resetMsg"></div>
+  </div>
+
+  <!-- register -->
+  <div id="register" class="hidden">
+    <div class="note">Invite-only — a valid invitation code is required</div>
+    <div class="field"><label>INVITATION CODE</label><input id="rgInvite" value="M2991474"></div>
+    <div class="field"><label>FULL NAME</label><input id="rgName" placeholder="Your name"></div>
+    <div class="field"><label>EMAIL</label><input id="rgEmail" type="email" placeholder="you@gmail.com"></div>
+    <div class="field"><label>PASSWORD</label><input id="rgPass" type="password" placeholder="Min 8 chars, letters + numbers"></div>
+    <button class="btn" onclick="doRegister()">Create account</button>
+    <div id="regMsg"></div>
+  </div>
+
+  <!-- 2fa -->
+  <div id="twofa" class="hidden">
+    <div class="note" id="faMsg"></div>
+    <div id="enrollBox">
+      <div class="steps">
+        1. Open <b>Google Authenticator</b> (or Authy)<br>
+        2. Tap <b>+</b> → <b>Enter a setup key</b><br>
+        3. Account: your email · Key: the one below · Type: <b>Time-based</b><br>
+        4. Enter the 6-digit code here
+      </div>
+      <div class="secret" id="faSecret"></div>
+    </div>
+    <div class="field" style="margin-top:14px"><label>6-DIGIT CODE</label><input id="faCode" inputmode="numeric" maxlength="6" placeholder="000000" style="text-align:center;font-size:22px;letter-spacing:.3em;font-family:monospace"></div>
+    <button class="btn" onclick="doVerify()">Verify &amp; enter</button>
+    <div id="faErr"></div>
+  </div>
+  <div class="sub" style="margin-top:22px">Paper trading system — no real orders are sent.</div>
+</div>
+
+<!-- ============ APP ============ -->
+<div id="app">
+  <header>
+    <div class="dot"></div>
+    <div><div class="ttl">AI Trading Lab</div><div class="st" id="hdrSub">engine running</div></div>
+    <button class="out" onclick="doLogout()">Sign out</button>
+  </header>
+  <main id="main"></main>
+  <nav>
+    <button data-t="dash" class="on" onclick="go('dash')"><span class="ic">📊</span>Home</button>
+    <button data-t="inst" onclick="go('inst')"><span class="ic">🗂️</span>Instruments</button>
+    <button data-t="news" onclick="go('news')"><span class="ic">📰</span>News</button>
+    <button data-t="trades" onclick="go('trades')"><span class="ic">💱</span>Trades</button>
+    <button data-t="logs" onclick="go('logs')"><span class="ic">📜</span>Logs</button>
+    <button data-t="broker" onclick="go('broker')"><span class="ic">🔌</span>Broker</button>
+    <button data-t="set" onclick="go('set')"><span class="ic">⚙️</span>Settings</button>
+  </nav>
+</div>
+
+<script>
+var TOKEN = localStorage.getItem('atl_token') || '';
+var USER = null, TAB = 'dash';
+
+function api(path, opts) {
+  opts = opts || {};
+  return fetch(path, {
+    method: opts.method || 'GET',
+    headers: Object.assign({'Content-Type': 'application/json'},
+      TOKEN ? {'Authorization': 'Bearer ' + TOKEN} : {}),
+    body: opts.body ? JSON.stringify(opts.body) : undefined
+  }).then(function(r){ return r.json().then(function(j){ return {status: r.status, data: j}; }); })
+  .catch(function(e){
+    // v5.5: NO silent failures — every network problem becomes a visible message
+    return {status: 0, data: {error: 'Engine tak request nahi pahunchi (connection failed). App band karke dobara kholein — engine background me chal raha hoga.'}};
+  });
+}
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+function fmtTime(ts){ if(!ts) return '—'; var d = new Date(ts); return d.toLocaleDateString(undefined,{month:'short',day:'numeric'}) + ' ' + d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'}); }
+function msg(id, text, cls){ var el = document.getElementById(id); el.innerHTML = text ? '<div class="'+cls+'">'+text+'</div>' : ''; }
+
+/* ---------------- auth flow ---------------- */
+function showTab(t){
+  document.getElementById('signin').classList.toggle('hidden', t!=='signin' && t!=='twofa');
+  document.getElementById('register').classList.toggle('hidden', t!=='register');
+  document.getElementById('resetpw').classList.toggle('hidden', t!=='signin');
+  document.getElementById('tabSignin').classList.toggle('on', t==='signin');
+  document.getElementById('tabRegister').classList.toggle('on', t==='register');
+  if(t==='signin'){ document.getElementById('twofa').classList.add('hidden'); document.getElementById('signin').classList.remove('hidden'); }
+}
+function showReset(){
+  document.getElementById('signin').classList.add('hidden');
+  document.getElementById('twofa').classList.add('hidden');
+  document.getElementById('register').classList.add('hidden');
+  document.getElementById('resetpw').classList.remove('hidden');
+  msg('signinMsg','');
+}
+function doReset(){
+  var b = {invitationCode:rsInvite.value.trim(), name:rsName.value.trim(), email:rsEmail.value.trim(), newPassword:rsPass.value};
+  if(!b.invitationCode||!b.name||!b.email||!b.newPassword){ msg('resetMsg','Fill all fields','err'); return; }
+  api('/api/auth/reset',{method:'POST',body:b}).then(function(r){
+    if(r.status===200){ msg('resetMsg', r.data.message, 'ok'); setTimeout(function(){ showTab('signin'); liName.value=b.name; liEmail.value=b.email; },1600); }
+    else msg('resetMsg', r.data.error||'failed','err');
+  });
+}
+function doRegister(){
+  var b = {name:rgName.value.trim(), email:rgEmail.value.trim(), password:rgPass.value, invitationCode:rgInvite.value.trim()};
+  if(!b.name||!b.email||!b.password){ msg('regMsg','Fill all fields','err'); return; }
+  api('/api/auth/register',{method:'POST',body:b}).then(function(r){
+    if(r.status===200){ msg('regMsg', r.data.message, 'ok'); setTimeout(function(){ showTab('signin'); liName.value=b.name; liEmail.value=b.email; },1200); }
+    else msg('regMsg', r.data.error||'failed','err');
+  });
+}
+function doLogin(){
+  msg('signinMsg',''); var email = liEmail.value.trim().toLowerCase();
+  var b = {name:liName.value.trim(), email:email, password:liPass.value};
+  if(!b.name||!b.email||!b.password){ msg('signinMsg','Fill all fields','err'); return; }
+  msg('signinMsg','Signing in…','ok');
+  api('/api/auth/login',{method:'POST',body:b}).then(function(r){
+    if(r.status!==200){ msg('signinMsg', r.data.error||'failed','err'); return; }
+    if(r.data.token){ /* v5.5 direct entry — dashboard opens instantly */
+      TOKEN = r.data.token; USER = r.data.user;
+      localStorage.setItem('atl_token', TOKEN);
+      enterApp(); return;
+    }
+    if(r.data.stage==='ENROLL_2FA'){
+      showTab('twofa');
+      document.getElementById('signin').classList.add('hidden');
+      document.getElementById('enrollBox').classList.remove('hidden');
+      document.getElementById('faMsg').textContent = r.data.message;
+      document.getElementById('faSecret').textContent = r.data.secret;
+      window._faEmail = email;
+    } else {
+      showTab('twofa');
+      document.getElementById('signin').classList.add('hidden');
+      document.getElementById('enrollBox').classList.add('hidden');
+      document.getElementById('faMsg').textContent = r.data.message;
+      window._faEmail = email;
+    }
+  });
+}
+function doVerify(){
+  api('/api/auth/verify2fa',{method:'POST',body:{email:window._faEmail, code:faCode.value.trim()}}).then(function(r){
+    if(r.status!==200){ msg('faErr', r.data.error||'invalid code','err'); return; }
+    TOKEN = r.data.token; USER = r.data.user;
+    localStorage.setItem('atl_token', TOKEN);
+    enterApp();
+  });
+}
+function doLogout(){
+  api('/api/auth/logout',{method:'POST'}).then(function(){ localStorage.removeItem('atl_token'); location.reload(); });
+}
+function enterApp(){
+  document.getElementById('auth').style.display='none';
+  document.getElementById('app').style.display='flex';
+  go('dash'); setInterval(refresh, 15000);
+}
+
+/* ---------------- tabs ---------------- */
+function go(t){
+  TAB = t;
+  var bs = document.querySelectorAll('nav button');
+  for(var i=0;i<bs.length;i++) bs[i].classList.toggle('on', bs[i].getAttribute('data-t')===t);
+  refresh();
+}
+function refresh(){
+  if(TAB==='dash') renderDash();
+  else if(TAB==='inst') renderInst();
+  else if(TAB==='news') renderNews();
+  else if(TAB==='trades') renderTrades();
+  else if(TAB==='logs') renderLogs();
+  else if(TAB==='broker') renderBroker();
+  else if(TAB==='set') renderSet();
+}
+function renderDash(){
+  api('/api/dashboard').then(function(r){
+    if(r.status!==200){ doLogout(); return; }
+    var d = r.data, e = d.engine||{};
+    var ban = '';
+    if(!e.engine_on) ban = '<div class="banner red">Engine is OFF — enable in Settings</div>';
+    else if(e.news_pause) ban = '<div class="banner warn">📰 High-impact news — new entries paused 30 min</div>';
+    else ban = '<div class="banner green">Engine running — scanning '+e.active_symbols+' instruments every minute</div>';
+    var spark = sparkSvg(d.equity||[]);
+    document.getElementById('main').innerHTML =
+      ban +
+      '<div class="grid">' +
+      card('Paper Balance', '$'+d.balance.toFixed(2), d.totalPnl>=0?'green':'red') +
+      card('Total P&L', (d.totalPnl>=0?'+':'')+d.totalPnl.toFixed(2)+' ('+(d.pnlPct>=0?'+':'')+d.pnlPct.toFixed(2)+'%)', d.totalPnl>=0?'green':'red') +
+      card('Open Positions', d.openCount+' <span class="mut" style="font-size:11px">('+(d.openPnl>=0?'+':'')+d.openPnl.toFixed(2)+')</span>', d.openPnl>=0?'green':'red') +
+      card('Win Rate', d.winRate.toFixed(1)+'% <span class="mut" style="font-size:11px">'+d.closedCount+' closed</span>', d.winRate>=50?'green':'red') +
+      card('Today', (d.dayPnlPct>=0?'+':'')+d.dayPnlPct.toFixed(2)+'%', d.dayPnlPct>=0?'green':'red') +
+      card('Drawdown', d.drawdownPct.toFixed(2)+'%', d.drawdownPct>-5?'green':'red') +
+      '<div class="card full"><div class="k">Equity (last 12h)</div><div id="sparkwrap">'+spark+'</div></div>' +
+      '<div class="card full"><div class="k">Engine Status</div>' +
+        '<table style="margin-top:6px"><tr><td class="mut">Consensus</td><td>'+esc(e.consensus||'')+'</td></tr>' +
+        '<tr><td class="mut">Instruments trading</td><td>'+e.active_symbols+'</td></tr>' +
+        '<tr><td class="mut">Data feed</td><td>'+esc((e.data_host||'').replace('https://',''))+'</td></tr>' +
+        '<tr><td class="mut">Risk</td><td>1% / trade · 5% daily halt · 10% kill</td></tr></table></div>' +
+      '</div>';
+    document.getElementById('hdrSub').textContent = USER ? (USER.name + (USER.role==='ADMIN'?' · ADMIN':'')) : '';
+  });
+}
+function card(k,v,cls){ return '<div class="card"><div class="k">'+k+'</div><div class="v '+(cls||'')+'">'+v+'</div></div>'; }
+function sparkSvg(a){
+  if(!a||a.length<2) return '<div class="empty">collecting data…</div>';
+  var w=320, h=80, min=Math.min.apply(null,a), max=Math.max.apply(null,a), rng=(max-min)||1;
+  var pts = a.map(function(v,i){ return (i/(a.length-1)*w).toFixed(1)+','+((h-6)-(v-min)/rng*(h-12)).toFixed(1); });
+  var up = a[a.length-1] >= a[0];
+  var col = up ? '#22c55e' : '#ef4444';
+  return '<svg id="spark" viewBox="0 0 '+w+' '+h+'" preserveAspectRatio="none"><polyline points="'+pts.join(' ')+'" fill="none" stroke="'+col+'" stroke-width="2.2" stroke-linejoin="round"/></svg>';
+}
+function renderInst(){
+  api('/api/instruments').then(function(r){
+    var d = r.data, rows = '';
+    (d.instruments||[]).forEach(function(i){
+      rows += '<tr><td><b>'+esc(i.symbol)+'</b><br><span class="mut" style="font-size:10px">'+esc(i.exchange)+' · '+esc(i.assetClass)+'</span></td>' +
+        '<td><span class="pill '+i.status+'">'+i.status.replace('PENDING_BROKER','PENDING').replace('_',' ')+'</span>' +
+        (i.lastDataAt? '<br><span class="mut" style="font-size:10px">'+fmtTime(i.lastDataAt)+'</span>':'') + '</td></tr>';
+    });
+    document.getElementById('main').innerHTML =
+      '<div class="banner green">Auto-discovery ON — new instruments register themselves and trading starts automatically.<br>' +
+      '<b>'+d.active+'</b> trading · <b>'+d.watching+'</b> watching · <b>'+d.pending+'</b> pending broker · total <b>'+d.total+'</b></div>' +
+      '<button class="btn sec" onclick="scanNow()">🔍 Scan for new instruments now</button>' +
+      '<h2>Instruments Ledger</h2>' +
+      (rows ? '<table>'+rows+'</table>' : '<div class="empty">First discovery scan running — refresh in a minute</div>');
+  });
+}
+function scanNow(){
+  api('/api/instruments/scan',{method:'POST'}).then(function(r){ alert(r.data.message||'scan started'); });
+}
+function renderNews(){
+  api('/api/news').then(function(r){
+    var d = r.data, rows = '';
+    (d.news||[]).forEach(function(n){
+      rows += '<div class="logline"><span class="pill '+n.sentiment+'">'+n.sentiment+'</span> '+
+        (n.impact==='HIGH'?'<span class="pill HIGH">HIGH IMPACT</span> ':'')+
+        '<b>'+esc(n.headline)+'</b><br><span class="mut">'+esc(n.source)+' · '+fmtTime(n.ts)+'</span></div>';
+    });
+    document.getElementById('main').innerHTML =
+      (d.pauseActive? '<div class="banner warn">High-impact news active — new entries paused 30 min</div>' : '') +
+      '<h2>News Feed (auto-ingested)</h2>' +
+      (rows || '<div class="empty">Fetching news…</div>') +
+      '<div class="small" style="margin-top:14px">Every headline is scored for sentiment (bullish/bearish) and impact. High-impact news pauses new entries for 30 minutes to protect paper trades.</div>';
+  });
+}
+function renderTrades(){
+  api('/api/trades').then(function(r){
+    var open='', closed='';
+    (r.data.trades||[]).forEach(function(t){
+      var row = '<tr><td><b>'+esc(t.symbol)+'</b> <span class="pill '+t.side+'">'+t.side+'</span><br><span class="mut" style="font-size:10px">'+esc(t.strategy)+' · '+(t.consensus*100).toFixed(0)+'% · '+fmtTime(t.openedAt)+'</span></td>' +
+        '<td style="text-align:right">qty '+t.qty.toFixed(5)+'<br>entry '+t.entry.toFixed(4)+'</td>' +
+        (t.status==='OPEN'
+          ? '<td style="text-align:right"><button class="pill ACTIVE" style="border:0" onclick="closeTrade('+t.id+')">CLOSE</button></td>'
+          : '<td style="text-align:right"><b style="color:'+(t.pnl>=0?'#4ade80':'#f87171')+'">'+(t.pnl>=0?'+':'')+t.pnl.toFixed(2)+'</b><br><span class="mut" style="font-size:10px">'+t.status+' '+fmtTime(t.closedAt)+'</span></td>') +
+        '</tr>';
+      if(t.status==='OPEN') open += row; else closed += row;
+    });
+    document.getElementById('main').innerHTML =
+      '<h2>Open Positions</h2>' + (open? '<table>'+open+'</table>' : '<div class="empty">No open positions — engine scans every minute</div>') +
+      '<h2>History</h2>' + (closed? '<table>'+closed+'</table>' : '<div class="empty">No closed trades yet</div>');
+  });
+}
+function closeTrade(id){
+  if(confirm('Close this paper position at market?'))
+    api('/api/trades/close',{method:'POST',body:{id:id}}).then(function(){ renderTrades(); });
+}
+function renderLogs(){
+  api('/api/logs').then(function(r){
+    var rows = '';
+    (r.data.logs||[]).forEach(function(l){
+      rows += '<div class="logline"><span class="mut">'+fmtTime(l.ts)+'</span> <span class="pill '+l.level+'">'+l.level+'</span> <span class="cmp">'+esc(l.component)+'</span> — '+esc(l.event)+'<br><span class="mut" style="font-size:11px">'+esc(l.details)+'</span></div>';
+    });
+    document.getElementById('main').innerHTML = '<h2>System Ledger (all history)</h2>' +
+      (rows || '<div class="empty">No logs yet</div>') +
+      '<div class="small" style="margin-top:14px">Every engine action is recorded permanently: discovery, data, signals, executions, risk, news, auth, brokers.</div>';
+  });
+}
+function renderBroker(){
+  api('/api/brokers').then(function(r){
+    var rows = '';
+    (r.data.brokers||[]).forEach(function(b){
+      rows += '<tr><td><b>'+esc(b.name)+'</b><br><span class="mut" style="font-size:10px">'+esc(b.kind)+' · added '+fmtTime(b.addedAt)+'</span></td>' +
+        '<td style="text-align:right"><span class="pill SAVED">'+b.status+'</span><br><button class="pill ERROR" style="border:0;margin-top:6px" onclick="delBroker('+b.id+')">REMOVE</button></td></tr>';
+    });
+    document.getElementById('main').innerHTML =
+      '<div class="banner green">Add any broker with API key + login credentials. They are stored safely on this device and auto-connect when you enable live trading (v5 live phase).</div>' +
+      '<h2>Add Custom Broker</h2>' +
+      '<div class="field"><label>BROKER NAME</label><input id="bkName" placeholder="e.g. My Binance / OANDA / My Broker"></div>' +
+      '<div class="field"><label>BROKER TYPE</label><select id="bkKind"><option>CUSTOM</option><option>BINANCE</option><option>OANDA</option><option>MT4/MT5</option><option>INTERACTIVE_BROKERS</option></select></div>' +
+      '<div class="field"><label>API KEY</label><input id="bkKey" placeholder="API key from broker"></div>' +
+      '<div class="field"><label>API SECRET</label><input id="bkSecret" type="password" placeholder="API secret"></div>' +
+      '<div class="field"><label>LOGIN / ACCOUNT ID</label><input id="bkLogin" placeholder="Login or account number"></div>' +
+      '<div class="field"><label>BROKER PASSWORD</label><input id="bkPass" type="password" placeholder="Account password"></div>' +
+      '<button class="btn" onclick="addBroker()">Save broker credentials</button><div id="bkMsg"></div>' +
+      '<h2>Saved Brokers</h2>' + (rows? '<table>'+rows+'</table>' : '<div class="empty">No brokers added yet</div>');
+  });
+}
+function addBroker(){
+  var b = {name:bkName.value.trim(), kind:bkKind.value, apiKey:bkKey.value.trim(), apiSecret:bkSecret.value, login:bkLogin.value.trim(), password:bkPass.value};
+  if(!b.name||!b.apiKey){ msg('bkMsg','Broker name and API key are required','err'); return; }
+  api('/api/brokers',{method:'POST',body:b}).then(function(r){
+    if(r.status===200){ msg('bkMsg',r.data.message,'ok'); setTimeout(renderBroker,800); }
+    else msg('bkMsg', r.data.error,'err');
+  });
+}
+function delBroker(id){
+  if(confirm('Remove this broker?'))
+    api('/api/brokers/'+id,{method:'DELETE'}).then(function(){ renderBroker(); });
+}
+function renderSet(){
+  api('/api/settings').then(function(r){
+    var on = r.data.engineOn;
+    document.getElementById('main').innerHTML =
+      '<h2>Engine</h2>' +
+      '<div class="card full"><div class="k">Paper trading engine</div>' +
+      '<div class="row"><button class="btn '+(on?'sec':'')+'" onclick="setEngine(true)">▶ START</button>' +
+      '<button class="btn '+(on?'':'sec')+'" onclick="setEngine(false)">⏸ STOP</button></div>' +
+      '<div class="small" style="margin-top:10px">Engine runs in background via Android foreground service. It survives app close and phone reboot. Risk: 1% per trade, daily −5% halt, −10% drawdown kill switch.</div></div>' +
+      '<h2>Version</h2><div class="card full"><div class="k">AI Trading Lab</div><div class="v">'+r.data.version+' · Phone Server</div>' +
+      '<div class="small" style="margin-top:8px">Full system on this device: instruments ledger, news engine, system logs ledger, paper executor, broker vault. No PC needed.</div></div>';
+  });
+}
+function setEngine(on){
+  api('/api/settings',{method:'POST',body:{engineOn:on}}).then(function(){ renderSet(); });
+}
+
+/* ---------------- boot ---------------- */
+(function(){
+  /* v5.5 engine status strip on the sign-in screen — engine state is always visible */
+  api('/api/health').then(function(r){
+    var el = document.getElementById('engStrip');
+    if(el && r.status===200 && r.data.ok){
+      el.innerHTML = '● Engine running — v' + (r.data.version||'5.5') + ' · ready';
+      el.className = 'eng ok';
+    } else if(el){
+      el.innerHTML = '● Engine offline — app band karke dobara kholein';
+      el.className = 'eng bad';
+    }
+  });
+  if(TOKEN){
+    api('/api/dashboard').then(function(r){ if(r.status===200){ enterApp(); } else { localStorage.removeItem('atl_token'); TOKEN=''; } });
+  }
+})();
+</script>
+</body>
+</html>

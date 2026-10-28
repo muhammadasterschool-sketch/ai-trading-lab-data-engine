@@ -1,0 +1,42 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.aitradinglab.monitor'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.aitradinglab.monitor"
+        minSdk 24
+        targetSdk 34
+        versionCode 11
+        versionName "5.6"
+    }
+
+    signingConfigs {
+        release {
+            storeFile file("../ai-trading-lab.keystore")
+            storePassword "atl-v4-release"
+            keyAlias "atl"
+            keyPassword "atl-v4-release"
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            shrinkResources false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+// Zero external dependencies — pure platform widgets (fastest, most reliable build)
+dependencies {
+}

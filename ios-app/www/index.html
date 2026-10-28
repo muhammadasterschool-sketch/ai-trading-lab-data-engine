@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>AI Trading Lab — Connect</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body {
+    background: #09090b; color: #fafafa;
+    font-family: -apple-system, system-ui, sans-serif;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 40px 24px calc(24px + env(safe-area-inset-bottom)); min-height: 100vh;
+  }
+  .logo { width: 76px; height: 76px; border-radius: 18px;
+    background: linear-gradient(135deg, #fbbf24, #d97706);
+    display: flex; align-items: center; justify-content: center; font-size: 36px; }
+  h1 { margin-top: 16px; font-size: 22px; }
+  .sub { color: #52525b; font-size: 12px; margin-top: 4px; }
+  .badge { color: #f59e0b; border: 1px solid rgba(245,158,11,.3); background: rgba(245,158,11,.12);
+    border-radius: 5px; padding: 1px 7px; font-size: 10px; font-weight: 700; margin-left: 6px; }
+  .modes { width: 100%; background: #18181b; border: 1px solid #27272a; border-radius: 12px; padding: 16px; margin-top: 26px; }
+  .mode-title { color: #f59e0b; font-size: 11px; font-weight: 700; letter-spacing: .1em; }
+  .mode-text { color: #a1a1aa; font-size: 12px; line-height: 1.5; margin-top: 5px; }
+  input { width: 100%; height: 48px; background: #18181b; border: 1px solid #27272a; border-radius: 10px;
+    color: #fafafa; padding: 0 14px; font-size: 16px; margin-top: 22px; outline: none; }
+  input:focus { border-color: #f59e0b; }
+  button { width: 100%; height: 52px; border: none; border-radius: 10px; background: #f59e0b;
+    color: #09090b; font-weight: 700; font-size: 15px; letter-spacing: .06em; margin-top: 14px; }
+  button:active { background: #fbbf24; }
+  button:disabled { opacity: .4; }
+  .forget { background: transparent; color: #a1a1aa; font-weight: 400; height: 36px; font-size: 12px; display: none; }
+  .err { color: #f87171; font-size: 12px; margin-top: 12px; line-height: 1.5; text-align: center; min-height: 0; }
+  .foot { color: #52525b; font-size: 10px; margin-top: auto; padding-top: 24px; text-align: center; line-height: 1.7; }
+</style>
+</head>
+<body>
+  <div class="logo">⚡</div>
+  <h1>AI Trading Lab</h1>
+  <p class="sub">Data Engine <span class="badge">v4.0</span></p>
+
+  <div class="modes">
+    <div class="mode-title">LOCAL MODE</div>
+    <div class="mode-text">Phone and computer on the same Wi-Fi — enter <b>http://192.168.x.x:81</b> (your computer's address).</div>
+    <div class="mode-title" style="margin-top:14px">CLOUD MODE</div>
+    <div class="mode-text">Engine deployed on a cloud server — enter your server URL, e.g. <b>https://your-server.example.com</b></div>
+  </div>
+
+  <input id="url" type="url" placeholder="Server address" spellcheck="false" autocapitalize="off" />
+  <button id="connect" disabled>CONNECT</button>
+  <button id="forget" class="forget">Forget this server</button>
+  <div class="err" id="err"></div>
+
+  <div class="foot">Invite-only · registration needs an invitation code<br>Every login requires 2FA · paper trading only</div>
+
+<script>
+  const input = document.getElementById('url')
+  const btn = document.getElementById('connect')
+  const forget = document.getElementById('forget')
+  const err = document.getElementById('err')
+
+  function normalize(raw) {
+    let s = String(raw || '').trim()
+    if (!s) return null
+    if (!/^https?:\/\//i.test(s)) s = 'http://' + s
+    s = s.replace(/\/+$/, '')
+    const hostPart = s.replace(/^https?:\/\//i, '')
+    if (!hostPart) return null
+    if (!/^[A-Za-z0-9.\-_:]+$/.test(hostPart)) return null
+    if (!/^https:\/\//i.test(s) && !hostPart.includes(':')) s += ':81'
+    return s
+  }
+  function validate() {
+    btn.disabled = !normalize(input.value)
+  }
+  input.addEventListener('input', () => { err.textContent = ''; validate() })
+  btn.addEventListener('click', () => {
+    const url = normalize(input.value)
+    if (!url) { err.textContent = 'Enter a valid address starting with http:// or https://'; return }
+    localStorage.setItem('atl_server', url)
+    window.location.href = url
+  })
+  forget.addEventListener('click', () => {
+    localStorage.removeItem('atl_server')
+    input.value = ''
+    forget.style.display = 'none'
+    err.textContent = ''
+  })
+
+  // Auto-connect if saved (iOS app launch) — engine page handles auth state
+  const saved = localStorage.getItem('atl_server')
+  if (saved) { input.value = saved; forget.style.display = 'block' }
+  validate()
+
+  // If we've been redirected back to this page from the engine (e.g. server down),
+  // show a notice. Detect via ?offline=1
+  if (new URLSearchParams(location.search).get('offline')) {
+    err.textContent = 'Could not reach the engine. Check the address, make sure the server is running, then try again.'
+  }
+</script>
+</body>
+</html>

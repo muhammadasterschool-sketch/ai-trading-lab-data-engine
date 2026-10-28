@@ -1,0 +1,10 @@
+{
+  "name": "ai-trading-lab-shell",
+  "productName": "AI Trading Lab",
+  "version": "4.0.0",
+  "description": "AI Trading Lab — Data Engine monitor shell (local & cloud connect)",
+  "main": "main.js",
+  "author": "Muhammad",
+  "license": "UNLICENSED",
+  "private": true
+}

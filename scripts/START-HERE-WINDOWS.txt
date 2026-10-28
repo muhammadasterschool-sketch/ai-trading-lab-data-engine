@@ -1,0 +1,75 @@
+=====================================================
+  AI TRADING LAB - DATA ENGINE v4.0  (WINDOWS SERVER / MINI-SERVICES)
+=====================================================
+
+Ye package aapke Windows computer par POORA trading system chalata hai:
+  - Trading Engine mini-service  (port 3003)  : live prices, strategies, consensus, burst trading
+  - Web App                      (port 3000)  : monitor app (dashboard, admin, users)
+  - Gateway                      (port 81)    : ek hi URL jahan se sab connect karte hain
+  - Database (included)          : 253,000+ real gold/BTC bars + admin account + invitation code M2991474
+
+-----------------------------------------------------
+STEP 1 . Node.js install karo (sirf ek baar)
+-----------------------------------------------------
+https://nodejs.org se "LTS" version install karo (20 ya usse naya).
+(Already installed hai? Skip karo.)
+
+-----------------------------------------------------
+STEP 2 . Start (2 tareeke)
+-----------------------------------------------------
+Tareeqa A (sab se aasan - pehli baar setup ke baad):
+  Desktop par 'AI Trading Lab' shortcut double-click karo.
+  Engine + web + gateway start honge aur dashboard khud khul jayega.
+
+Tareeqa B (manual):
+  deploy\start-local-windows.bat  double-click karo.
+
+Pehli baar: dependencies install + app build hoga (10-15 min, internet chahiye).
+Uske baad har baar sirf 30 second mein start hota hai.
+
+Teen windows khulengi (ATL-Engine, ATL-Web, ATL-Gateway) - inko band na karo.
+
+-----------------------------------------------------
+STEP 3 . Connect karo
+-----------------------------------------------------
+  Isi computer (browser)      :  http://localhost:81
+  Phone (same Wi-Fi)          :  http://<COMPUTER-IP>:81
+     IP dhoondo:  CMD kholo -> ipconfig  ->  "IPv4 Address"
+  Android app (USB, best)     :  adb reverse tcp:81 tcp:81
+                                 phir app mein:  http://127.0.0.1:81
+
+-----------------------------------------------------
+STEP 4 . Login
+-----------------------------------------------------
+  Sign in :  Name + Email + Password (wahi naam jo registration mein likha)
+  Admin :  muhammadasterschool@gmail.com  (apna build password)
+  Naya user :  Register tab -> invitation code M2991474 + apna naam + Gmail + password
+  Har login par 2FA (Google Authenticator) zaroori hai.
+
+App mein pehla screen: LOCAL ya CLOUD mode choose karo.
+  LOCAL = isi computer ya same Wi-Fi (http://<PC-IP>:81)
+  CLOUD = cloud server (https://your-domain.com)
+
+-----------------------------------------------------
+AUTOSTART (optional)
+-----------------------------------------------------
+Windows ke liye: Task Scheduler -> Create Basic Task ->
+  Trigger: At startup  |  Action: deploy\start-local-windows.bat
+
+-----------------------------------------------------
+CLOUD MODE (duniya se kahin se bhi connect)
+-----------------------------------------------------
+Ye local package cloud nahi hai. Cloud ke liye ek Linux VPS chahiye:
+  repo ko VPS par copy karo ->  sudo bash deploy/deploy-cloud.sh your-domain.com
+Poori guide: RELEASE-v4.md (download folder mein).
+
+-----------------------------------------------------
+TROUBLESHOOTING
+-----------------------------------------------------
+  "node is not recognized" -> Node.js install nahi hua, Step 1 karo
+  Port 81 busy             -> deploy\Caddyfile.local mein pehli line ka port badlo
+  Phone connect nahi ho raha -> same Wi-Fi check karo, firewall allow karo,
+                                ya USB mode (adb reverse) use karo
+  Data reset karna hai     -> db\custom.db delete karo (sab data chala jayega!)
+
+Version: v4.0  |  Private build - kisi app store par publish NAHI hua hai.
