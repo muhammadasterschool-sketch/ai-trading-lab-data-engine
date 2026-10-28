@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "schema": "aitl-bundled-datasets-v1",
+  "description": "VERIFIED REAL historical market data bundled inside the repo for research/backtest use. Each dataset was downloaded from its public source and its checksum verified against the source's own checksum file at acquisition time. GOVERNANCE: research/backtest data only - the operational feed approval chain (feed_source_candidates / SRC-APPROVAL / DATA_READINESS) is unchanged and remains SYNTHETIC_ONLY/REAL_BLOCKED for operational feeds.",
+  "acquired_at": "2026-10-28",
+  "datasets": [
+    {
+      "id": "binance-spot-BTCUSDT-1m-2026-09",
+      "source": "binance-vision",
+      "symbol": "BTCUSDT",
+      "timeframe": "1m",
+      "path": "binance-spot/1m/BTCUSDT-1m-2026-09.zip",
+      "format": "binance-monthly-klines-csv-zip",
+      "sha256": "7a021fb5981cfdb1a56457d68fa81360ab27350c981ddfe63112b2322df44b56",
+      "rows": 43200,
+      "coverage": {
+        "start": "2026-09-01T00:00:00+00:00",
+        "end": "2026-09-30T23:59:59+00:00"
+      },
+      "source_url": "https://data.binance.vision/data/spot/monthly/klines/BTCUSDT/1m/BTCUSDT-1m-2026-09.zip",
+      "checksum_url": "https://data.binance.vision/data/spot/monthly/klines/BTCUSDT/1m/BTCUSDT-1m-2026-09.zip.CHECKSUM",
+      "verification": "local sha256 == official .CHECKSUM value (verified at acquisition 2026-10-28)",
+      "license_note": "Binance public spot market data served from data.binance.vision (Amazon S3). Redistribute with source attribution; re-verify at the checksum_url before relying on a copy.",
+      "governance": "RESEARCH_BACKTEST_ONLY"
+    },
+    {
+      "id": "binance-spot-ETHUSDT-1m-2026-09",
+      "source": "binance-vision",
+      "symbol": "ETHUSDT",
+      "timeframe": "1m",
+      "path": "binance-spot/1m/ETHUSDT-1m-2026-09.zip",
+      "format": "binance-monthly-klines-csv-zip",
+      "sha256": "827b46043bdc877d542edf8ff178dc0411cfa166a56fa73f2f850ad06c951b50",
+      "rows": 43200,
+      "coverage": {
+        "start": "2026-09-01T00:00:00+00:00",
+        "end": "2026-09-30T23:59:59+00:00"
+      },
+      "source_url": "https://data.binance.vision/data/spot/monthly/klines/ETHUSDT/1m/ETHUSDT-1m-2026-09.zip",
+      "checksum_url": "https://data.binance.vision/data/spot/monthly/klines/ETHUSDT/1m/ETHUSDT-1m-2026-09.zip.CHECKSUM",
+      "verification": "local sha256 == official .CHECKSUM value (verified at acquisition 2026-10-28)",
+      "license_note": "Binance public spot market data served from data.binance.vision (Amazon S3). Redistribute with source attribution; re-verify at the checksum_url before relying on a copy.",
+      "governance": "RESEARCH_BACKTEST_ONLY"
+    }
+  ]
+}

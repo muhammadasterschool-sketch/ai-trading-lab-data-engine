@@ -29,6 +29,18 @@ What this module ACTUALLY provides (honest engineering, no theatre):
 - :class:`BrokerCatalog` — the honest broker surface: simulation/mock
   adapters shipped in-repo + the operator MT5 demo step + the adapter
   interface contract used to add new brokers.
+- v1.5.0 additions: five TOP-5 YouTuber strategy kinds (EMA scalp /
+  RSI+Bollinger / VWAP reversion / Supertrend follow / opening-range
+  breakout — all confirmation-candle, M1-first), an optional cost
+  model in the lab backtester (fees+slippage, net-of-cost metrics),
+  AUTO-SCAN (deterministic parameter scan with a 70/30 IS/OOS split
+  that creates ordinary G6 submissions for the owner to confirm),
+  preset bootstrap (the five presets auto-created per symbol so paper
+  trading starts with them), and the PAPER-ONLY RapidScalper burst
+  journal (one hypothetical fill per second for one minute after a
+  >=60% ConfidenceGate confirmation candle — journaled, never sent).
+  Governance is untouched: PAPER_READY=FALSE,
+  LIVE_AUTHORIZATION=NOT_AUTHORIZED.
 
 Fail-closed everywhere: bad bars are refused, unknown strategies are
 refused, the 30-day validation window is enforced by the gate (a
@@ -583,7 +595,18 @@ class AssistantEngine:
 # LabBacktester — deterministic long/flat signal runner
 # ---------------------------------------------------------------------------
 
-_KINDS = ("ema_trend", "ema_cross", "rsi_reversal", "breakout")
+_KINDS = (
+    "ema_trend",
+    "ema_cross",
+    "rsi_reversal",
+    "breakout",
+    # v1.5.0 TOP-5 YouTuber preset kinds (runtime/presets.py)
+    "ema_scalp",
+    "rsi_bb",
+    "vwap_reversion",
+    "supertrend_follow",
+    "orb_breakout",
+)
 
 _PARAM_BOUNDS: Dict[str, Dict[str, tuple]] = {
     "ema_trend": {"period": (2, 400)},
@@ -594,7 +617,44 @@ _PARAM_BOUNDS: Dict[str, Dict[str, tuple]] = {
         "overbought": (51, 99),
     },
     "breakout": {"lookback": (5, 400)},
+    # v1.5.0 (integer params; float params live in _FLOAT_PARAM_BOUNDS)
+    "ema_scalp": {"fast": (2, 100), "slow": (3, 200), "trend": (10, 400)},
+    "rsi_bb": {"rsi_period": (2, 100), "bb_period": (5, 200)},
+    "vwap_reversion": {"vwap_window": (5, 200), "rsi_period": (2, 50)},
+    "supertrend_follow": {"st_period": (2, 100), "adx_period": (5, 100)},
+    "orb_breakout": {"range_bars": (3, 120), "vol_period": (5, 200)},
 }
+
+#: v1.5.0 float-valued params (accepted as int OR float; every other
+#: param stays integer-only — the v1.1.0 contract is preserved).
+_FLOAT_PARAM_BOUNDS: Dict[str, Dict[str, tuple]] = {
+    "rsi_bb": {
+        "oversold": (1.0, 49.0),
+        "overbought": (51.0, 99.0),
+        "bb_std": (0.5, 5.0),
+    },
+    "vwap_reversion": {
+        "deviation_bps": (10.0, 2000.0),
+        "rsi_low": (1.0, 49.0),
+    },
+    "supertrend_follow": {
+        "st_mult": (0.5, 10.0),
+        "adx_min": (5.0, 60.0),
+    },
+    "orb_breakout": {
+        "vol_factor": (1.0, 10.0),
+    },
+}
+
+#: v1.5.0 conservative research cost assumptions (per SIDE, basis
+#: points). These are documented defaults — NOT venue quotes; owners
+#: can pass explicit costs to ``LabBacktester.run``.
+def default_cost_bps(symbol: str) -> Dict[str, float]:
+    """Conservative per-side cost defaults by asset family (bps)."""
+    s = (symbol or "").upper()
+    if any(key in s for key in ("USDT", "BUSD", "USDC", "BTC", "ETH")):
+        return {"fee_bps": 10.0, "slippage_bps": 2.0}  # crypto taker-ish
+    return {"fee_bps": 1.0, "slippage_bps": 7.0}  # FX/metals spread-ish
 
 
 def _ema_series(closes: List[float], period: int) -> List[Optional[float]]:
@@ -722,12 +782,204 @@ class LabBacktester:
                         held = 0
                 positions[i] = held
             return positions
+        if kind == "ema_scalp":
+            # v1.5.0 YT1: EMA fast/slow cross traded only above the
+            # trend EMA (confirmation candle = closed bar)
+            fast = int(params.get("fast", 9))
+            slow = int(params.get("slow", 21))
+            trend = int(params.get("trend", 200))
+            if fast >= slow:
+                raise LabError("ema_scalp requires fast < slow")
+            f = _ema_series(closes, fast)
+            s = _ema_series(closes, slow)
+            t = _ema_series(closes, trend)
+            return [
+                1
+                if (
+                    f[i] is not None
+                    and s[i] is not None
+                    and t[i] is not None
+                    and f[i] > s[i]
+                    and closes[i] > t[i]
+                )
+                else 0
+                for i in range(len(closes))
+            ]
+        if kind == "rsi_bb":
+            # v1.5.0 YT2: enter when RSI oversold AND close at/below
+            # the lower Bollinger band; exit at the middle band (or RSI
+            # overbought). Confirmation-candle state machine.
+            from data_engine.quant.bands import bollinger as _bb
+
+            rsi_period = int(params.get("rsi_period", 14))
+            oversold = float(params.get("oversold", 25.0))
+            overbought = float(params.get("overbought", 70.0))
+            bb_period = int(params.get("bb_period", 20))
+            bb_std = float(params.get("bb_std", 2.0))
+            rsi = _rsi_series(closes, rsi_period)
+            bands = _bb(closes, bb_period, bb_std)
+            lower = bands["lower"]
+            middle = bands["middle"]
+            positions = [0] * len(closes)
+            held = 0
+            for i in range(len(closes)):
+                r = rsi[i]
+                if held == 0:
+                    if (
+                        r is not None
+                        and r < oversold
+                        and lower[i] is not None
+                        and closes[i] <= lower[i]
+                    ):
+                        held = 1
+                else:
+                    if (
+                        middle[i] is not None
+                        and closes[i] >= middle[i]
+                    ) or (r is not None and r > overbought):
+                        held = 0
+                positions[i] = held
+            return positions
+        if kind == "vwap_reversion":
+            # v1.5.0 YT3: fade a stretched distance below rolling
+            # VWAP with an RSI extreme; exit back at VWAP.
+            from data_engine.quant.bands import rolling_vwap as _rvwap
+
+            vwap_window = int(params.get("vwap_window", 30))
+            deviation_bps = float(params.get("deviation_bps", 150.0))
+            rsi_period = int(params.get("rsi_period", 7))
+            rsi_low = float(params.get("rsi_low", 30.0))
+            highs = [float(b["high"]) for b in bars]
+            lows = [float(b["low"]) for b in bars]
+            vols = [b.get("volume") for b in bars]
+            if any(v is None for v in vols):
+                raise LabError(
+                    "vwap_reversion requires volume data (bars without "
+                    "volume are refused — fail closed)"
+                )
+            vols = [float(v) for v in vols]
+            vwap = _rvwap(highs, lows, closes, vols, vwap_window)
+            rsi = _rsi_series(closes, rsi_period)
+            threshold = 1.0 - deviation_bps / 10_000.0
+            positions = [0] * len(closes)
+            held = 0
+            for i in range(len(closes)):
+                v = vwap[i]
+                r = rsi[i]
+                if held == 0:
+                    if (
+                        v is not None
+                        and closes[i] <= v * threshold
+                        and r is not None
+                        and r < rsi_low
+                    ):
+                        held = 1
+                elif v is not None and closes[i] >= v:
+                    held = 0
+                positions[i] = held
+            return positions
+        if kind == "supertrend_follow":
+            # v1.5.0 YT4: Supertrend direction flip gated by ADX
+            # trend strength.
+            from data_engine.quant.trend_indicators import adx as _adx
+            from data_engine.quant.trend_indicators import (
+                supertrend as _st,
+            )
+
+            st_period = int(params.get("st_period", 10))
+            st_mult = float(params.get("st_mult", 3.0))
+            adx_period = int(params.get("adx_period", 14))
+            adx_min = float(params.get("adx_min", 20.0))
+            highs = [float(b["high"]) for b in bars]
+            lows = [float(b["low"]) for b in bars]
+            st = _st(highs, lows, closes, st_period, st_mult)
+            adx_series = _adx(highs, lows, closes, adx_period)["adx"]
+            return [
+                1
+                if (
+                    st["direction"][i] == 1
+                    and adx_series[i] is not None
+                    and adx_series[i] >= adx_min
+                )
+                else 0
+                for i in range(len(closes))
+            ]
+        if kind == "orb_breakout":
+            # v1.5.0 YT5: opening-range breakout per UTC day with a
+            # volume confirmation. NOTE: the day's opening range is
+            # measured from the first in-window bars of that UTC day
+            # (the lab evaluates the trailing window only).
+            range_bars = int(params.get("range_bars", 15))
+            vol_factor = float(params.get("vol_factor", 1.2))
+            vol_period = int(params.get("vol_period", 20))
+            vols = [b.get("volume") for b in bars]
+            if any(v is None for v in vols):
+                raise LabError(
+                    "orb_breakout requires volume data (bars without "
+                    "volume are refused — fail closed)"
+                )
+            vols = [float(v) for v in vols]
+            days: List[str] = []
+            for b in bars:
+                try:
+                    days.append(_parse_ts(b["ts"]).strftime("%Y-%m-%d"))
+                except LabError:
+                    days.append("")
+            positions = [0] * len(closes)
+            held = 0
+            current_day: Optional[str] = None
+            day_start = 0
+            range_high: Optional[float] = None
+            range_low: Optional[float] = None
+            vol_sma: Optional[float] = None
+            for i in range(len(closes)):
+                if days[i] != current_day:
+                    current_day = days[i]
+                    day_start = i
+                    held = 0
+                    window = [
+                        j
+                        for j in range(i, min(i + range_bars, len(closes)))
+                        if days[j] == current_day
+                    ]
+                    if len(window) >= 1:
+                        range_high = max(
+                            float(bars[j]["high"]) for j in window
+                        )
+                        range_low = min(
+                            float(bars[j]["low"]) for j in window
+                        )
+                    vol_sma = None
+                if i >= vol_period - 1:
+                    vol_sma = sum(vols[i - vol_period + 1: i + 1]) / vol_period
+                # PIT discipline: entries only AFTER the opening range
+                # has fully formed (no look-ahead into the range bars)
+                range_complete = (i - day_start) >= (range_bars - 1)
+                if (
+                    held == 0
+                    and range_complete
+                    and range_high is not None
+                    and vol_sma
+                    and vol_sma > 0
+                    and closes[i] > range_high
+                    and vols[i] >= vol_factor * vol_sma
+                ):
+                    held = 1
+                elif held == 1 and range_low is not None and closes[i] < range_low:
+                    held = 0
+                positions[i] = held
+            return positions
         raise LabError(
             f"unknown strategy kind {kind!r} (kinds: {sorted(_KINDS)})"
         )
 
     def validate_params(self, kind: str, params: Mapping[str, Any]) -> Dict[str, Any]:
-        """Whitelist + bound-check params (fail closed)."""
+        """Whitelist + bound-check params (fail closed).
+
+        v1.5.0: params listed in ``_FLOAT_PARAM_BOUNDS`` accept ints OR
+        finite floats; all other params remain integer-only (the
+        v1.1.0 contract is unchanged for the four original kinds).
+        """
         if kind not in _KINDS:
             raise LabError(
                 f"unknown strategy kind {kind!r} (kinds: {sorted(_KINDS)})"
@@ -735,7 +987,9 @@ class LabBacktester:
         if not isinstance(params, Mapping):
             raise LabError("params must be a JSON object")
         clean: Dict[str, Any] = {}
-        for name, (low, high) in _PARAM_BOUNDS[kind].items():
+        int_bounds = _PARAM_BOUNDS[kind]
+        float_bounds = _FLOAT_PARAM_BOUNDS.get(kind, {})
+        for name, (low, high) in int_bounds.items():
             raw = params.get(name)
             if raw is None:
                 continue
@@ -749,52 +1003,103 @@ class LabBacktester:
                     f"param {name}={value} outside [{low}, {high}]"
                 )
             clean[name] = value
-        unknown = set(params) - set(_PARAM_BOUNDS[kind])
+        for name, (low, high) in float_bounds.items():
+            raw = params.get(name)
+            if raw is None:
+                continue
+            if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+                raise LabError(f"param {name} must be a number")
+            value = float(raw)
+            if not math.isfinite(value):
+                raise LabError(f"param {name} must be finite")
+            if not low <= value <= high:
+                raise LabError(
+                    f"param {name}={value} outside [{low}, {high}]"
+                )
+            clean[name] = value
+        unknown = set(params) - (set(int_bounds) | set(float_bounds))
         if unknown:
             raise LabError(
                 f"unknown params for {kind}: {sorted(unknown)} "
-                f"(allowed: {sorted(_PARAM_BOUNDS[kind])})"
+                f"(allowed: {sorted(set(int_bounds) | set(float_bounds))})"
             )
         if kind == "ema_cross":
             fast = clean.get("fast", 12)
             slow = clean.get("slow", 26)
             if fast >= slow:
                 raise LabError("ema_cross requires fast < slow")
+        if kind == "ema_scalp":
+            fast = clean.get("fast", 9)
+            slow = clean.get("slow", 21)
+            if fast >= slow:
+                raise LabError("ema_scalp requires fast < slow")
         return clean
 
-    def run(self, kind: str, params: Dict[str, Any], bars: List[dict]) -> Dict[str, Any]:
-        """Run + aggregate; returns objective metrics (no claims)."""
+    def run(
+        self,
+        kind: str,
+        params: Dict[str, Any],
+        bars: List[dict],
+        *,
+        costs: Optional[Mapping[str, float]] = None,
+    ) -> Dict[str, Any]:
+        """Run + aggregate; returns objective metrics (no claims).
+
+        v1.5.0: pass ``costs={"fee_bps": .., "slippage_bps": ..}``
+        (per SIDE) to get net-of-cost metrics. With costs, the headline
+        ``total_return_pct`` is the NET figure and the gross figure is
+        reported alongside (never silently swapped). Without costs the
+        v1.1.0 behaviour (costs not modeled) is preserved exactly.
+        """
         if len(bars) < MIN_BARS_FOR_BACKTEST:
             raise LabError(
                 f"backtest needs at least {MIN_BARS_FOR_BACKTEST} bars "
                 f"for the symbol (have {len(bars)}); upload history "
                 "first via POST /api/lab/bars"
             )
+        if costs is not None:
+            per_side_bps = float(costs.get("fee_bps", 0.0)) + float(
+                costs.get("slippage_bps", 0.0)
+            )
+            if not math.isfinite(per_side_bps) or per_side_bps < 0:
+                raise LabError("costs must be finite non-negative bps")
+        else:
+            per_side_bps = 0.0
         positions = self.positions(kind, params, bars)
         closes = [float(b["close"]) for b in bars]
         equity = 1.0
+        gross_equity = 1.0
         curve = [1.0]
         entry: Optional[float] = None
         trades = 0
         wins = 0
+        gross_wins = 0
         for i in range(len(bars)):
             if positions[i] == 1 and entry is None:
                 entry = closes[i]
             elif positions[i] == 0 and entry is not None:
                 round_trip = closes[i] / entry - 1.0
-                equity *= 1.0 + round_trip
+                net_round_trip = round_trip - 2.0 * per_side_bps / 10_000.0
+                equity *= 1.0 + net_round_trip
+                gross_equity *= 1.0 + round_trip
                 curve.append(equity)
                 trades += 1
                 if round_trip > 0:
+                    gross_wins += 1
+                if net_round_trip > 0:
                     wins += 1
                 entry = None
         if entry is not None:
             # honest mark-to-market close at the last bar
             round_trip = closes[-1] / entry - 1.0
-            equity *= 1.0 + round_trip
+            net_round_trip = round_trip - 2.0 * per_side_bps / 10_000.0
+            equity *= 1.0 + net_round_trip
+            gross_equity *= 1.0 + round_trip
             curve.append(equity)
             trades += 1
             if round_trip > 0:
+                gross_wins += 1
+            if net_round_trip > 0:
                 wins += 1
             entry = None
         peak = 1.0
@@ -804,16 +1109,39 @@ class LabBacktester:
             if peak > 0:
                 max_dd = max(max_dd, (peak - point) / peak)
         total_return = equity - 1.0
-        return {
+        result: Dict[str, Any] = {
             "bars_tested": len(bars),
             "trades": trades,
             "total_return_pct": round(total_return * 100.0, 6),
             "max_drawdown_pct": round(max_dd * 100.0, 6),
             "win_rate_pct": round((wins / trades * 100.0) if trades else 0.0, 4),
-            "runner": "lab_backtester_v1 (long/flat, close fills, "
-                      "costs NOT modeled — full strategy/backtest.py "
-                      "engine models commissions+slippage)",
         }
+        if costs is not None:
+            result.update(
+                {
+                    "gross_total_return_pct": round(
+                        (gross_equity - 1.0) * 100.0, 6
+                    ),
+                    "net_total_return_pct": round(total_return * 100.0, 6),
+                    "gross_win_rate_pct": round(
+                        (gross_wins / trades * 100.0) if trades else 0.0, 4
+                    ),
+                    "fee_bps_per_side": float(costs.get("fee_bps", 0.0)),
+                    "slippage_bps_per_side": float(
+                        costs.get("slippage_bps", 0.0)
+                    ),
+                    "cost_drag_pct": round(
+                        (gross_equity - equity) * 100.0, 6
+                    ),
+                    "runner": "lab_backtester_v1.5 (long/flat, close "
+                              "fills, fees+slippage modeled)",
+                }
+            )
+        else:
+            result[
+                "runner"
+            ] = "lab_backtester_v1 (long/flat, close fills, " "costs NOT modeled — full strategy/backtest.py " "engine models commissions+slippage)"
+        return result
 
 
 # ---------------------------------------------------------------------------
@@ -845,6 +1173,16 @@ class LabManager:
         self._runner = LabBacktester()
         self._lock = threading.Lock()
         self._paper_meta: Dict[str, dict] = {}
+        # v1.5.0: confidence gate (>=60% bullish/bearish confirmation)
+        # and the PAPER-ONLY rapid scalper burst journal. Imported
+        # lazily to keep the module import graph acyclic.
+        from data_engine.runtime.confidence import ConfidenceGate
+        from data_engine.runtime.rapid_scalper import RapidScalper
+
+        self._confidence = ConfidenceGate(
+            position_fn=self._runner.positions
+        )
+        self._rapid = RapidScalper()
         # v1.1.0: the AssistantEngine is attached AFTER construction by
         # the serve wiring (it needs the trade ledger + registry +
         # health provider that the monitoring API also uses). None =
@@ -1069,7 +1407,11 @@ class LabManager:
     def run_backtest(self, submission_id: str, *, now: Optional[datetime] = None) -> dict:
         symbol, kind, params = self._spec_of(submission_id)
         bars = self._bars.bars(symbol)
-        metrics = self._runner.run(kind, params, bars)
+        # v1.5.0: manager-level backtests are NET OF COSTS by default
+        # (conservative per-family assumptions; honest headline).
+        metrics = self._runner.run(
+            kind, params, bars, costs=default_cost_bps(symbol)
+        )
         moment = now or _utc_now()
         self._guarded(
             self._gate.record_backtest,
@@ -1139,10 +1481,25 @@ class LabManager:
         symbol, recompute the long/flat state over the latest window
         and journal POSITION FLIPS as hypothetical paper events.
         Paused entirely while the kill switch is ACTIVE (a standing
-        STOP is a stop for the whole lab)."""
+        STOP is a stop for the whole lab).
+
+        v1.5.0 additions (all journal-only, never orders):
+        - marks any pending RapidScalper burst against the actual next
+          closed candle (PENDING_MARK -> MARKED with net PnL);
+        - after a CONFIRMED >=60% ConfidenceGate assessment on the
+          closed confirmation candle, arms a new one-fill-per-second
+          paper burst (subject to cooldown + cumulative loss cap +
+          kill switch)."""
         evaluated: List[str] = []
+        bursts_planned: List[str] = []
+        bursts_marked: List[str] = []
         if self._is_halted():
-            return {"evaluated": [], "halted": True}
+            return {
+                "evaluated": [],
+                "halted": True,
+                "bursts_planned": [],
+                "bursts_marked": [],
+            }
         durable = self._durable()
         for submission_id, entry in durable["strategies"].items():
             status = entry.get("status") or {}
@@ -1162,7 +1519,39 @@ class LabManager:
                 positions = self._runner.positions(kind, params, bars)
             except LabError:
                 continue
-            previous = self._paper_meta.get(submission_id, {}).get("last_position")
+            meta = self._paper_meta.setdefault(submission_id, {})
+
+            # -- 1) mark a pending burst against THIS closed candle ----
+            pending = meta.get("pending_burst")
+            if (
+                isinstance(pending, dict)
+                and (pending.get("confirmation_candle") or {}).get("ts")
+                != bars[-1]["ts"]
+            ):
+                try:
+                    marked = self._rapid.mark_burst(
+                        pending, next_close=float(bars[-1]["close"])
+                    )
+                    self._append_paper_event(submission_id, marked)
+                    bursts_marked.append(submission_id)
+                    cumulative = float(
+                        meta.get("burst_cumulative_bps", 0.0)
+                    ) + float(marked["net_pnl_bps"])
+                    meta["burst_cumulative_bps"] = cumulative
+                    if (
+                        cumulative
+                        <= -abs(
+                            float(self._rapid.config["burst_loss_limit_bps"])
+                        )
+                    ):
+                        meta["bursts_disarmed"] = True
+                except (LabError, ValueError):
+                    pass  # journal full / degenerate mark — skip honestly
+                finally:
+                    meta.pop("pending_burst", None)
+
+            # -- 2) position-flip journaling (unchanged semantics) -----
+            previous = meta.get("last_position")
             current = positions[-1] if positions else 0
             if previous is None:
                 previous = 0
@@ -1176,10 +1565,58 @@ class LabManager:
                         "symbol": symbol,
                     },
                 )
-                meta = self._paper_meta.setdefault(submission_id, {})
                 meta["last_position"] = current
+
+            # -- 3) confidence gate + one-fill-per-second paper burst --
+            try:
+                if (
+                    len(bars) >= self._confidence.MIN_BARS
+                    and not meta.get("bursts_disarmed")
+                ):
+                    assessment = self._confidence.assess(
+                        kind, params, bars, positions=positions
+                    )
+                    if assessment["confirmed"]:
+                        bars_since = None
+                        if meta.get("last_burst_bars"):
+                            bars_since = len(bars) - int(
+                                meta["last_burst_bars"]
+                            )
+                        admission = self._rapid.burst_allowed(
+                            meta=meta,
+                            bars_since_last_burst=bars_since,
+                            cooldown_bars=int(
+                                self._rapid.config["cooldown_bars"]
+                            ),
+                            cumulative_bps=float(
+                                meta.get("burst_cumulative_bps", 0.0)
+                            ),
+                            loss_limit_bps=float(
+                                self._rapid.config["burst_loss_limit_bps"]
+                            ),
+                        )
+                        if admission["allowed"]:
+                            burst = self._rapid.plan_burst(
+                                submission_id=submission_id,
+                                symbol=symbol,
+                                direction=assessment["direction"],
+                                confidence_pct=assessment["confidence_pct"],
+                                confirmation_close=float(bars[-1]["close"]),
+                                confirmation_ts=bars[-1]["ts"],
+                            )
+                            self._append_paper_event(submission_id, burst)
+                            meta["pending_burst"] = burst
+                            meta["last_burst_bars"] = len(bars)
+                            bursts_planned.append(submission_id)
+            except LabError:
+                pass  # assessment refused (e.g. bars) — skip honestly
             evaluated.append(submission_id)
-        return {"evaluated": evaluated, "halted": False}
+        return {
+            "evaluated": evaluated,
+            "halted": False,
+            "bursts_planned": bursts_planned,
+            "bursts_marked": bursts_marked,
+        }
 
     def paper_finish(self, submission_id: str, *, now: Optional[datetime] = None) -> dict:
         meta = self._paper_meta.get(submission_id) or {}
@@ -1287,6 +1724,219 @@ class LabManager:
             str(structured["kind"]),
             dict(structured.get("params") or {}),
         )
+
+    # ------------------------------------------------------------------
+    # v1.5.0: AUTO-SCAN + preset bootstrap
+    # ------------------------------------------------------------------
+
+    _AUTO_SCAN_GRID: Dict[str, List[Dict[str, Any]]] = {
+        "ema_trend": [{"period": p} for p in (10, 20, 50, 100, 200)],
+        "ema_cross": [
+            {"fast": f, "slow": s}
+            for (f, s) in ((9, 21), (12, 26), (20, 50), (50, 200))
+        ],
+        "rsi_reversal": [
+            {"period": p, "oversold": o, "overbought": ob}
+            for (p, o, ob) in ((14, 30, 70), (7, 25, 75), (2, 10, 90))
+        ],
+        "breakout": [{"lookback": l} for l in (10, 20, 50, 100)],
+        "ema_scalp": [
+            {"fast": 9, "slow": 21, "trend": 200},
+            {"fast": 12, "slow": 26, "trend": 200},
+            {"fast": 8, "slow": 20, "trend": 100},
+        ],
+        "rsi_bb": [
+            {"rsi_period": 14, "oversold": 25, "overbought": 70,
+             "bb_period": 20, "bb_std": 2.0},
+            {"rsi_period": 7, "oversold": 20, "overbought": 75,
+             "bb_period": 20, "bb_std": 2.5},
+        ],
+        "vwap_reversion": [
+            {"vwap_window": 30, "deviation_bps": 150, "rsi_period": 7,
+             "rsi_low": 30},
+            {"vwap_window": 60, "deviation_bps": 100, "rsi_period": 14,
+             "rsi_low": 35},
+        ],
+        "supertrend_follow": [
+            {"st_period": 10, "st_mult": 3.0, "adx_period": 14,
+             "adx_min": 20},
+            {"st_period": 7, "st_mult": 2.0, "adx_period": 14,
+             "adx_min": 15},
+        ],
+        "orb_breakout": [
+            {"range_bars": 15, "vol_factor": 1.2, "vol_period": 20},
+            {"range_bars": 30, "vol_factor": 1.5, "vol_period": 30},
+        ],
+    }
+
+    def auto_scan(
+        self,
+        symbol: str,
+        *,
+        top_n: int = 3,
+        submitted_by: str = "auto-scan",
+    ) -> dict:
+        """v1.5.0 AUTO-SCAN: deterministic parameter scan over all
+        nine lab kinds with a 70/30 in-sample/out-of-sample split,
+        NET OF conservative costs. Survivors (>=3 IS trades, positive
+        OOS net return) are ranked and the top ``top_n`` become
+        ORDINARY G6 submissions the owner still has to confirm —
+        auto-scan never activates anything by itself."""
+        if isinstance(top_n, bool) or not isinstance(top_n, int):
+            raise LabError("top_n must be an integer")
+        if not 1 <= top_n <= 10:
+            raise LabError("top_n must be within [1, 10] (fail closed)")
+        bars = self._bars.bars(symbol)
+        if len(bars) < 120:
+            raise LabError(
+                f"auto-scan needs at least 120 bars for {symbol!r} "
+                f"(have {len(bars)}); upload or import history first"
+            )
+        split = max(MIN_BARS_FOR_BACKTEST, int(len(bars) * 0.7))
+        is_bars = bars[:split]
+        oos_bars = bars[split:]
+        costs = default_cost_bps(symbol)
+        candidates: List[dict] = []
+        tested = 0
+        for kind, grid in self._AUTO_SCAN_GRID.items():
+            for params in grid:
+                tested += 1
+                try:
+                    is_metrics = self._runner.run(
+                        kind, params, is_bars, costs=costs
+                    )
+                except LabError:
+                    continue
+                if is_metrics["trades"] < 3:
+                    continue
+                try:
+                    oos_metrics = self._runner.run(
+                        kind, params, oos_bars, costs=costs
+                    )
+                except LabError:
+                    continue
+                if oos_metrics["trades"] < 1:
+                    continue
+                score = (
+                    oos_metrics["total_return_pct"]
+                    - 0.5 * oos_metrics["max_drawdown_pct"]
+                )
+                candidates.append(
+                    {
+                        "kind": kind,
+                        "params": params,
+                        "is": {
+                            "trades": is_metrics["trades"],
+                            "net_return_pct": is_metrics[
+                                "total_return_pct"
+                            ],
+                        },
+                        "oos": {
+                            "trades": oos_metrics["trades"],
+                            "net_return_pct": oos_metrics[
+                                "total_return_pct"
+                            ],
+                            "max_drawdown_pct": oos_metrics[
+                                "max_drawdown_pct"
+                            ],
+                        },
+                        "score": round(score, 6),
+                    }
+                )
+        survivors = [
+            c
+            for c in candidates
+            if c["oos"]["net_return_pct"] > 0
+        ]
+        survivors.sort(
+            key=lambda c: (-c["score"], c["kind"], json.dumps(c["params"], sort_keys=True))
+        )
+        created: List[dict] = []
+        for candidate in survivors[:top_n]:
+            try:
+                snapshot = self.create(
+                    label=f"AUTO-SCAN {candidate['kind']}",
+                    symbol=symbol,
+                    kind=candidate["kind"],
+                    params=candidate["params"],
+                    submitted_by=submitted_by,
+                )
+                created.append(
+                    {
+                        "submission_id": snapshot.get("submission_id"),
+                        "kind": candidate["kind"],
+                        "params": candidate["params"],
+                    }
+                )
+            except LabError:
+                continue  # table full etc. — honest skip
+        return {
+            "symbol": symbol,
+            "combinations_tested": tested,
+            "candidates_found": len(candidates),
+            "survivors": len(survivors),
+            "created": created,
+            "ranked": survivors[:10],
+            "method": (
+                "70/30 IS/OOS split, net of conservative costs; top "
+                "survivors become ORDINARY submissions — owner YES "
+                "still required (G6 unchanged)"
+            ),
+        }
+
+    def bootstrap_default_strategies(
+        self, symbol: str, *, submitted_by: str = "preset-bootstrap"
+    ) -> dict:
+        """v1.5.0: create the five TOP-5 YouTuber presets for a symbol
+        (idempotent — existing labels are skipped), backtest them when
+        enough bars exist, and open their 30-day paper windows so paper
+        trading STARTS with them. Activation still needs the owner's
+        explicit YES (G6 unchanged)."""
+        from data_engine.runtime.presets import TOP5_YOUTUBER_PRESETS
+
+        durable = self._durable()
+        existing_labels = {
+            (entry.get("spec") or {}).get("label", "")
+            for entry in durable["strategies"].values()
+        }
+        created: List[str] = []
+        for preset in TOP5_YOUTUBER_PRESETS:
+            label = f"{preset['label']} [{symbol}]"
+            if label in existing_labels:
+                continue
+            try:
+                snapshot = self.create(
+                    label=preset["label"],
+                    symbol=symbol,
+                    kind=preset["kind"],
+                    params=preset["params"],
+                    submitted_by=submitted_by,
+                )
+            except LabError:
+                continue
+            sid = snapshot.get("submission_id")
+            if sid:
+                created.append(sid)
+        paper_started: List[str] = []
+        bars_count = len(self._bars.bars(symbol))
+        for sid in created:
+            try:
+                if bars_count >= MIN_BARS_FOR_BACKTEST:
+                    self.run_backtest(sid)
+                self.paper_start(sid)
+                paper_started.append(sid)
+            except LabError:
+                continue
+        return {
+            "symbol": symbol,
+            "presets_available": len(TOP5_YOUTUBER_PRESETS),
+            "created": created,
+            "paper_started": paper_started,
+            "note": (
+                "presets enter the SAME G6 pipeline; owner YES still "
+                "required for activation"
+            ),
+        }
 
 
 class LedgerFamilyLazy:
@@ -1425,4 +2075,5 @@ __all__ = [
     "MAX_BARS_PER_SYMBOL",
     "MIN_BARS_FOR_BACKTEST",
     "validate_bar",
+    "default_cost_bps",
 ]

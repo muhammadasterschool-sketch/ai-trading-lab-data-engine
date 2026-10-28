@@ -69,7 +69,8 @@ def _fixture_members() -> dict:
     # the v1.1.0 lab bar uploader)
     for comp in (
         "install.ps1", "run-tests.ps1", "run-paper.ps1",
-        "run-monitor.ps1", "local-monitor-config.template.json",
+        "run-monitor.ps1", "create-admin.ps1",
+        "local-monitor-config.template.json",
         "push-bars.ps1", "README-WINDOWS-PACKAGE.md",
     ):
         members[f"{root}/{comp}"] = (

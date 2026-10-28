@@ -37,6 +37,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
+import 'admin_users.dart';
+import 'auth.dart';
 import 'pairing.dart';
 
 const String _storageProfilesKey = 'atl_monitor_profiles';
@@ -53,6 +55,8 @@ class ServerProfile {
     required this.token,
     this.isLocal = false,
     this.email,
+    this.role,
+    this.authKind,
   });
 
   final String id;
@@ -71,6 +75,18 @@ class ServerProfile {
   /// sign-in, no network call to anyone. Redacted server-side.
   final String? email;
 
+  /// v1.5.0: role + auth kind of this profile's credential
+  /// ('session' = email+password+TOTP login; null/'' = pairing
+  /// token = owner level). Drives the admin Users surface.
+  final String? role;
+  final String? authKind;
+
+  bool get isAdmin =>
+      authKind == null ||
+      authKind!.isEmpty ||
+      role == 'admin' ||
+      role == 'owner';
+
   Map<String, dynamic> toJson() => <String, dynamic>{
         'id': id,
         'label': label,
@@ -78,6 +94,8 @@ class ServerProfile {
         'token': token,
         'isLocal': isLocal,
         if (email != null) 'email': email,
+        if (role != null) 'role': role,
+        if (authKind != null) 'authKind': authKind,
       };
 
   static ServerProfile fromJson(Map<String, dynamic> json) => ServerProfile(
@@ -88,6 +106,8 @@ class ServerProfile {
         // backward compatibility: v0.3.x profiles load as CLOUD profiles
         isLocal: (json['isLocal'] as bool?) ?? false,
         email: json['email'] as String?,
+        role: json['role'] as String?,
+        authKind: json['authKind'] as String?,
       );
 }
 
@@ -465,6 +485,96 @@ class EngineApiClient {
     }
     return body;
   }
+
+  // -- v1.5.0 ---------------------------------------------------------
+
+  /// Who am I? (session email+role, or the pairing owner).
+  Future<Map<String, dynamic>> authMe() => _getJson('/api/auth/me');
+
+  /// Admin: who is connected RIGHT NOW (client registry).
+  Future<List<Map<String, dynamic>>> users() async {
+    final response = await http
+        .get(Uri.parse('$serverUrl/api/users'), headers: _headers)
+        .timeout(const Duration(seconds: 10));
+    final ApiException? failure = _statusException(response.statusCode);
+    if (failure != null) {
+      throw failure;
+    }
+    final dynamic decoded = jsonDecode(utf8.decode(response.bodyBytes));
+    if (decoded is Map && decoded['clients'] is List) {
+      return (decoded['clients'] as List).cast<Map<String, dynamic>>();
+    }
+    return <Map<String, dynamic>>[];
+  }
+
+  /// Admin: 2FA accounts with login history.
+  Future<List<Map<String, dynamic>>> adminAccounts() async {
+    final dynamic decoded = await _getDynamic('/api/admin/accounts');
+    if (decoded is Map && decoded['accounts'] is List) {
+      return (decoded['accounts'] as List).cast<Map<String, dynamic>>();
+    }
+    return <Map<String, dynamic>>[];
+  }
+
+  Future<Map<String, dynamic>> adminCreateUser({
+    required String email,
+    required String name,
+    required String password,
+    required String role,
+  }) =>
+      _postLab('/api/admin/accounts', <String, dynamic>{
+        'email': email,
+        'name': name,
+        'password': password,
+        'role': role,
+      });
+
+  Future<Map<String, dynamic>> adminReset2fa(String email) =>
+      _postLab('/api/admin/accounts/reset-2fa', <String, dynamic>{
+        'email': email,
+      });
+
+  Future<Map<String, dynamic>> adminSetLock(String email, bool locked) =>
+      _postLab('/api/admin/accounts/set-lock', <String, dynamic>{
+        'email': email,
+        'locked': locked,
+      });
+
+  /// The TOP-5 YouTuber presets shipped with the engine.
+  Future<List<Map<String, dynamic>>> labPresets() async {
+    final dynamic decoded = await _getDynamic('/api/lab/presets');
+    if (decoded is Map && decoded['presets'] is List) {
+      return (decoded['presets'] as List).cast<Map<String, dynamic>>();
+    }
+    return <Map<String, dynamic>>[];
+  }
+
+  /// Import VERIFIED REAL 1m history into the lab (bundled repo data
+  /// first; Binance Vision website fallback).
+  Future<Map<String, dynamic>> histImport(String symbol) =>
+      _postLab('/api/hist/import', <String, dynamic>{
+        'symbol': symbol,
+        'timeframe': '1m',
+      }, timeoutSeconds: 120);
+
+  /// Create the TOP-5 presets for a symbol + open paper windows.
+  Future<Map<String, dynamic>> labBootstrap(String symbol) =>
+      _postLab('/api/lab/bootstrap', <String, dynamic>{'symbol': symbol});
+
+  /// AUTO-SCAN: parameter scan over all kinds (IS/OOS, net of costs).
+  Future<Map<String, dynamic>> labAutoScan(String symbol, int topN) =>
+      _postLab('/api/lab/auto-scan', <String, dynamic>{
+        'symbol': symbol,
+        'top_n': topN,
+      }, timeoutSeconds: 120);
+
+  /// Multi-component next-move ensemble for a symbol.
+  Future<Map<String, dynamic>> labPredictEnsemble(String symbol) =>
+      _getJson('/api/lab/predict-ensemble/$symbol');
+
+  /// Heuristic crash-risk gauge for a symbol.
+  Future<Map<String, dynamic>> labCrash(String symbol) =>
+      _getJson('/api/lab/crash/$symbol');
 }
 
 // ---------------------------------------------------------------------------
@@ -518,9 +628,10 @@ class _ProfileGatePageState extends State<ProfileGatePage> {
     }
   }
 
-  /// v4.0 (P2/C1): first-run + add-profile flow — exactly TWO options,
-  /// plus the advanced manual-token path. The choice is persisted and
-  /// changeable at any time (adding a profile of the other kind).
+  /// v4.0 (P2/C1): first-run + add-profile flow — the login (2FA),
+  /// cloud and local options plus the advanced manual-token path.
+  /// The choice is persisted and changeable at any time (adding a
+  /// profile of the other kind).
   Future<void> _openModeChoice() async {
     final String? mode = await showDialog<String>(
       context: context,
@@ -531,6 +642,29 @@ class _ProfileGatePageState extends State<ProfileGatePage> {
     }
     if (mode == 'advanced') {
       await _openEditor(initial: null);
+      return;
+    }
+    if (mode == 'login') {
+      // v1.5.0: email + password + TOTP (2FA) login — no session is
+      // issued without the authenticator code.
+      final Map<String, dynamic>? result =
+          await showDialog<Map<String, dynamic>>(
+        context: context,
+        builder: (_) => const LoginPairingFormDialog(),
+      );
+      if (result == null) {
+        return;
+      }
+      await _saveProfile(ServerProfile(
+        id: DateTime.now().microsecondsSinceEpoch.toRadixString(36),
+        label: (result['email'] as String?) ?? 'logged-in user',
+        serverUrl: result['url'] as String,
+        token: result['token'] as String,
+        isLocal: (result['url'] as String).startsWith('http://'),
+        email: result['email'] as String?,
+        role: result['role'] as String?,
+        authKind: 'session',
+      ));
       return;
     }
     await _store.saveOnboardingMode(mode);
@@ -833,6 +967,12 @@ class ModeChoiceDialog extends StatelessWidget {
             'engine on your Windows PC — rent nothing.',
           ),
           const SizedBox(height: 14),
+          FilledButton.icon(
+            icon: const Icon(Icons.badge_outlined),
+            label: const Text('EMAIL LOGIN (2FA)'),
+            onPressed: () => Navigator.of(context).pop('login'),
+          ),
+          const SizedBox(height: 10),
           FilledButton.icon(
             icon: const Icon(Icons.cloud_outlined),
             label: const Text('CLOUD SERVER'),
@@ -1241,14 +1381,36 @@ class _DashboardPageState extends State<DashboardPage> {
   String? _error;
   bool _busy = false;
 
+  /// v1.5.0: admin flag — true for the owner pairing token or an
+  /// admin-role session; drives the Users button (other users).
+  bool _isAdmin = false;
+
   @override
   void initState() {
     super.initState();
     _refresh();
+    _loadRole();
     // v4.0.2: 15 s poll cadence (was 10 s) — halves the request rate so
     // the dashboard sits comfortably under the server's rate limit
     // while staying responsive for a monitoring surface.
     _timer = Timer.periodic(const Duration(seconds: 15), (_) => _refresh());
+  }
+
+  Future<void> _loadRole() async {
+    // paired (token) profiles are owner-level; session profiles carry
+    // their own role — /api/auth/me is the single source of truth.
+    bool admin = widget.profile.isAdmin;
+    try {
+      final me = await _client.authMe();
+      final role = (me['role'] ?? '').toString();
+      admin = role == 'admin' || role == 'owner';
+    } on ApiException {
+      // keep the profile-derived fallback (older engine: pairing only)
+    }
+    if (!mounted) {
+      return;
+    }
+    setState(() => _isAdmin = admin);
   }
 
   @override
@@ -1429,6 +1591,15 @@ class _DashboardPageState extends State<DashboardPage> {
             onPressed: _switchProfile,
           ),
           IconButton(icon: const Icon(Icons.refresh), onPressed: _refresh),
+          if (_isAdmin)
+            IconButton(
+              icon: const Icon(Icons.groups),
+              tooltip: 'Users (who is connected, all accounts)',
+              onPressed: () =>
+                  Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => UsersPage(client: _client),
+              )),
+            ),
           IconButton(
             icon: const Icon(Icons.list_alt),
             tooltip: 'Recent audit events',
@@ -2331,6 +2502,217 @@ class _StrategiesTabState extends State<StrategiesTab> {
     return theme.colorScheme.primary;
   }
 
+  // -- v1.5.0: verified real data + presets + AUTO-SCAN --------------------
+
+  Future<void> _importDataAndBootstrap() async {
+    final symbolController = TextEditingController(text: 'BTCUSDT');
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Start paper trading (verified data)'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            const Text(
+              '1. IMPORT real verified 1-minute history into the lab '
+              '(bundled repo data first; Binance Vision website '
+              'fallback — sha256-checked),\n'
+              '2. CREATE the TOP-5 YouTuber presets and open their 30-day '
+              'paper windows.\n\n'
+              'Your explicit YES is still required later to activate any '
+              'strategy (paper only; live stays NOT AUTHORIZED).',
+            ),
+            TextField(
+              controller: symbolController,
+              decoration: const InputDecoration(
+                labelText: 'symbol (BTCUSDT / ETHUSDT ...)',
+              ),
+            ),
+          ],
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('CANCEL'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('IMPORT + START'),
+          ),
+        ],
+      ),
+    );
+    if (go != true) {
+      return;
+    }
+    final symbol = symbolController.text.trim();
+    if (symbol.isEmpty) {
+      return;
+    }
+    if (_busy) {
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final imported = await widget.client.histImport(symbol);
+      final bootstrapped = await widget.client.labBootstrap(symbol);
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'imported ${imported['imported']} verified bars '
+            '(${imported['source_used']}); presets created: '
+            '${(bootstrapped['created'] as List?)?.length ?? 0}, '
+            'paper windows opened',
+          ),
+        ),
+      );
+      await _load();
+    } on ApiException catch (exc) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('refused: ${exc.message}')),
+      );
+    } catch (exc) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('connection error (${exc.runtimeType})')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  Future<void> _autoScan() async {
+    final symbolController = TextEditingController(text: 'BTCUSDT');
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('AUTO-SCAN strategies'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            const Text(
+              'Deterministic parameter scan over all 9 strategy kinds '
+              '(70/30 in-sample/out-of-sample, net of costs). The best '
+              'survivors become ORDINARY submissions — your YES is still '
+              'required.',
+            ),
+            TextField(
+              controller: symbolController,
+              decoration: const InputDecoration(labelText: 'symbol'),
+            ),
+          ],
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('CANCEL'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('SCAN'),
+          ),
+        ],
+      ),
+    );
+    if (go != true) {
+      return;
+    }
+    if (_busy) {
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      final result = await widget.client
+          .labAutoScan(symbolController.text.trim(), 3);
+      if (!mounted) {
+        return;
+      }
+      final created = (result['created'] as List?)?.length ?? 0;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'AUTO-SCAN: ${result['combinations_tested']} combos tested, '
+            '${result['survivors']} survivors, $created submissions '
+            'created (awaiting your YES)',
+          ),
+        ),
+      );
+      await _load();
+    } on ApiException catch (exc) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('refused: ${exc.message}')),
+      );
+    } catch (exc) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('connection error (${exc.runtimeType})')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  Widget _v150Card() {
+    return Card(
+      color: Theme.of(context).colorScheme.primaryContainer.withAlpha(70),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            Text(
+              'START PAPER TRADING (v1.5.0)',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleSmall
+                  ?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Verified real 1m data -> TOP-5 YouTuber presets -> 30-day '
+              'paper windows -> your YES. >=60% confirmed calls also '
+              'journal 1-fill/second paper bursts.',
+              style: TextStyle(fontSize: 12),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              children: <Widget>[
+                FilledButton.tonalIcon(
+                  onPressed: _busy ? null : _importDataAndBootstrap,
+                  icon: const Icon(Icons.download),
+                  label: const Text('IMPORT DATA + PRESETS'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _busy ? null : _autoScan,
+                  icon: const Icon(Icons.manage_search),
+                  label: const Text('AUTO-SCAN'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -2353,21 +2735,24 @@ class _StrategiesTabState extends State<StrategiesTab> {
               )
             : _rows.isEmpty
                 ? ListView(
-                    children: const <Widget>[
-                      Padding(
+                    padding: const EdgeInsets.fromLTRB(8, 8, 8, 88),
+                    children: <Widget>[
+                      _v150Card(),
+                      const Padding(
                         padding: EdgeInsets.all(16),
                         child: Text(
                           'No strategies yet.\n\n'
                           'Pipeline: create -> backtest -> paper window -> '
-                          'your explicit YES -> ACTIVATED (paper only).\n'
-                          'Upload bars from your PC via push-bars.ps1 first.',
+                          'your explicit YES -> ACTIVATED (paper only).',
                         ),
                       ),
                     ],
                   )
                 : ListView(
                     padding: const EdgeInsets.fromLTRB(8, 8, 8, 88),
-                    children: _rows.map((row) {
+                    children: <Widget>[
+                      _v150Card(),
+                      ..._rows.map((row) {
                       final id =
                           _labString(row, 'submission_id', '?');
                       final state =
@@ -2490,7 +2875,8 @@ class _StrategiesTabState extends State<StrategiesTab> {
                           ),
                         ),
                       );
-                    }).toList(),
+                    }),
+                  ],
                   ),
       ),
     );

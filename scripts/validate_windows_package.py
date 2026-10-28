@@ -49,6 +49,7 @@ REQUIRED_SUFFIXES = (
     "run-tests.ps1",
     "run-paper.ps1",
     "run-monitor.ps1",
+    "create-admin.ps1",
     "local-monitor-config.template.json",
     "push-bars.ps1",
     "README-WINDOWS-PACKAGE.md",

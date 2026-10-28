@@ -58,6 +58,47 @@ $env:RUNTIME_LEDGER_MAC_KEY = "<key from YOUR secret store>"
 powershell -ExecutionPolicy Bypass -File .\run-paper.ps1 -Confirm
 ```
 
+## 3a. v1.5.0 — monitor, 2FA login, real data, paper trading start
+
+The monitor is the single app (the old separate ADMIN APK is retired;
+admin features live inside the monitor app for admin-role users).
+
+```powershell
+# 1) start the local monitor (preset auto-bootstrap is ON by default)
+powershell -ExecutionPolicy Bypass -File .\run-monitor.ps1
+#    phone on your Wi-Fi instead of loopback:
+powershell -ExecutionPolicy Bypass -File .\run-monitor.ps1 -AllowLan
+
+# 2) create the FIRST ADMIN account (hidden password prompt, min 10
+#    chars; the user enrolls their authenticator app on first login)
+powershell -ExecutionPolicy Bypass -File .\create-admin.ps1 -Email you@example.com -Name "Owner"
+
+# 3) import VERIFIED REAL 1-minute history into the lab (offline:
+#    bundled repo datasets, sha256-checked against the source's
+#    official checksum; website fallback = data.binance.vision)
+.\.venv\Scripts\python.exe -m data_engine.cli hist-datasets
+.\.venv\Scripts\python.exe -m data_engine.cli hist-import --symbol BTCUSDT --monitor-state-dir .\monitor-state
+```
+
+Then IN THE APP (everything also exists as HTTP routes):
+
+- **EMAIL LOGIN (2FA)** — email + password + the 6-digit
+  authenticator code. NO session is issued without a valid TOTP code
+  (RFC 6238; Google Authenticator / Authy / Microsoft Authenticator
+  all work; enrollment happens on first login).
+- **Users (admin only)** — who is connected right now, all accounts
+  with login history, create user, reset 2FA, lock/unlock.
+- **AI Lab -> Strategies -> START PAPER TRADING** — imports verified
+  1m data, creates the TOP-5 YouTuber presets (EMA 9/21 scalp, RSI +
+  Bollinger, VWAP reversion, Supertrend + ADX, opening-range
+  breakout) and opens their 30-day paper windows. AUTO-SCAN scans 27
+  parameter combinations (70/30 IS/OOS, net of costs) and creates
+  ordinary submissions.
+- **>=60% confirmed calls** journal a PAPER-ONLY one-fill-per-second
+  burst (60 hypothetical fills after the confirmation candle, exit
+  marked at the next closed candle, cooldown + loss cap + kill-switch
+  pause). These are JOURNAL entries — no orders are sent anywhere.
+
 ## 4. State / log directory layout
 
 The engine NEVER writes state inside the package. Runtime artifacts
