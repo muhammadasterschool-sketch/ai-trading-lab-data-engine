@@ -12,6 +12,18 @@ import { unzipSync, strFromU8 } from 'fflate'
 export const SYMBOLS = {
   PAXGUSDT: { okx: 'PAXG-USDT', label: 'GOLD (PAXG)', advUnits: 8000 },
   BTCUSDT: { okx: 'BTC-USDT', label: 'BITCOIN', advUnits: 1200 },
+  ETHUSDT: { okx: 'ETH-USDT', label: 'ETHEREUM', advUnits: 30000 },
+  BNBUSDT: { okx: 'BNB-USDT', label: 'BNB', advUnits: 50000 },
+  SOLUSDT: { okx: 'SOL-USDT', label: 'SOLANA', advUnits: 80000 },
+  XRPUSDT: { okx: 'XRP-USDT', label: 'XRP', advUnits: 2000000 },
+  ADAUSDT: { okx: 'ADA-USDT', label: 'CARDANO', advUnits: 2000000 },
+  DOGEUSDT: { okx: 'DOGE-USDT', label: 'DOGECOIN', advUnits: 3000000 },
+  AVAXUSDT: { okx: 'AVAX-USDT', label: 'AVALANCHE', advUnits: 100000 },
+  DOTUSDT: { okx: 'DOT-USDT', label: 'POLKADOT', advUnits: 200000 },
+  LINKUSDT: { okx: 'LINK-USDT', label: 'CHAINLINK', advUnits: 100000 },
+  TRXUSDT: { okx: 'TRX-USDT', label: 'TRON', advUnits: 2000000 },
+  LTCUSDT: { okx: 'LTC-USDT', label: 'LITECOIN', advUnits: 50000 },
+  EURUSDT: { okx: 'EUR-USDT', label: 'EURO', advUnits: 200000 },
 } as const
 
 export type VisionSymbol = keyof typeof SYMBOLS

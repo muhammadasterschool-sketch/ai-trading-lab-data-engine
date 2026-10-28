@@ -96,7 +96,7 @@ select{width:100%;background:#18181b;border:1px solid #27272a;border-radius:9px;
   <div class="logo">📈</div>
   <h1>AI Trading Lab <span style="color:#f59e0b">v5</span></h1>
   <div class="sub">Full trading engine on this device — paper trading</div>
-  <div class="sub" style="color:#fbbf24">v5.7 · Full Mobile Control</div>
+  <div class="sub" style="color:#fbbf24">v5.8 · 1-Minute 24h Scanner</div>
   <div id="engStrip" class="eng">checking engine…</div>
   <div class="note">Pehli dafa? <b>Register</b> par account banayen (invite code pehle se bhara hai), phir <b>Sign in</b> — dashboard foran khulega. Kisi authenticator app ki zaroorat nahi.</div>
 
@@ -313,7 +313,7 @@ function renderDash(){
     var ban = '';
     if(!e.engine_on) ban = '<div class="banner red">Engine is OFF — enable in Settings</div>';
     else if(e.news_pause) ban = '<div class="banner warn">📰 High-impact news — new entries paused 30 min</div>';
-    else ban = '<div class="banner green">Engine running — scanning '+e.active_symbols+' instruments every minute</div>';
+    else ban = '<div class="banner green">⏱ 24h scanner LIVE — '+e.active_symbols+' instruments on '+(e.timeframe||'1m')+' chart, day & night</div>';
     var spark = sparkSvg(d.equity||[]);
     document.getElementById('main').innerHTML =
       ban +
@@ -327,6 +327,8 @@ function renderDash(){
       '<div class="card full"><div class="k">Equity (last 12h)</div><div id="sparkwrap">'+spark+'</div></div>' +
       '<div class="card full"><div class="k">Engine Status</div>' +
         '<table style="margin-top:6px"><tr><td class="mut">Consensus</td><td>'+esc(e.consensus||'')+'</td></tr>' +
+        '<tr><td class="mut">Timeframe</td><td><b>'+(e.timeframe||'1m')+'</b> · '+(e.strategy_count||12)+' indicator votes (need ≥60%)</td></tr>' +
+        '<tr><td class="mut">Market scanner</td><td>'+(e.scanner||'24h')+' nonstop · scan #'+(e.scan_count||0)+'</td></tr>' +
         '<tr><td class="mut">Instruments trading</td><td>'+e.active_symbols+'</td></tr>' +
         '<tr><td class="mut">Data feed</td><td>'+esc((e.data_host||'').replace('https://',''))+'</td></tr>' +
         '<tr><td class="mut">Risk</td><td>1% / trade · 5% daily halt · 10% kill</td></tr></table></div>' +
@@ -390,7 +392,7 @@ function renderTrades(){
       if(t.status==='OPEN') open += row; else closed += row;
     });
     document.getElementById('main').innerHTML =
-      '<h2>Open Positions</h2>' + (open? '<table>'+open+'</table>' : '<div class="empty">No open positions — engine scans every minute</div>') +
+      '<h2>Open Positions</h2>' + (open? '<table>'+open+'</table>' : '<div class="empty">No open positions — 24h scanner is watching the market on 1m candles</div>') +
       '<h2>History</h2>' + (closed? '<table>'+closed+'</table>' : '<div class="empty">No closed trades yet</div>');
   });
 }

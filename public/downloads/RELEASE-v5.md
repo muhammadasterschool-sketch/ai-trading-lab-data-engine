@@ -1,3 +1,45 @@
+# AI Trading Lab — v5.8 Release (Android)
+
+Release date: 2026-10-28
+APK: `AI-Trading-Lab-v5.8-Android.apk` (104 KB, versionCode 13)
+
+## v5.8 feature — 1-MINUTE TIMEFRAME + 24H NONSTOP MARKET SCANNER + 12-INDICATOR CONSENSUS
+
+Request: "1min ke timeframe par paper trading start kare... market ko 24h scan kare...
+sare instruments and indicators add kardo." The phone engine now trades the 1-minute
+chart around the clock with a much larger indicator brain and an all-market ledger.
+
+1. **1-Minute timeframe** — engine TF 15m → **1m** (TF_MS 60s). Main loop now fires
+   every **30 s** so a fresh 1m candle is scanned the moment it closes. Confirmation
+   rule unchanged: only closed candles trigger entries (no intrabar repaint).
+2. **24h nonstop market scanner** — the loop never sleeps (day & night). Dashboard
+   banner now shows "⏱ 24h scanner LIVE — N instruments on 1m chart", Engine Status
+   adds **Timeframe**, **Market scanner (24h · scan #counter)** rows, and the
+   status payload exposes timeframe/scanner/scan_count/strategy_count/last_scan_at.
+3. **12-indicator consensus** (was 5) — entry still needs ≥60% agreement:
+   EMA cross · RSI+Bollinger · MACD+Stochastic (real EMA9 signal line now) ·
+   VWAP reversion · Donchian breakout · **Supertrend flip** · **Ichimoku**
+   (cloud + Tenkan/Kijun) · **ADX trend** (ADX>25, ±DI dominance) ·
+   **CCI + Williams %R** extremes · **MFI + OBV** volume flow ·
+   **PSAR + Aroon** trend · **StochRSI** fast trigger.
+4. **All-market instruments ledger** (was 7) — 78 seeded instruments:
+   5 metals (XAU/XAG/XPT/XPD/CU), 3 energy (WTI, Brent, NatGas),
+   28 forex pairs (7 majors + 21 crosses), 12 indices (S&P, Nasdaq, Dow, DAX,
+   FTSE, CAC, Stoxx, Nikkei, HangSeng, ASX, USDX, VIX) and 30 crypto majors.
+   Forex/metals/energy/indices stay PENDING_BROKER (live phase); crypto trades
+   now via Binance. **PAXG (gold proxy), EURUSDT (euro proxy), BTC, ETH are
+   always-on ACTIVE** — discovery can never demote them.
+5. **Bigger discovery** — ledger top 40 → **150** pairs, active trading top 20 →
+   **30**, every 30 min, plus static crypto seeds so the ledger is full on first boot.
+6. **Dashboard v5.8** — badge "v5.8 · 1-Minute 24h Scanner", live scan counter,
+   indicator-vote count, instruments table unchanged (owner Control panel intact).
+
+Version bumps: versionCode 13 / versionName "5.8", health + settings → 5.8.0.
+Strategy tag on new trades: `CONSENSUS_12`. Web side: SYMBOLS map expanded
+(14 tradeable symbols for backtest/autoscan).
+
+---
+
 # AI Trading Lab — v5.7 Release (Android)
 
 Release date: 2026-10-28

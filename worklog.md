@@ -273,3 +273,22 @@ Stage Summary:
 - Deploy: v5.7 APK + source zip (script bumped) → download/ + public/downloads/ + .next/standalone/public/downloads/; v5.6 files removed everywhere; downloads.html v5.7 (badge, card, src link, footer); RELEASE-v5.md v5.7 section on top
 - Web: NO code change needed (v5.6 admin notifications panel already live) — server restart only for new public/ snapshot
 - Windows installer: CANCELED per user — v4 Windows zips left as-is, no new Windows builds
+
+## Task 17 — v5.8: 1-MINUTE TIMEFRAME + 24H SCANNER + 12-INDICATOR CONSENSUS + ALL-MARKET LEDGER
+- User: "1min ke timeframe par paper trading start kare... market ko 24h scan kare... sare instruments and indicators add kardo" + PDF link (Google Drive)
+- PDF BLOCKED: drive.google.com file 17qNZxcxH2G6Iq7mk6n2Juqz-BBP8tBQG → 401/403 sign-in wall (sharing=Restricted); tried uc?export=download, usercontent, WebFetch, agent-browser, confirm=t, googleapis alt=media — all redirect to Google login. Told user to re-share as "Anyone with link → Viewer"; meanwhile shipped standard all-market universe so nothing is blocked
+- ANDROID (v5.8, versionCode 13):
+  - EngineCore: TF "15m"→"1m" (TF_MS 60s), main loop 60s→30s (fresh 1m candle scanned at close), scanCount + lastScanAt heartbeat
+  - INDICATORS +new: emaSeries, rsiSeries (Wilder), stochRsi(14,14,3,3), adx(14)[adx,+DI,-DI], cci(20), williamsR(14), mfi(14), obvSlope(20), roc(9), supertrend(10,3) w/ closeAt helper, psar(0.02/0.2), ichimoku(9,26,52), aroon(14), trix(15), keltner(20,2), ultimateOsc(7,14,28); macd() now real EMA9 signal line (was 0.8 approximation); breakout() Double.MIN_VALUE bug → -Double.MAX_VALUE
+  - STRATEGIES 5→12 votes: +supertrendFlip, +ichimoku, +adxTrend (ADX≥25 & DI gap>3), +cciWilliams extremes, +mfiObv flow, +psarAroon, +stochRsi trigger; consensus gate still ≥60% of 12; trade tag CONSENSUS_5→CONSENSUS_12
+  - INSTRUMENTS 7→78 seeded: metals(5) energy(3) forex(7 majors+21 crosses) indices(12) crypto(30) + PAXG/EURUSDT proxies; status: crypto ACTIVE/WATCHING via seed, broker set PENDING_BROKER; force-activate UPDATE for PAXGUSDT/EURUSDT/BTCUSDT/ETHUSDT (upgrade path) + discovery alwaysOn guard (never demoted)
+  - DISCOVERY: LEDGER_TOP 40→150, ACTIVE_TOP 20→30; log lines say "24h market scan"
+  - status(): +timeframe/scanner/scan_count/strategy_count/last_scan_at; ENGINE_START log "v5.8 — 1m timeframe, 24h nonstop market scanner"
+- Api.java: health + settings version 5.8.0 (+timeframe/scanner in health); dashboard.html: badge "v5.8 · 1-Minute 24h Scanner", banner "⏱ 24h scanner LIVE — N instruments on 1m chart, day & night", Engine Status rows (Timeframe + votes, Market scanner + scan counter), empty-positions text mentions 1m/24h
+- build.gradle versionCode 13 / "5.8"; strings.xml untouched (no version string there per grep)
+- Build: gradle --offline OK (only deprecation notes); apksigner verifies (keystore atl)
+- Deploy: v5.8 APK + source zip → download/ + public/downloads/ + .next/standalone/public/downloads/; v5.7 files removed everywhere; standalone stale v4 Windows zips + RELEASE-v4 removed from snapshot (mobile-only per user); server restarted (public snapshot rule)
+- downloads.html: v5.8 badge/card/src-link/footer, Windows cards + PowerShell installer REMOVED (user canceled Windows installer), quick-start now 2 steps (phone-only)
+- RELEASE-v5.md: v5.8 section prepended; worklog entry added
+- Web: binanceVision.ts SYMBOLS 2→14 (BTC ETH BNB SOL XRP ADA DOGE AVAX DOT LINK TRX LTC EUR + PAXG) for backtest/autoscan; NO TF change on web (web is backtest/analysis side; phone engine owns live 1m paper trading)
+- NOTE: PDF still locked → v5.9 reconciliation pending once user re-shares with "Anyone with link"
