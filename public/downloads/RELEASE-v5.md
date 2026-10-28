@@ -1,7 +1,34 @@
-# AI Trading Lab — v5.9 Release (Android)
+# AI Trading Lab — v5.9.1 Release (Android)
 
 Release date: 2026-10-28
-APK: `AI-Trading-Lab-v5.9-Android.apk` (132 KB, versionCode 14)
+APK: `AI-Trading-Lab-v5.9.1-Android.apk` (132 KB, versionCode 15)
+
+## v5.9.1 fix — FRESH-INSTALL LOGIN GUIDANCE
+
+Problem reported by the owner: after installing the new build, sign-in showed
+"Invalid email or password" and the recovery page showed "No account found with
+this email on this device". Root cause: accounts live in the device's LOCAL
+SQLite database — reinstalling/updating the app starts with an EMPTY database,
+so the old account does not carry over. The owner was trying to recover an
+account that did not exist on the fresh install.
+
+Fixes:
+1. Login with zero accounts on device now returns a clear Roman-Urdu message:
+   "Is device par abhi koi account nahi hai (naya install). Pehle REGISTER tab
+   se account banayen (invite code pehle se bhara hai), phir sign in karein."
+2. Recovery page with zero accounts now says: naya install hai — REGISTER tab
+   se pehle account banayen.
+3. Auth screen note now explains: app reinstall/update ke baad purana account
+   transfer NAHI hota (data device par local hai) — pehli dafa Register tab se
+   account banayen.
+4. Recovery page note explains the "No account found" error in Roman Urdu.
+
+Register flow (unchanged): invite M2991474 pre-filled, name + email + password
+(8+ chars, letters + numbers) → Create account → Sign in → dashboard opens
+(direct entry, no authenticator app). First registered user on a fresh install
+becomes ADMIN (owner Control panel).
+
+## v5.9 feature — COMPLETE TRADING ENCYCLOPEDIA EDITION (PDF fully reconciled)
 
 ## v5.9 feature — COMPLETE TRADING ENCYCLOPEDIA EDITION (PDF fully reconciled)
 

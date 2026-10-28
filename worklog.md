@@ -309,3 +309,15 @@ Stage Summary:
 - Build: gradle --offline OK; apksigner verify OK; deploy: public/downloads/AI-Trading-Lab-v5.9-Android.apk (132 KB)
 - docs: downloads.html v5.9 (badge/card/src/footer/steps), RELEASE-v5.md v5.9 section prepended, worklog entry
 - NOTE: broker-class instruments stay PENDING_BROKER (live phase); crypto trades now; 1m TF + 24h scan from v5.8 unchanged
+
+## Task 19 — v5.9.1: FRESH-INSTALL LOGIN GUIDANCE FIX
+- User report (screenshot): after v5.9 install, sign-in said "Invalid email or password" and recovery page said "No account found with this email on this device" (email Muhammadasterschool@gmail.com)
+- ROOT CAUSE: accounts are LOCAL-SQLite per device; reinstall/update = empty users table; user tried to recover an account that never existed on the fresh install. NOT a server bug — flow worked as designed but messages were misleading
+- FIX Api.java login(): zero accounts on device → 401 "Is device par abhi koi account nahi hai (naya install). Pehle REGISTER tab se account banayen..." ; else "Invalid email or password — ya name match nahi hua. Exact wahi name aur email likhein..."
+- FIX Api.java resetPassword(): zero accounts → 404 "...naya install hai, is liye purana account maujood nahi. REGISTER tab se pehle account banayen." ; else "...email check karein ya REGISTER tab se account banayen."
+- FIX dashboard.html: auth note now warns "reinstall/update ke baad purana account transfer NAHI hota (data device par local hai)"; recovery note explains the No-account-found error + points to Register tab; badge v5.9.1
+- Register flow unchanged: M2991474 prefilled, first user on fresh install = ADMIN
+- build.gradle versionCode 14→15, versionName 5.9→5.9.1; build+zipalign+apksigner OK (CN=AI Trading Lab cert)
+- Deploy: public/downloads/AI-Trading-Lab-v5.9.1-Android.apk (132 KB) + source zip renamed v5.9.1 (old v5.9 files removed); downloads.html all version strings → 5.9.1; RELEASE-v5.md v5.9.1 section prepended; download/ folder synced
+- CRITICAL LESSON RE-CONFIRMED: standalone bun serves .next/standalone/public/ (NOT ./public/) — new files must be copied to BOTH, then kill bun server.js and restart, else 404 (hit again this session: first restart gave 404 because files were only in ./public/)
+- Verified after restart: downloads.html 200, v5.9.1 APK 200 (132112b), source zip 200

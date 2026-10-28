@@ -211,7 +211,16 @@ public class Api {
 
         Cursor c = db.getReadableDatabase().rawQuery(
                 "SELECT id, name, pw_hash, active, totp_enabled, totp_secret FROM users WHERE email=?", new String[]{email});
-        if (!c.moveToFirst()) { c.close(); return Res.error(401, "Invalid email or password"); }
+        if (!c.moveToFirst()) {
+            c.close();
+            // v5.9.1 — fresh-install guidance: if this device has NO accounts at all,
+            // the user is looking at a wiped/reinstalled app, not a wrong password.
+            Cursor cnt = db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM users", null);
+            boolean noAccounts = cnt.moveToFirst() && cnt.getInt(0) == 0; cnt.close();
+            if (noAccounts) return Res.error(401,
+                    "Is device par abhi koi account nahi hai (naya install). Pehle REGISTER tab se account banayen (invite code pehle se bhara hai), phir sign in karein.");
+            return Res.error(401, "Invalid email or password — ya name match nahi hua. Exact wahi name aur email likhein jo registration par use hua tha.");
+        }
         long uid = c.getLong(0);
         String storedName = c.getString(1) == null ? "" : c.getString(1).trim().toLowerCase();
         String hash = c.getString(2);
@@ -297,7 +306,14 @@ public class Api {
 
         Cursor c = db.getReadableDatabase().rawQuery(
                 "SELECT id, name FROM users WHERE email=?", new String[]{email});
-        if (!c.moveToFirst()) { c.close(); return Res.error(404, "No account found with this email on this device"); }
+        if (!c.moveToFirst()) {
+            c.close();
+            Cursor cnt = db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM users", null);
+            boolean noAccounts = cnt.moveToFirst() && cnt.getInt(0) == 0; cnt.close();
+            if (noAccounts) return Res.error(404,
+                    "No account found with this email on this device — naya install hai, is liye purana account maujood nahi. REGISTER tab se pehle account banayen.");
+            return Res.error(404, "No account found with this email on this device — email check karein ya REGISTER tab se account banayen.");
+        }
         long uid = c.getLong(0);
         String storedName = c.getString(1) == null ? "" : c.getString(1).trim().toLowerCase();
         c.close();
