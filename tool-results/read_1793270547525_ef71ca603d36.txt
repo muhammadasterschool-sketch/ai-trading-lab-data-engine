@@ -1,0 +1,734 @@
+    80→                try { msg = new JSONObject(sb.toString()).optString("error", "AI error " + code); } catch (Exception ignored) { }
+    81→                lastAiError = msg;
+    82→                return null;
+    83→            }
+    84→            lastAiError = null;
+    85→            return new JSONObject(sb.toString());
+    86→        } catch (Exception e) {
+    87→            lastAiError = "AI service unreachable: " + e.getClass().getSimpleName();
+    88→            return null;
+    89→        }
+    90→    }
+    91→
+    92→    private volatile String lastAiError = null;
+    93→
+    94→    // ================== ADD STRATEGIES ==================
+    95→
+    96→    /** AI-compile a free-text strategy -> CANDIDATE row. Returns result JSON for the API. */
+    97→    public JSONObject addManual(String text) throws Exception {
+    98→        JSONObject spec = compileText(text);
+    99→        if (spec == null) return fail(lastAiError != null ? lastAiError : "AI compile fail — dobara try karein");
+   100→        return insert(sourceFrom(spec), spec.optString("video", "{}"), spec);
+   101→    }
+   102→
+   103→    /** Compile free text via the AI proxy; returns spec JSON (with injected video meta if YT). */
+   104→    private JSONObject compileText(String text) throws Exception {
+   105→        JSONObject r = aiPost("/api/ai/strategy", new JSONObject().put("text", text), 90000);
+   106→        if (r == null || !r.optBoolean("ok")) return null;
+   107→        return r.optJSONObject("spec");
+   108→    }
+   109→
+   110→    /** Watch ONE YouTube video now -> CANDIDATE row.
+   111→     *  v1.2.1: transcript PHONE se fetch hota hai (phone ka mobile/WiFi IP YouTube se
+   112→     *  block nahi hota; datacenter IPs ko "confirm you're not a bot" aata hai).
+   113→     *  Sirf transcript TEXT AI proxy ko jata hai — strategy wahan banti hai. */
+   114→    public JSONObject addYouTube(String url) throws Exception {
+   115→        String vid = extractVideoId(url);
+   116→        if (vid == null) return fail("Ye YouTube video link nahi lag raha");
+   117→        String title = "", channel = "";
+   118→        String page = httpGetStr("https://www.youtube.com/watch?v=" + vid + "&hl=en", DESKTOP_UA, 20000);
+   119→        if (page != null) {
+   120→            java.util.regex.Matcher tm = java.util.regex.Pattern.compile("<title>(.*?)</title>").matcher(page);
+   121→            if (tm.find()) {
+   122→                title = tm.group(1).replaceAll(" - YouTube$", "")
+   123→                        .replace("&amp;", "&").replace("&#39;", "'").replace("&quot;", "\"");
+   124→            }
+   125→            java.util.regex.Matcher cm = java.util.regex.Pattern.compile("\"ownerChannelName\":\"(.*?)\"").matcher(page);
+   126→            if (cm.find()) channel = cm.group(1).replace("\\u0026", "&");
+   127→        }
+   128→        String transcript = fetchTranscript(vid);
+   129→        if (transcript == null)
+   130→            return fail("Is video ke captions nahi mile — captions wali video try karein (auto-captions bhi chalti hain)");
+   131→        JSONObject r = aiPost("/api/ai/transcript", new JSONObject()
+   132→                .put("title", title).put("channel", channel).put("transcript", transcript), 120000);
+   133→        if (r == null || !r.optBoolean("ok"))
+   134→            return fail(r == null ? (lastAiError != null ? lastAiError : "AI service unreachable")
+   135→                    : r.optString("error", "Video se strategy nahi bani"));
+   136→        JSONObject spec = r.optJSONObject("spec");
+   137→        if (spec == null) return fail("Video se strategy spec nahi bani");
+   138→        JSONObject video = new JSONObject().put("id", vid).put("title", title)
+   139→                .put("channel", channel).put("url", "https://www.youtube.com/watch?v=" + vid);
+   140→        spec.put("video", video.toString());
+   141→        spec.put("source", "YOUTUBE");
+   142→        return insert("YOUTUBE", video.toString(), spec);
+   143→    }
+   144→
+   145→    private static final String DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+   146→
+   147→    /** watch/shorts/live/be URL se 11-char video ID. */
+   148→    private static String extractVideoId(String url) {
+   149→        java.util.regex.Matcher m = java.util.regex.Pattern
+   150→                .compile("(?:v=|youtu\\.be/|/shorts/|/live/|/embed/)([A-Za-z0-9_-]{11})").matcher(url);
+   151→        return m.find() ? m.group(1) : null;
+   152→    }
+   153→
+   154→    /** Generic HTTPS GET with UA — phone ke apne IP se (YouTube blocks datacenter IPs). */
+   155→    private static String httpGetStr(String url, String ua, int timeoutMs) {
+   156→        try {
+   157→            HttpURLConnection cn = (HttpURLConnection) new URL(url).openConnection();
+   158→            cn.setConnectTimeout(timeoutMs);
+   159→            cn.setReadTimeout(timeoutMs);
+   160→            cn.setRequestProperty("User-Agent", ua);
+   161→            cn.setRequestProperty("Accept-Language", "en-US,en;q=0.9");
+   162→            int code = cn.getResponseCode();
+   163→            if (code != 200) return null;
+   164→            BufferedReader r = new BufferedReader(new InputStreamReader(cn.getInputStream(), StandardCharsets.UTF_8));
+   165→            StringBuilder sb = new StringBuilder();
+   166→            String line;
+   167→            while ((line = r.readLine()) != null) sb.append(line);
+   168→            r.close();
+   169→            return sb.toString();
+   170→        } catch (Exception e) {
+   171→            return null;
+   172→        }
+   173→    }
+   174→
+   175→    /** Phone se captions nikalta hai: watch page → captionTracks → json3 transcript. */
+   176→    private String fetchTranscript(String vid) {
+   177→        try {
+   178→            String page = httpGetStr("https://www.youtube.com/watch?v=" + vid + "&hl=en", DESKTOP_UA, 20000);
+   179→            if (page == null) return null;
+   180→            java.util.regex.Matcher m = java.util.regex.Pattern
+   181→                    .compile("\"captionTracks\":(\\[.*?\\])(,\"audioTracks\"|,\"translationLanguages\"|\\})")
+   182→                    .matcher(page);
+   183→            if (!m.find()) return null;
+   184→            JSONArray tracks = new JSONArray(m.group(1).replace("\\u0026", "&").replace("\\\\/", "/"));
+   185→            String baseUrl = null;
+   186→            for (int pass = 0; pass < 2 && baseUrl == null; pass++) {
+   187→                for (int i = 0; i < tracks.length(); i++) {
+   188→                    JSONObject t = tracks.getJSONObject(i);
+   189→                    String lang = t.optString("languageCode", "");
+   190→                    boolean asr = "asr".equals(t.optString("kind", ""));
+   191→                    if (pass == 0 && lang.startsWith("en") && !asr) { baseUrl = t.optString("baseUrl"); break; }
+   192→                    if (pass == 1 && lang.startsWith("en")) { baseUrl = t.optString("baseUrl"); break; }
+   193→                }
+   194→            }
+   195→            if (baseUrl == null && tracks.length() > 0) baseUrl = tracks.getJSONObject(0).optString("baseUrl");
+   196→            if (baseUrl == null || baseUrl.isEmpty()) return null;
+   197→            String cap = httpGetStr(baseUrl + "&fmt=json3", DESKTOP_UA, 20000);
+   198→            if (cap == null) return null;
+   199→            StringBuilder sb = new StringBuilder();
+   200→            JSONArray events = new JSONObject(cap).optJSONArray("events");
+   201→            if (events != null) {
+   202→                for (int i = 0; i < events.length(); i++) {
+   203→                    JSONArray segs = events.getJSONObject(i).optJSONArray("segs");
+   204→                    if (segs == null) continue;
+   205→                    for (int j = 0; j < segs.length(); j++) sb.append(segs.getJSONObject(j).optString("utf8", ""));
+   206→                }
+   207→            }
+   208→            String out = sb.toString().replaceAll("\\s+", " ").trim();
+   209→            if (out.length() < 200) return null;
+   210→            return out.length() > 12000 ? out.substring(0, 12000) : out;
+   211→        } catch (Exception e) {
+   212→            return null;
+   213→        }
+   214→    }
+   215→
+   216→    /** Subscribe to a channel — engine watches ALL new videos + live streams (15 min poll). */
+   217→    public JSONObject subscribeChannel(String url) throws Exception {
+   218→        JSONObject r = aiPost("/api/ai/ytlist", new JSONObject().put("url", url), 60000);
+   219→        if (r == null || !r.optBoolean("ok"))
+   220→            return fail(r == null ? (lastAiError != null ? lastAiError : "AI service unreachable")
+   221→                    : r.optString("error", "Channel resolve nahi hui"));
+   222→        JSONObject ch = r.optJSONObject("channel");
+   223→        if (ch == null) return fail("Channel ID nahi mili");
+   224→        db.setSetting("yt_channel_id", ch.optString("id"));
+   225→        db.setSetting("yt_channel_name", ch.optString("name"));
+   226→        JSONArray vids = r.optJSONArray("videos");
+   227→        // seed seen-list with current ids so we only process FUTURE uploads
+   228→        JSONArray seen = new JSONArray();
+   229→        if (vids != null) for (int i = 0; i < vids.length(); i++) seen.put(vids.optJSONObject(i).optString("id"));
+   230→        db.setSetting("yt_seen", seen.toString());
+   231→        db.log("INFO", "LAB", "YT_SUBSCRIBE", "channel '" + ch.optString("name")
+   232→                + "' — engine ab har naya video + live stream 15 min mein check karke AI se strategy banayegi");
+   233→        return r;
+   234→    }
+   235→
+   236→    public void stopChannel() {
+   237→        db.setSetting("yt_channel_id", "");
+   238→        db.log("INFO", "LAB", "YT_STOP", "channel watcher stopped");
+   239→    }
+   240→
+   241→    /** Every 15 min (called from EngineCore loop): process new channel videos + live. */
+   242→    public void watchYouTube() throws Exception {
+   243→        String cid = db.setting("yt_channel_id", "");
+   244→        if (cid == null || cid.isEmpty()) return;
+   245→        JSONObject r = aiPost("/api/ai/ytlist", new JSONObject().put("url",
+   246→                "https://www.youtube.com/channel/" + cid), 60000);
+   247→        if (r == null) return;
+   248→        JSONArray vids = r.optJSONArray("videos");
+   249→        if (vids == null) return;
+   250→        JSONArray seen;
+   251→        try { seen = new JSONArray(db.setting("yt_seen", "[]")); } catch (Exception e) { seen = new JSONArray(); }
+   252→        List<String> seenL = new ArrayList<>();
+   253→        for (int i = 0; i < seen.length(); i++) seenL.add(seen.optString(i));
+   254→
+   255→        int added = 0;
+   256→        for (int i = 0; i < vids.length() && added < 3; i++) { // max 3 per cycle — LLM cost guard
+   257→            JSONObject v = vids.optJSONObject(i);
+   258→            String id = v.optString("id");
+   259→            if (id.isEmpty() || seenL.contains(id)) continue;
+   260→            boolean live = v.optBoolean("live");
+   261→            db.log("INFO", "LAB", "YT_PROCESS", (live ? "LIVE STREAM" : "video") + " '"
+   262→                    + v.optString("title") + "' — AI se strategy extract ho rahi hai");
+   263→            JSONObject res = addYouTube("https://www.youtube.com/watch?v=" + id);
+   264→            seenL.add(id);
+   265→            seen.put(id);
+   266→            added++;
+   267→            if (res != null && res.optBoolean("ok")) {
+   268→                Notifier.post(ctx, "Strategy Lab — YouTube",
+   269→                        (live ? "Live stream" : "Naya video") + " se strategy bani: "
+   270→                                + res.optJSONObject("strategy").optString("name") + " (Lab tab mein backtest karein)");
+   271→            }
+   272→        }
+   273→        if (added > 0) {
+   274→            while (seen.length() > 200) seen.remove(0); // cap memory
+   275→            db.setSetting("yt_seen", seen.toString());
+   276→        }
+   277→    }
+   278→
+   279→    private JSONObject insert(String source, String videoMeta, JSONObject spec) {
+   280→        long now = System.currentTimeMillis();
+   281→        db.getWritableDatabase().execSQL(
+   282→                "INSERT INTO strategies(name, source, video, spec, status, stats, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?)",
+   283→                new Object[]{spec.optString("name", "Custom"), source,
+   284→                        videoMeta == null ? "{}" : videoMeta, spec.toString(), "CANDIDATE", "{}", now, now});
+   285→        db.log("INFO", "LAB", "STRATEGY_ADDED", source + " '" + spec.optString("name") + "' — CANDIDATE (backtest karein)");
+   286→        JSONObject out = new JSONObject();
+   287→        try {
+   288→            out.put("ok", true);
+   289→            out.put("strategy", new JSONObject().put("name", spec.optString("name"))
+   290→                    .put("spec", spec).put("status", "CANDIDATE").put("source", source));
+   291→            if (source.equals("YOUTUBE") && spec.has("video") == false && lastAiError != null) out.put("warn", lastAiError);
+   292→        } catch (Exception ignored) { }
+   293→        return out;
+   294→    }
+   295→
+   296→    private String sourceFrom(JSONObject spec) {
+   297→        return spec != null && spec.has("source") ? spec.optString("source", "MANUAL") : "MANUAL";
+   298→    }
+   299→
+   300→    // ================== LIFECYCLE ==================
+   301→
+   302→    /** Backtest on real 1m klines. Symbol: settings lab_symbol (default BTCUSDT). */
+   303→    public JSONObject backtest(long id) {
+   304→        JSONObject spec = rowSpec(id);
+   305→        if (spec == null) return fail("Strategy nahi mili");
+   306→        String sym = db.setting("lab_symbol", "BTCUSDT");
+   307→        List<EngineCore.Candle> k = engine.klinesFor(sym, 1000);
+   308→        if (k == null || k.size() < 120) return fail(sym + " ke real candles fetch nahi hue — dobara try karein");
+   309→        // drop unclosed last candle (v5.9.2 rule)
+   310→        if (!k.isEmpty() && System.currentTimeMillis() - k.get(k.size() - 1).ts < EngineCore.TF_MS_PUB) {
+   311→            k = k.subList(0, k.size() - 1);
+   312→        }
+   313→        if (k.size() < 120) return fail("Candle data bohat chhota hai");
+   314→
+   315→        double equity = 100, peak = 100, maxDD = 0;
+   316→        int wins = 0, losses = 0, bars = k.size();
+   317→        double grossWin = 0, grossLoss = 0;
+   318→        int side = spec.optString("side", "BOTH").equals("BUY") ? 1 : spec.optString("side", "BOTH").equals("SELL") ? -1 : 0;
+   319→        int logicAny = "ANY".equals(spec.optString("logic", "ALL")) ? 1 : 0;
+   320→        JSONArray conds = spec.optJSONArray("conditions");
+   321→
+   322→        // sim position
+   323→        boolean open = false; int oSide = 0; double oEntry = 0, oSl = 0, oTp = 0, oQty = 0; int oBar = 0;
+   324→        List<double[]> trades = new ArrayList<>(); // [pnl, side(1/-1), bars]
+   325→
+   326→        for (int i = 60; i < bars; i++) {
+   327→            List<EngineCore.Candle> hist = k.subList(0, i + 1);
+   328→            EngineCore.Candle c = k.get(i);
+   329→            if (open) {
+   330→                boolean hitSl = oSide == 1 ? c.l <= oSl : c.h >= oSl;
+   331→                boolean hitTp = oSide == 1 ? c.h >= oTp : c.l <= oTp;
+   332→                if (hitSl || hitTp) { // conservative: SL wins the tie
+   333→                    double exit = hitSl ? oSl : oTp;
+   334→                    double pnl = (oSide == 1 ? exit - oEntry : oEntry - exit) * oQty;
+   335→                    equity += pnl; peak = Math.max(peak, equity);
+   336→                    maxDD = Math.max(maxDD, peak > 0 ? (peak - equity) / peak : 0);
+   337→                    if (pnl >= 0) { wins++; grossWin += pnl; } else { losses++; grossLoss += -pnl; }
+   338→                    trades.add(new double[]{pnl, oSide, i - oBar});
+   339→                    open = false;
+   340→                }
+   341→                continue; // one sim position at a time
+   342→            }
+   343→            int dir = evaluateSpec(conds, logicAny, hist);
+   344→            if (dir == 0) continue;
+   345→            if (side != 0) dir = side;           // explicit side overrides inference
+   346→            double a = atr(hist, 14);
+   347→            if (Double.isNaN(a) || a <= 0) continue;
+   348→            double riskAmt = equity * 0.01;      // 1% baseline risk — comparable stats
+   349→            double qty = riskAmt / (1.5 * a);
+   350→            if (qty * c.c > equity * 0.95) qty = equity * 0.95 / c.c;
+   351→            if (qty <= 0) continue;
+   352→            oSide = dir; oEntry = c.c;
+   353→            oSl = dir == 1 ? c.c - 1.5 * a : c.c + 1.5 * a;
+   354→            oTp = dir == 1 ? c.c + 2.5 * a : c.c - 2.5 * a;
+   355→            oQty = qty; oBar = i; open = true;
+   356→        }
+   357→        // force-close any sim position at last close
+   358→        if (open) {
+   359→            EngineCore.Candle last = k.get(bars - 1);
+   360→            double pnl = (oSide == 1 ? last.c - oEntry : oEntry - last.c) * oQty;
+   361→            equity += pnl; peak = Math.max(peak, equity);
+   362→            maxDD = Math.max(maxDD, peak > 0 ? (peak - equity) / peak : 0);
+   363→            if (pnl >= 0) { wins++; grossWin += pnl; } else { losses++; grossLoss += -pnl; }
+   364→            trades.add(new double[]{pnl, oSide, bars - oBar});
+   365→        }
+   366→
+   367→        int nT = wins + losses;
+   368→        JSONObject stats = new JSONObject();
+   369→        try {
+   370→            stats.put("symbol", sym).put("bars", bars)
+   371→                    .put("trades", nT).put("wins", wins).put("losses", losses)
+   372→                    .put("winrate", nT > 0 ? Math.round(1000.0 * wins / nT) / 10.0 : 0)
+   373→                    .put("pf", grossLoss > 0 ? Math.round(100.0 * grossWin / grossLoss) / 100.0 : (grossWin > 0 ? 99 : 0))
+   374→                    .put("net", Math.round(equity - 100) * 100.0 / 100.0)
+   375→                    .put("netPct", Math.round((equity - 100) * 100.0) / 100.0)
+   376→                    .put("maxDD", Math.round(maxDD * 1000.0) / 10.0)
+   377→                    .put("riskModel", "1% baseline, SL 1.5xATR, TP 2.5xATR");
+   378→        } catch (Exception ignored) { }
+   379→
+   380→        db.getWritableDatabase().execSQL(
+   381→                "UPDATE strategies SET status=?, stats=?, updated_at=? WHERE id=?",
+   382→                new Object[]{"BACKTESTED", stats.toString(), System.currentTimeMillis(), id});
+   383→        db.log("INFO", "LAB", "BACKTEST_DONE", "strategy #" + id + " on " + sym + " — " + nT + " trades, winrate "
+   384→                + stats.optDouble("winrate", 0) + "%, PF " + stats.optDouble("pf", 0) + ", net "
+   385→                + stats.optDouble("netPct", 0) + "%, maxDD " + stats.optDouble("maxDD", 0) + "%");
+   386→        JSONObject out = new JSONObject();
+   387→        try { out.put("ok", true).put("stats", stats); } catch (Exception ignored) { }
+   388→        return out;
+   389→    }
+   390→
+   391→    /** PAPER shadow phase — strategy trades the live paper account (tagged AI: name). */
+   392→    public JSONObject startPaper(long id) {
+   393→        return setStatus(id, "PAPER", "paper shadow phase shuru — ab ye strategy live candles par khud signal degi");
+   394→    }
+   395→
+   396→    /** Owner approval — strategy goes LIVE as its own signal source. */
+   397→    public JSONObject approve(long id) {
+   398→        return setStatus(id, "ACTIVE", "owner ne LIVE approve kiya — ye strategy ab apne aap trade karegi");
+   399→    }
+   400→
+   401→    public JSONObject reject(long id) {
+   402→        return setStatus(id, "REJECTED", "strategy reject hui");
+   403→    }
+   404→
+   405→    public JSONObject remove(long id) {
+   406→        db.getWritableDatabase().execSQL("DELETE FROM strategies WHERE id=?", new Object[]{id});
+   407→        db.log("INFO", "LAB", "STRATEGY_DELETED", "strategy #" + id + " deleted");
+   408→        JSONObject out = new JSONObject();
+   409→        try { out.put("ok", true); } catch (Exception ignored) { }
+   410→        return out;
+   411→    }
+   412→
+   413→    private JSONObject setStatus(long id, String status, String msg) {
+   414→        Cursor c = db.getReadableDatabase().rawQuery("SELECT name FROM strategies WHERE id=?", new String[]{String.valueOf(id)});
+   415→        if (!c.moveToFirst()) { c.close(); return fail("Strategy nahi mili"); }
+   416→        String name = c.getString(0); c.close();
+   417→        db.getWritableDatabase().execSQL("UPDATE strategies SET status=?, updated_at=? WHERE id=?",
+   418→                new Object[]{status, System.currentTimeMillis(), id});
+   419→        db.log("INFO", "LAB", "STRATEGY_" + status, "'" + name + "' — " + msg);
+   420→        if ("ACTIVE".equals(status)) Notifier.post(ctx, "Strategy Lab", name + " ab LIVE hai — " + msg);
+   421→        JSONObject out = new JSONObject();
+   422→        try { out.put("ok", true).put("status", status).put("message", name + " — " + msg); } catch (Exception ignored) { }
+   423→        return out;
+   424→    }
+   425→
+   426→    private JSONObject rowSpec(long id) {
+   427→        Cursor c = db.getReadableDatabase().rawQuery("SELECT spec FROM strategies WHERE id=?", new String[]{String.valueOf(id)});
+   428→        JSONObject spec = null;
+   429→        if (c.moveToFirst()) { try { spec = new JSONObject(c.getString(0)); } catch (Exception ignored) { } }
+   430→        c.close();
+   431→        return spec;
+   432→    }
+   433→
+   434→    private JSONObject fail(String msg) {
+   435→        JSONObject out = new JSONObject();
+   436→        try { out.put("ok", false).put("error", msg); } catch (Exception ignored) { }
+   437→        return out;
+   438→    }
+   439→
+   440→    // ================== SPEC EVALUATOR ==================
+   441→
+   442→    /**
+   443→     * Evaluate a compiled spec on closed candles (k's last element = last CLOSED candle).
+   444→     * Returns +1 (bullish entry), -1 (bearish entry), 0 (no signal).
+   445→     * side=BOTH: direction inferred from condition polarity (dip-style -> bull,
+   446→     * rally-style -> bear); pure-filter specs (volume/adx/atr only) default bullish.
+   447→     */
+   448→    public static int evaluateSpec(JSONArray conds, int logicAny, List<EngineCore.Candle> k) {
+   449→        if (conds == null || conds.length() == 0) return 0;
+   450→        int bull = 0, bear = 0, passed = 0;
+   451→        for (int i = 0; i < conds.length(); i++) {
+   452→            JSONObject c = conds.optJSONObject(i);
+   453→            if (c == null) continue;
+   454→            Object[] r = evalCond(c, k);          // [conditionPassed(0/1), polarity(+1 bull,-1 bear,0 filter)]
+   455→            if (r == null) continue;
+   456→            if ((int) r[0] == 1) passed++;
+   457→            int pol = (int) r[1];
+   458→            if ((int) r[0] == 1) { if (pol > 0) bull++; else if (pol < 0) bear++; }
+   459→        }
+   460→        boolean met = logicAny == 1 ? passed > 0 : passed == conds.length();
+   461→        if (!met) return 0;
+   462→        if (bull > bear) return 1;
+   463→        if (bear > bull) return -1;
+   464→        return 1; // all-neutral filters -> default long (documented)
+   465→    }
+   466→
+   467→    /** returns [passed(0/1), polarity(+1/-1/0)] or null if unknown indicator */
+   468→    private static Object[] evalCond(JSONObject c, List<EngineCore.Candle> k) {
+   469→        String ind = c.optString("ind", ""), op = c.optString("op", "");
+   470→        EngineCore.Candle last = k.get(k.size() - 1);
+   471→        double px = last.c;
+   472→        switch (ind) {
+   473→            case "rsi": {
+   474→                double v = rsi(k, c.optInt("p", 14));
+   475→                if (Double.isNaN(v)) return new Object[]{0, 0};
+   476→                boolean passed = cmp(v, op, c.optDouble("v", 30));
+   477→                return new Object[]{passed ? 1 : 0, op.contains("<") ? 1 : -1};
+   478→            }
+   479→            case "price_vs_ema": {
+   480→                double e = ema(k, c.optInt("p", 50));
+   481→                if (Double.isNaN(e)) return new Object[]{0, 0};
+   482→                boolean above = px > e;
+   483→                return new Object[]{(op.equals("above") == above) ? 1 : 0, above ? 1 : -1};
+   484→            }
+   485→            case "ema_cross": {
+   486→                double f = ema(k, c.optInt("f", 9)), s = ema(k, c.optInt("s", 21));
+   487→                if (Double.isNaN(f) || Double.isNaN(s)) return new Object[]{0, 0};
+   488→                boolean golden = f > s;
+   489→                return new Object[]{(op.equals("golden") == golden) ? 1 : 0, golden ? 1 : -1};
+   490→            }
+   491→            case "sma": {
+   492→                double m = sma(k, c.optInt("p", 20));
+   493→                if (Double.isNaN(m)) return new Object[]{0, 0};
+   494→                switch (op) {
+   495→                    case "price_above": return new Object[]{px > m ? 1 : 0, 1};
+   496→                    case "price_below": return new Object[]{px < m ? 1 : 0, -1};
+   497→                    case "slope_up": {
+   498→                        double mPrev = sma(k.subList(0, k.size() - 3), c.optInt("p", 20));
+   499→                        return new Object[]{(!Double.isNaN(mPrev) && m > mPrev) ? 1 : 0, 1};
+   500→                    }
+   501→                    case "slope_down": {
+   502→                        double mPrev = sma(k.subList(0, k.size() - 3), c.optInt("p", 20));
+   503→                        return new Object[]{(!Double.isNaN(mPrev) && m < mPrev) ? 1 : 0, -1};
+   504→                    }
+   505→                    default: return new Object[]{0, 0};
+   506→                }
+   507→            }
+   508→            case "macd": {
+   509→                double[] m = macd(k, c.optInt("f", 12), c.optInt("s", 26), c.optInt("sig", 9));
+   510→                if (m == null) return new Object[]{0, 0};
+   511→                boolean bull = m[0] > m[1];
+   512→                return new Object[]{(op.equals("bull") == bull) ? 1 : 0, bull ? 1 : -1};
+   513→            }
+   514→            case "bb": {
+   515→                double[] b = bollinger(k, c.optInt("p", 20), c.optDouble("k", 2));
+   516→                if (b == null) return new Object[]{0, 0};
+   517→                switch (op) {
+   518→                    case "lower_touch": return new Object[]{px <= b[1] ? 1 : 0, 1};
+   519→                    case "upper_touch": return new Object[]{px >= b[0] ? 1 : 0, -1};
+   520→                    case "squeeze": {
+   521→                        double w = (b[0] - b[1]) / (b[2] == 0 ? 1 : b[2]);
+   522→                        return new Object[]{w < 0.03 ? 1 : 0, 0};
+   523→                    }
+   524→                    default: return new Object[]{0, 0};
+   525→                }
+   526→            }
+   527→            case "atr": {
+   528→                double a = atr(k, c.optInt("p", 14));
+   529→                if (Double.isNaN(a) || px <= 0) return new Object[]{0, 0};
+   530→                double pct = 100.0 * a / px;
+   531→                return new Object[]{cmp(pct, op, c.optDouble("v", 0.3)) ? 1 : 0, 0};
+   532→            }
+   533→            case "supertrend": {
+   534→                int st = supertrendDir(k, c.optInt("p", 10), c.optDouble("m", 3));
+   535→                boolean bull = st > 0;
+   536→                return new Object[]{(op.equals("bull") == bull) ? 1 : 0, bull ? 1 : -1};
+   537→            }
+   538→            case "volume": {
+   539→                if (k.size() < c.optInt("p", 20) + 2) return new Object[]{0, 0};
+   540→                double avg = 0; int p = c.optInt("p", 20);
+   541→                for (int i = k.size() - 1 - p; i < k.size() - 1; i++) avg += k.get(i).v;
+   542→                avg /= p;
+   543→                return new Object[]{cmp(last.v, op, avg * c.optDouble("v", 1.5)) ? 1 : 0, 0};
+   544→            }
+   545→            case "change": {
+   546→                int n = Math.max(1, c.optInt("n", 5));
+   547→                if (k.size() < n + 1) return new Object[]{0, 0};
+   548→                double prev = k.get(k.size() - 1 - n).c;
+   549→                double chg = prev != 0 ? 100.0 * (px - prev) / prev : 0;
+   550→                return new Object[]{cmp(chg, op, c.optDouble("v", 1.0)) ? 1 : 0, op.contains("<") ? -1 : 1};
+   551→            }
+   552→            case "stoch": {
+   553→                double s = stochK(k, c.optInt("p", 14));
+   554→                if (Double.isNaN(s)) return new Object[]{0, 0};
+   555→                return new Object[]{cmp(s, op, c.optDouble("v", 20)) ? 1 : 0, op.contains("<") ? 1 : -1};
+   556→            }
+   557→            case "cci": {
+   558→                double v = cci(k, c.optInt("p", 20));
+   559→                if (Double.isNaN(v)) return new Object[]{0, 0};
+   560→                return new Object[]{cmp(v, op, c.optDouble("v", -100)) ? 1 : 0, op.contains("<") ? 1 : -1};
+   561→            }
+   562→            case "mfi": {
+   563→                double v = mfi(k, c.optInt("p", 14));
+   564→                if (Double.isNaN(v)) return new Object[]{0, 0};
+   565→                return new Object[]{cmp(v, op, c.optDouble("v", 20)) ? 1 : 0, op.contains("<") ? 1 : -1};
+   566→            }
+   567→            case "adx": {
+   568→                double v = adx(k, c.optInt("p", 14));
+   569→                if (Double.isNaN(v)) return new Object[]{0, 0};
+   570→                return new Object[]{cmp(v, op, c.optDouble("v", 25)) ? 1 : 0, 0};
+   571→            }
+   572→            case "candle": {
+   573→                switch (op) {
+   574→                    case "engulf_bull": return new Object[]{engulf(k, 1) ? 1 : 0, 1};
+   575→                    case "engulf_bear": return new Object[]{engulf(k, -1) ? 1 : 0, -1};
+   576→                    case "doji": {
+   577→                        double body = Math.abs(last.c - last.o), range = last.h - last.l;
+   578→                        return new Object[]{(range > 0 && body <= 0.1 * range) ? 1 : 0, 0};
+   579→                    }
+   580→                    case "hammer": {
+   581→                        double body = Math.abs(last.c - last.o), lo = Math.min(last.c, last.o) - last.l, hi = last.h - Math.max(last.c, last.o);
+   582→                        return new Object[]{(lo > 2 * body && hi < body) ? 1 : 0, 1};
+   583→                    }
+   584→                    default: return new Object[]{0, 0};
+   585→                }
+   586→            }
+   587→            default: return new Object[]{0, 0}; // unknown indicator never passes
+   588→        }
+   589→    }
+   590→
+   591→    private static boolean cmp(double a, String op, double b) {
+   592→        switch (op) {
+   593→            case "<": return a < b;
+   594→            case "<=": return a <= b;
+   595→            case ">": return a > b;
+   596→            case ">=": return a >= b;
+   597→            default: return a < b;
+   598→        }
+   599→    }
+   600→
+   601→    // ================== INDICATOR HELPERS (closed-candle math) ==================
+   602→
+   603→    public static double ema(List<EngineCore.Candle> k, int p) {
+   604→        if (k == null || k.size() < p) return Double.NaN;
+   605→        double m = 0, alpha = 2.0 / (p + 1);
+   606→        m = k.get(0).c;
+   607→        for (int i = 1; i < k.size(); i++) m = k.get(i).c * alpha + m * (1 - alpha);
+   608→        return m;
+   609→    }
+   610→
+   611→    public static double sma(List<EngineCore.Candle> k, int p) {
+   612→        if (k == null || k.size() < p) return Double.NaN;
+   613→        double s = 0;
+   614→        for (int i = k.size() - p; i < k.size(); i++) s += k.get(i).c;
+   615→        return s / p;
+   616→    }
+   617→
+   618→    public static double rsi(List<EngineCore.Candle> k, int p) {
+   619→        if (k == null || k.size() < p + 1) return Double.NaN;
+   620→        double g = 0, l = 0;
+   621→        for (int i = k.size() - p; i < k.size(); i++) {
+   622→            double d = k.get(i).c - k.get(i - 1).c;
+   623→            if (d > 0) g += d; else l += -d;
+   624→        }
+   625→        if (l == 0) return 100;
+   626→        double rs = (g / p) / (l / p);
+   627→        return 100 - 100 / (1 + rs);
+   628→    }
+   629→
+   630→    public static double[] macd(List<EngineCore.Candle> k, int f, int s, int sig) {
+   631→        if (k == null || k.size() < s + sig + 5) return null;
+   632→        double af = 2.0 / (f + 1), as = 2.0 / (s + 1), ag = 2.0 / (sig + 1);
+   633→        double ef = k.get(0).c, es = k.get(0).c, line = 0, sg = 0;
+   634→        List<Double> lines = new ArrayList<>();
+   635→        for (int i = 1; i < k.size(); i++) {
+   636→            ef = k.get(i).c * af + ef * (1 - af);
+   637→            es = k.get(i).c * as + es * (1 - as);
+   638→            lines.add(ef - es);
+   639→        }
+   640→        sg = lines.get(0);
+   641→        for (int i = 1; i < lines.size(); i++) sg = lines.get(i) * ag + sg * (1 - ag);
+   642→        return new double[]{lines.get(lines.size() - 1), sg};
+   643→    }
+   644→
+   645→    public static double[] bollinger(List<EngineCore.Candle> k, int p, double mult) {
+   646→        if (k == null || k.size() < p) return null;
+   647→        double m = sma(k, p), v = 0;
+   648→        for (int i = k.size() - p; i < k.size(); i++) v += Math.pow(k.get(i).c - m, 2);
+   649→        double sd = Math.sqrt(v / p);
+   650→        return new double[]{m + mult * sd, m - mult * sd, m};
+   651→    }
+   652→
+   653→    public static double atr(List<EngineCore.Candle> k, int p) {
+   654→        if (k == null || k.size() < p + 1) return Double.NaN;
+   655→        double a = 0;
+   656→        for (int i = k.size() - p; i < k.size(); i++) {
+   657→            double tr = Math.max(k.get(i).h - k.get(i).l,
+   658→                    Math.max(Math.abs(k.get(i).h - k.get(i - 1).c), Math.abs(k.get(i).l - k.get(i - 1).c)));
+   659→            a += tr;
+   660→        }
+   661→        return a / p;
+   662→    }
+   663→
+   664→    public static int supertrendDir(List<EngineCore.Candle> k, int p, double mult) {
+   665→        if (k == null || k.size() < p + 2) return 0;
+   666→        double a = atr(k, p);
+   667→        if (Double.isNaN(a) || a <= 0) return 0;
+   668→        double mid = 0;
+   669→        for (int i = k.size() - p; i < k.size(); i++) mid += (k.get(i).h + k.get(i).l) / 2;
+   670→        mid /= p;
+   671→        double last = k.get(k.size() - 1).c;
+   672→        return last > mid + 0 ? 1 : -1; // simplified band test — consistent across backtest & live
+   673→    }
+   674→
+   675→    public static double stochK(List<EngineCore.Candle> k, int p) {
+   676→        if (k == null || k.size() < p) return Double.NaN;
+   677→        double hh = -Double.MAX_VALUE, ll = Double.MAX_VALUE;
+   678→        for (int i = k.size() - p; i < k.size(); i++) {
+   679→            hh = Math.max(hh, k.get(i).h); ll = Math.min(ll, k.get(i).l);
+   680→        }
+   681→        return hh == ll ? 50 : 100 * (k.get(k.size() - 1).c - ll) / (hh - ll);
+   682→    }
+   683→
+   684→    public static double cci(List<EngineCore.Candle> k, int p) {
+   685→        if (k == null || k.size() < p) return Double.NaN;
+   686→        double m = 0;
+   687→        List<Double> tp = new ArrayList<>();
+   688→        for (int i = k.size() - p; i < k.size(); i++) {
+   689→            double v = (k.get(i).h + k.get(i).l + k.get(i).c) / 3;
+   690→            tp.add(v); m += v;
+   691→        }
+   692→        m /= p;
+   693→        double dev = 0;
+   694→        for (double v : tp) dev += Math.abs(v - m);
+   695→        dev /= p;
+   696→        double lastTp = tp.get(tp.size() - 1);
+   697→        return dev == 0 ? 0 : (lastTp - m) / (0.015 * dev);
+   698→    }
+   699→
+   700→    public static double mfi(List<EngineCore.Candle> k, int p) {
+   701→        if (k == null || k.size() < p + 1) return Double.NaN;
+   702→        double pos = 0, neg = 0;
+   703→        for (int i = k.size() - p; i < k.size(); i++) {
+   704→            double tp = (k.get(i).h + k.get(i).l + k.get(i).c) / 3;
+   705→            double pr = (k.get(i - 1).h + k.get(i - 1).l + k.get(i - 1).c) / 3;
+   706→            double flow = tp * k.get(i).v;
+   707→            if (tp > pr) pos += flow; else if (tp < pr) neg += flow;
+   708→        }
+   709→        return neg == 0 ? 100 : 100 - 100 / (1 + pos / neg);
+   710→    }
+   711→
+   712→    public static double adx(List<EngineCore.Candle> k, int p) {
+   713→        if (k == null || k.size() < 2 * p + 2) return Double.NaN;
+   714→        double pdm = 0, ndm = 0, tr = 0;
+   715→        for (int i = k.size() - 2 * p; i < k.size(); i++) {
+   716→            double up = k.get(i).h - k.get(i - 1).h, dn = k.get(i - 1).l - k.get(i).l;
+   717→            if (up > dn && up > 0) pdm += up;
+   718→            if (dn > up && dn > 0) ndm += dn;
+   719→            tr += Math.max(k.get(i).h - k.get(i).l,
+   720→                    Math.max(Math.abs(k.get(i).h - k.get(i - 1).c), Math.abs(k.get(i).l - k.get(i - 1).c)));
+   721→        }
+   722→        if (tr == 0) return 0;
+   723→        double pdi = 100 * pdm / tr, ndi = 100 * ndm / tr;
+   724→        double sum = pdi + ndi;
+   725→        return sum == 0 ? 0 : 100 * Math.abs(pdi - ndi) / sum;
+   726→    }
+   727→
+   728→    private static boolean engulf(List<EngineCore.Candle> k, int dir) {
+   729→        if (k.size() < 2) return false;
+   730→        EngineCore.Candle a = k.get(k.size() - 2), b = k.get(k.size() - 1);
+   731→        if (dir == 1) return a.c < a.o && b.c > b.o && b.c >= a.o && b.o <= a.c;
+   732→        return a.c > a.o && b.c < b.o && b.o >= a.c && b.c <= a.o;
+   733→    }
+   734→
+   735→    // ================== LISTING (API) ==================
+   736→
+   737→    /** All strategies: 35 built-ins (with last vote) + custom lab rows. */
+   738→    public JSONObject listStrategies() {
+   739→        JSONObject out = new JSONObject();
+   740→        try {
+   741→            JSONArray builtin = new JSONArray();
+   742→            String[][] meta = EngineCore.STRATEGY_META;
+   743→            int[] votes = engine.lastVotes;
+   744→            for (int i = 0; i < meta.length; i++) {
+   745→                builtin.put(new JSONObject()
+   746→                        .put("name", meta[i][0]).put("group", meta[i][1])
+   747→                        .put("vote", i < votes.length ? votes[i] : 0));
+   748→            }
+   749→            out.put("builtin", builtin);
+   750→
+   751→            JSONArray custom = new JSONArray();
+   752→            Cursor c = db.getReadableDatabase().rawQuery(
+   753→                    "SELECT id, name, source, video, spec, status, stats, created_at, updated_at FROM strategies ORDER BY id DESC", null);
+   754→            while (c.moveToNext()) {
+   755→                JSONObject s = new JSONObject();
+   756→                s.put("id", c.getLong(0)).put("name", c.getString(1)).put("source", c.getString(2));
+   757→                try { s.put("video", new JSONObject(c.getString(3))); } catch (Exception e) { s.put("video", new JSONObject()); }
+   758→                try {
+   759→                    JSONObject spec = new JSONObject(c.getString(4));
+   760→                    s.put("notes", spec.optString("notes"));
+   761→                    JSONArray conds = spec.optJSONArray("conditions");
+   762→                    StringBuilder human = new StringBuilder();
+   763→                    if (conds != null) for (int i = 0; i < conds.length(); i++) {
+   764→                        JSONObject cd = conds.optJSONObject(i);
+   765→                        if (cd == null) continue;
+   766→                        if (human.length() > 0) human.append(" + ");
+   767→                        human.append(humanCond(cd));
+   768→                    }
+   769→                    s.put("rules", human.toString());
+   770→                } catch (Exception e) { s.put("rules", ""); }
+   771→                s.put("status", c.getString(5));
+   772→                try { s.put("stats", new JSONObject(c.getString(6))); } catch (Exception e) { s.put("stats", new JSONObject()); }
+   773→                s.put("created_at", c.getLong(7)).put("updated_at", c.getLong(8));
+   774→                custom.put(s);
+   775→            }
+   776→            c.close();
+   777→            out.put("custom", custom);
+   778→            out.put("ytChannel", new JSONObject()
+   779→                    .put("id", db.setting("yt_channel_id", ""))
+   780→                    .put("name", db.setting("yt_channel_name", "")));
+   781→            out.put("lastVoteSym", engine.lastVoteSym);
+   782→            out.put("symbol", db.setting("lab_symbol", "BTCUSDT"));
+   783→            out.put("ok", true);
+   784→        } catch (Exception e) {
+   785→            try { out.put("ok", false).put("error", String.valueOf(e)); } catch (Exception ignored) { }
+   786→        }
+   787→        return out;
+   788→    }
+   789→
+   790→    /** Human-readable condition for the UI. */
+   791→    private static String humanCond(JSONObject c) {
+   792→        String ind = c.optString("ind"), op = c.optString("op");
+   793→        switch (ind) {
+   794→            case "rsi": return "RSI(" + c.optInt("p", 14) + ") " + op + " " + c.optDouble("v", 0);
+   795→            case "price_vs_ema": return "Price " + op + " EMA(" + c.optInt("p", 50) + ")";
+   796→            case "ema_cross": return "EMA(" + c.optInt("f", 9) + "/" + c.optInt("s", 21) + ") " + op;
+   797→            case "sma": return "SMA(" + c.optInt("p", 20) + ") " + op.replace("_", " ");
+   798→            case "macd": return "MACD " + op;
+   799→            case "bb": return "Bollinger " + op.replace("_", " ");
+   800→            case "atr": return "ATR% " + op + " " + c.optDouble("v", 0);
+   801→            case "supertrend": return "Supertrend " + op;
+   802→            case "volume": return "Volume " + op + " " + c.optDouble("v", 1.5) + "x avg";
+   803→            case "change": return "Change(" + c.optInt("n", 5) + "bar) " + op + " " + c.optDouble("v", 0) + "%";
+   804→            case "stoch": return "Stoch " + op + " " + c.optDouble("v", 0);
+   805→            case "cci": return "CCI " + op + " " + c.optDouble("v", 0);
+   806→            case "mfi": return "MFI " + op + " " + c.optDouble("v", 0);
+   807→            case "adx": return "ADX " + op + " " + c.optDouble("v", 0);
+   808→            case "candle": return "Candle: " + op.replace("_", " ");
+   809→            default: return ind + " " + op;
+   810→        }
+   811→    }
+   812→}
+   813→

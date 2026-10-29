@@ -15,89 +15,104 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * EngineCore v1.1 — 1-MINUTE 24H SCANNER, two-tier entry engine.
- * Loop (30s): risk check -> manage open trades -> refresh candles -> scan signals -> paper execute.
+ * EngineCore v1.4 — 3C MASTER STRATEGY ENGINE (owner request: "saari strategy delete,
+ * sirf 3C chalao, daily loss/profit UNLIMITED").
  *
- * v1.1 ENTRY FIX (why the old build never traded):
- *   The old gate demanded >=14 of 35 strategies voting on one candle (40% participation).
- *   But ~20 of the 35 strategies are EVENT-based by design — they only vote on rare
- *   events (exact EMA crossover bar, Supertrend flip bar, oversold extremes, candlestick
- *   patterns, harmonics, SMC breaks). A typical 1m candle gets only 5-12 votes, so the
- *   gate almost never passed and the engine sat silent forever.
+ * THE 3C STRATEGY (M5, mechanical, verbatim from the owner's MASTER TRAINING PROMPT):
+ *   BUY  setup: C1 green, C2 green — each body >= 70% of its High-Low range;
+ *               C3 red (any body/wick) that does NOT close below the lowest Low of C1+C2.
+ *   SELL setup: C1 red, C2 red — each body >= 70%; C3 green that does NOT close
+ *               above the highest High of C1+C2.
+ *   Setup zone: highest High / lowest Low of the three setup candles.
+ *   Entry window: the NEXT FIVE M5 candles only (5th included) — the breakout must
+ *               happen there, else the setup expires. Candle-6 breakout is NOT valid.
+ *   Invalidation: a window candle CLOSING beyond the protected boundary (BUY: zone
+ *               low, SELL: zone high) cancels the setup. A wick alone never cancels.
+ *               Breakout + close-beyond in the same candle = sequence unknown from
+ *               OHLC -> setup is skipped, never guessed.
+ *   Entry: stop-order simulation at the zone extreme (+ configured entry buffer).
+ *   SL: opposite extreme of the setup (+ SL buffer). 1R = |entry - SL|.
+ *   Management: at +1R the whole position's SL moves to breakeven; at +3R the whole
+ *               position closes. No partial take profit.
+ *   Risk: settings key risk_pct (default 1% of equity) — owner controlled.
  *
- *   Fix, two parts:
- *   1. The two core trend strategies (EMA 9/21, Supertrend) now vote on their CURRENT
- *      STATE (alignment / regime), not only on the rare event bar. Trend gauges can now
- *      actually speak on every candle.
- *   2. Two-tier entry:
- *      TIER A "CONSENSUS_35" — >=9 strategies voted AND >=60% dominant (strict lead).
- *      TIER B "SCOUT_SIGNAL" — if the engine has been silent 20+ minutes, a strong
- *                              lean (>=6 voters, >=65% dominant) is enough so the lab
- *                              always demonstrates real behavior.
+ * UNLIMITED (owner request): no daily loss halt, no daily profit cap, no drawdown
+ *   kill switch, no trades-per-day cap, no concurrent-position cap, no
+ *   consecutive-loss stop. News is display-only — it never blocks a 3C entry.
+ *   Guards that remain are mechanical correctness only: one open position per
+ *   symbol per account, one entry per setup.
  *
- * Risk model (unchanged): 1% balance risk/trade | SL 1.5xATR | TP 2.5xATR (1:1.67 R:R)
- *   | UNLIMITED concurrent positions (v1.2, owner request — no cap) | 1 open position
- *   per symbol (anti-duplicate guard) | daily halt -5% | kill switch -10%.
- * Paper money: default $100 per new account (v1.2); owner can set ANY amount from
- *   Settings > Paper Balance (/api/balance) — open trades are cancelled on change.
- * Data: LIVE 1m klines from the Binance public API (data-api.binance.vision) — real
- *   market data, candles are never simulated. 1m timeframe, 24/7 nonstop.
+ * Strategy Lab (v1.2, kept): AI text/YouTube -> backtest -> paper -> owner approve
+ *   -> live. v1.4 adds AUTO-EVOLVE: every 6h the AI proposes ONE new complementary
+ *   strategy, backtests it on real candles and notifies the owner — "aur strategies
+ *   banati raho". AI kabhi khud LIVE nahi jati, sirf owner approve karta hai.
+ *
+ * Data: LIVE 5m klines from the Binance public API (data-api.binance.vision) — real
+ *   market data, candles are never simulated. 24/7 nonstop scanner.
  * Discovery (30 min): Binance ticker scan -> auto-register new instruments (top 150).
- * News (15 min): RSS -> sentiment -> high-impact pauses new entries 30 min.
+ * News (15 min): RSS -> sentiment -> display only.
  */
 public class EngineCore implements Runnable {
     private static final String[] DATA_HOSTS = {"https://data-api.binance.vision", "https://api.binance.com"};
-    private static final String TF = "1m";
-    private static final long TF_MS = 60L * 1000;
+    private static final String TF = "5m";                 // 3C strategy timeframe (MASTER PROMPT: M5)
+    private static final long TF_MS = 5L * 60 * 1000;
     /** public for StrategyLab backtester */ public static final long TF_MS_PUB = TF_MS;
     private static final int ACTIVE_TOP = 30;      // trade the top-N by volume
     private static final int LEDGER_TOP = 150;     // keep in instruments ledger
-    private static final double RISK_PER_TRADE = 0.01;
-    private static final double DAILY_HALT = -0.05;
-    private static final double DRAWDOWN_KILL = -0.10;
+    // ==== 3C STRATEGY CONSTANTS (MASTER PROMPT — kabhi change nahi without owner approval) ====
+    public static final double THREEC_BODY_MIN = 0.70;  // C1 & C2 body >= 70% of High-Low range
+    public static final int THREEC_WINDOW = 5;          // breakout window: next 5 M5 candles
+    public static final double THREEC_TP_R = 3.0;       // take profit at +3R, whole position
+    private static final double RISK_DEFAULT_PCT = 1.0; // settings risk_pct override
 
     private final Db db;
     private volatile boolean running = true;
     private String dataHost = DATA_HOSTS[0];
-    private long lastDiscovery = 0, lastNews = 0, lastLoop = 0;
-    private long newsPauseUntil = 0;
+    private long lastDiscovery = 0, lastNews = 0, lastLoop = 0, lastEvolve = 0;
     private String lastConsensus = "";
-    private volatile long lastEntryAt = System.currentTimeMillis(); // v1.1 — scout-tier timer (engine start = t0)
     private int activeSymbols = 0;
     private long scanCount = 0;             // 24h scanner heartbeat counter
     private volatile long lastScanAt = 0;
     private volatile int fngValue = -1;     // crypto Fear & Greed (0-100), -1 = no data
     private long lastFng = 0;
     private long lastYt = 0;                // v1.2 YouTube channel watcher cadence
-    private String lastPattern = "";
+    private String lastPattern = "";        // last 3C event text (dashboard status)
 
-    // ===== v1.2 STRATEGY LAB =====
+    // ===== v1.4 STRATEGY LAB + 3C STATE =====
     public StrategyLab lab;                                                        // AI strategy pipeline
-    public volatile int[] lastVotes = new int[35];                                 // per-strategy last vote for the Strategies list
+    /** v1.4 — single-element compat array: dominant 3C direction of the last scanned
+     *  symbol (+1 BUY setup armed, -1 SELL setup armed, 0 none). The old int[35] vote
+     *  register retired together with the 35-strategy consensus. */
+    public volatile int[] lastVotes = new int[1];
     public volatile String lastVoteSym = "-";
-    /** v1.2 DYNAMIC RISK — risk % scales with consensus strength (owner request).
-     *  60-64.9% -> 0.5% | 65-74.9% -> 1.0% | 75-84.9% -> 1.5% | >=85% -> 2.0%.
-     *  Same SL 1.5xATR / TP 2.5xATR; daily halt 5% and kill switch 10% unchanged. */
-    public static double riskFor(double consensus) {
-        if (consensus >= 0.85) return 0.020;
-        if (consensus >= 0.75) return 0.015;
-        if (consensus >= 0.65) return 0.010;
-        return 0.005;
+    /** Per-symbol 3C state text for the dashboard ("BUY setup armed — window 2/5 ..."). */
+    public final java.util.Map<String, String> threecStates = new HashMap<>();
+    /** Logged 3C event keys (dedup — every event logs exactly once per setup). */
+    private final java.util.LinkedHashSet<String> threecLogged = new java.util.LinkedHashSet<>();
+
+    /** v1.4 — owner-controlled risk % of equity per trade (settings risk_pct, 0.1-10). */
+    public double riskPct() {
+        try {
+            double v = Double.parseDouble(db.setting("risk_pct", String.valueOf(RISK_DEFAULT_PCT)));
+            if (v < 0.1) v = 0.1;
+            if (v > 10) v = 10;
+            return v;
+        } catch (Exception e) { return RISK_DEFAULT_PCT; }
     }
-    /** v1.2 — 35 built-in strategies, SAME ORDER as the votes[] array in scanAndTrade(). */
+
+    /** Configurable entry/SL buffer as percent of price (settings, default 0 = pure levels). */
+    private double bufSetting(String key) {
+        try {
+            double v = Double.parseDouble(db.setting(key, "0"));
+            if (v < 0) v = 0;
+            if (v > 1) v = 1;
+            return v / 100.0;
+        } catch (Exception e) { return 0; }
+    }
+
+    /** v1.4 — the ONE master strategy (35-strategy consensus retired by owner request). */
     public static final String[][] STRATEGY_META = {
-            {"EMA 9/21 cross", "Trend"}, {"RSI + Bollinger", "Mean reversion"}, {"MACD + Stochastic", "Momentum"},
-            {"VWAP reversion", "Intraday"}, {"20-bar breakout", "Breakout"}, {"Supertrend", "Trend"},
-            {"Ichimoku cloud", "Trend"}, {"ADX + DI", "Trend strength"}, {"CCI + Williams %R", "Oscillator"},
-            {"MFI + OBV", "Volume flow"}, {"PSAR + Aroon", "Trend"}, {"Stochastic RSI", "Oscillator"},
-            {"Candlestick patterns", "Price action"}, {"Donchian channel", "Breakout"}, {"Hull MA", "Trend"},
-            {"KAMA adaptive MA", "Trend"}, {"Vortex", "Trend"}, {"Alligator", "Trend"},
-            {"TSI", "Momentum"}, {"CMO", "Momentum"}, {"Fisher transform", "Oscillator"},
-            {"DeMarker", "Oscillator"}, {"Awesome Oscillator", "Momentum"}, {"Volume flow", "Volume"},
-            {"Chaikin MF", "Volume"}, {"Klinger", "Volume"}, {"PVT + A/D", "Accumulation"},
-            {"Fibonacci bounce", "Support/Res"}, {"Pivot points", "Support/Res"}, {"FVG imbalance", "SMC"},
-            {"BOS structure", "SMC"}, {"Liquidity sweep", "SMC"}, {"Harmonic patterns", "Patterns"},
-            {"Schaff trend cycle", "Oscillator"}, {"Fear & Greed contrarian", "Sentiment"}
+            {"3C Breakout (M5) — MASTER", "Price action"}
     };
 
     public EngineCore(Db db) {
@@ -119,7 +134,8 @@ public class EngineCore implements Runnable {
 
     // ================== MAIN LOOP ==================
     @Override public void run() {
-        db.log("INFO", "SYSTEM", "ENGINE_START", "v1.2 two-tier entry engine — 1m timeframe, 24h nonstop scanner, 35 strategies, live Binance data | TIER-A consensus: >=9 voters & >=60% dominant | TIER-B scout after 20 min silence: >=6 voters & >=65% | DYNAMIC risk 0.5%–2% scaled by consensus strength, SL 1.5xATR, TP 2.5xATR, UNLIMITED positions | paper money $100 default, owner-changeable | Strategy Lab: AI text/YouTube video → backtest → paper → owner approve → live");
+        db.log("INFO", "SYSTEM", "ENGINE_START", "v1.4 3C MASTER engine — 5m timeframe, 24h nonstop scanner, live Binance data | 3C rules: C1+C2 body>=70%, C3 protected close, 5-candle breakout window, close-based invalidation, SL=opposite extreme, breakeven at +1R, close ALL at +3R, no partial TP | risk " + riskPct() + "% (Settings risk_pct) | UNLIMITED daily P/L — no kill switch, no position cap (owner request) | Strategy Lab + auto-evolve every 6h");
+
 
         // v1.2 ONE-TIME MIGRATION — paper money is now $100 (owner request). Accounts still
         // on the old $100,000 default are reset; open trades are cancelled because they
@@ -140,7 +156,24 @@ public class EngineCore implements Runnable {
                 db.log("ERROR", "ACCOUNT", "PAPER_RESET_FAIL", String.valueOf(t));
             }
         }
+        // v1.4 ONE-TIME MIGRATION — 3C era. Old ATR-era open trades are cancelled because
+        // management semantics changed (BE at +1R, close ALL at +3R, 5m candles); stale
+        // 1m candle history is purged so every symbol rebuilds on real 5m data.
+        if (!"1".equals(db.setting("v14_3c_migration", "0"))) {
+            long t0 = System.currentTimeMillis();
+            try {
+                db.getWritableDatabase().execSQL(
+                        "UPDATE trades SET exit=entry, pnl=0, status='CANCELLED', closed_at=? WHERE status='OPEN'",
+                        new Object[]{t0});
+                db.getWritableDatabase().execSQL("DELETE FROM candles WHERE tf<>'" + TF + "'");
+                db.setSetting("v14_3c_migration", "1");
+                db.log("INFO", "SYSTEM", "MIGRATION_3C", "v1.4 — 35-strategy consensus RETIRED, 3C MASTER (M5) installed; old open trades cancelled, 1m candles purged. Daily loss/profit now UNLIMITED (owner request).");
+            } catch (Throwable t) {
+                db.log("ERROR", "SYSTEM", "MIGRATION_3C_FAIL", String.valueOf(t));
+            }
+        }
         while (running) {
+
             try {
                 long now = System.currentTimeMillis();
                 if (now - lastLoop >= 30_000) { loop(); lastLoop = now; }
@@ -151,7 +184,12 @@ public class EngineCore implements Runnable {
                     lastYt = now;
                     if (lab != null) { try { lab.watchYouTube(); } catch (Throwable t) { db.log("ERROR", "LAB", "YT_WATCH_FAIL", String.valueOf(t)); } }
                 }
+                if (now - lastEvolve >= 6L * 3600_000) {   // v1.4 — AI har 6h mein ek nayi strategy propose karta hai
+                    lastEvolve = now;
+                    if (lab != null) { try { lab.autoEvolve(); } catch (Throwable t) { db.log("ERROR", "LAB", "EVOLVE_FAIL", String.valueOf(t)); } }
+                }
                 Thread.sleep(2000);
+
             } catch (Throwable t) {
                 db.log("ERROR", "SYSTEM", "LOOP_ERROR", String.valueOf(t));
                 try { Thread.sleep(5000); } catch (InterruptedException ignored) { return; }
@@ -164,7 +202,6 @@ public class EngineCore implements Runnable {
         String engineOn = db.setting("engine_on", "1");
         if (!"1".equals(engineOn)) { lastConsensus = "engine off"; return; }
         rollDay();
-        checkDrawdownKill();
         manageOpenTrades();
         refreshCandles();
         scanAndTrade();
@@ -192,31 +229,9 @@ public class EngineCore implements Runnable {
         }
     }
 
-    private boolean dailyHalted(long userId) {
-        Cursor c = db.getReadableDatabase().rawQuery("SELECT balance, day_start FROM accounts WHERE user_id=?", new String[]{String.valueOf(userId)});
-        boolean halted = false;
-        if (c.moveToFirst()) {
-            double bal = c.getDouble(0), ds = c.getDouble(1);
-            halted = ds > 0 && (bal - ds) / ds <= DAILY_HALT;
-            if (halted) lastConsensus = "daily loss limit 5% — entries paused until tomorrow";
-        }
-        c.close();
-        return halted;
-    }
-
-    private void checkDrawdownKill() {
-        Cursor c = db.getReadableDatabase().rawQuery("SELECT user_id, balance, peak, start_balance FROM accounts", null);
-        while (c.moveToNext()) {
-            long uid = c.getLong(0); double bal = c.getDouble(1), peak = c.getDouble(2), start = c.getDouble(3);
-            if (bal > peak) db.getWritableDatabase().execSQL("UPDATE accounts SET peak=? WHERE user_id=?", new Object[]{bal, uid});
-            if (peak > 0 && (bal - peak) / peak <= DRAWDOWN_KILL) {
-                closeAll(uid, "KILL_SWITCH");
-                db.setSetting("engine_on", "0");
-                db.log("ERROR", "RISK", "KILL_SWITCH", "drawdown >= 10% from peak — engine disabled, re-enable in Settings");
-            }
-        }
-        c.close();
-    }
+    // v1.4 — dailyHalted() and checkDrawdownKill() REMOVED by owner request:
+    // daily loss/profit is UNLIMITED. rollDay() stays only to keep the dashboard's
+    // dayPnlPct counter honest (it no longer halts anything).
 
     // ================== DATA ==================
     public static class Candle { long ts; double o, h, l, c, v; }
@@ -1417,453 +1432,250 @@ public class EngineCore implements Runnable {
         return 0;
     }
 
-    // ================== STRATEGIES (10) ==================
-    /** vote: +1 buy, -1 sell, 0 neutral */
-    /** 1. EMA 9/21 — v1.1: votes on CURRENT trend state (alignment), not just the rare
-     *  crossover bar. In the old build this strategy stayed silent on ~99% of candles,
-     *  starving the participation gate. */
-    private int emaCross(List<Candle> k) {
-        double e9 = ema(k, 9), e21 = ema(k, 21);
-        if (Double.isNaN(e9) || Double.isNaN(e21)) return 0;
-        if (e9 > e21) return 1;
-        if (e9 < e21) return -1;
-        return 0;
+    // ================== 3C MASTER STRATEGY (v1.4) ==================
+    // Mechanical implementation of the owner's 3C spec — candle roles, 70% body rule,
+    // five-candle window, close-based invalidation, opposite-extreme SL, breakeven at
+    // +1R, close-all at +3R. Event names follow MASTER PROMPT section 12:
+    // SETUP_DETECTED / SETUP_WAITING / SETUP_INVALIDATED / SETUP_EXPIRED /
+    // BREAKOUT_DETECTED / ORDER_EXECUTED / TRADE_MANAGED / TRADE_CLOSED.
+
+    /** One armed 3C setup (per symbol). */
+    public static class Setup3C {
+        String side;        // "BUY" | "SELL"
+        long c3Ts;          // open time of candle 3 (setup completion candle)
+        double zoneHigh;    // highest High of the three setup candles
+        double zoneLow;     // lowest Low of the three setup candles
+        double boundary;    // protected level: BUY -> zoneLow, SELL -> zoneHigh
+        double trigger;     // breakout level: BUY -> zoneHigh+buf, SELL -> zoneLow-buf
+        double slPrice;     // opposite extreme +/- SL buffer
     }
 
-    private int rsiBollinger(List<Candle> k) {
-        double r = rsi(k, 14); double[] bb = bollinger(k, 20);
-        if (Double.isNaN(r) || bb == null) return 0;
-        double c = k.get(k.size() - 1).c;
-        if (c < bb[0] && r < 32) return 1;
-        if (c > bb[2] && r > 68) return -1;
-        return 0;
+    private static class Walk3C {
+        String state = "no setup";
+        Setup3C fire;       // non-null when the LAST closed candle triggered a breakout
+        double fill;        // stop-order fill price of that breakout
+        Setup3C pending;    // setup still waiting at the end of the walk
     }
 
-    private int macdStoch(List<Candle> k) {
-        double[] m = macd(k); double[] s = stochastic(k, 14);
-        if (m == null || s == null) return 0;
-        boolean bull = m[0] > m[1] && s[0] < 35;
-        boolean bear = m[0] < m[1] && s[0] > 65;
-        return bull ? 1 : bear ? -1 : 0;
+    private double bodyPct(Candle c) {
+        double rng = c.h - c.l;
+        if (rng <= 0) return 0;
+        return Math.abs(c.c - c.o) / rng;
     }
 
-    private int vwapReversion(List<Candle> k) {
-        double v = vwap(k), c = k.get(k.size() - 1).c;
-        if (v <= 0) return 0;
-        double dev = (c - v) / v;
-        if (dev < -0.012) return 1;
-        if (dev > 0.012) return -1;
-        return 0;
-    }
-
-    private int breakout(List<Candle> k) {
-        if (k.size() < 16) return 0;
-        double hh = -Double.MAX_VALUE, ll = Double.MAX_VALUE;
-        for (int i = k.size() - 16; i < k.size() - 1; i++) { hh = Math.max(hh, k.get(i).h); ll = Math.min(ll, k.get(i).l); }
-        double c = k.get(k.size() - 1).c;
-        if (c > hh) return 1;
-        if (c < ll) return -1;
-        return 0;
-    }
-
-    // ---- v5.8 new strategy votes ----
-
-    /** 6. Supertrend — v1.1: votes on the CURRENT regime (direction), not only on the
-     *  rare flip bar. The regime itself is the signal; flips are just regime changes. */
-    private int supertrendVote(List<Candle> k) {
-        double[] st = supertrend(k);
-        if (st == null) return 0;
-        if (st[1] > 0) return 1;   // bullish regime
-        if (st[1] < 0) return -1;  // bearish regime
-        return 0;
-    }
-
-    /** 7. Ichimoku — price vs cloud + Tenkan/Kijun alignment. */
-    private int ichimokuVote(List<Candle> k) {
-        double[] i = ichimoku(k);
-        if (i == null) return 0;
-        double c = k.get(k.size() - 1).c;
-        boolean aboveCloud = c > Math.max(i[2], i[3]);
-        boolean belowCloud = c < Math.min(i[2], i[3]);
-        boolean tkBull = i[0] > i[1], tkBear = i[0] < i[1];
-        if (aboveCloud && tkBull) return 1;
-        if (belowCloud && tkBear) return -1;
-        return 0;
-    }
-
-    /** 8. ADX trend filter — trade strong trends only (ADX>25, DI dominance). */
-    private int adxTrendVote(List<Candle> k) {
-        double[] a = adx(k, 14);
-        if (a == null) return 0;
-        if (a[0] < 25) return 0; // no trade in chop
-        if (a[1] > a[2] + 3) return 1;   // +DI dominant — uptrend
-        if (a[2] > a[1] + 3) return -1;  // -DI dominant — downtrend
-        return 0;
-    }
-
-    /** 9. CCI + Williams %R momentum extreme combo. */
-    private int cciWilliamsVote(List<Candle> k) {
-        double c = cci(k, 20), w = williamsR(k, 14);
-        if (Double.isNaN(c) || Double.isNaN(w)) return 0;
-        if (c < -100 && w < -80) return 1;   // oversold extreme
-        if (c > 100 && w > -20) return -1;   // overbought extreme
-        return 0;
-    }
-
-    /** 10. MFI volume flow + OBV accumulation. */
-    private int mfiObvVote(List<Candle> k) {
-        double m = mfi(k, 14);
-        double obv = obvSlope(k, 20);
-        if (Double.isNaN(m)) return 0;
-        if (m < 20 && obv > 0) return 1;     // oversold but accumulating
-        if (m > 80 && obv < 0) return -1;    // overbought and distributing
-        return 0;
-    }
-
-    /** 11. PSAR + Aroon trend confirmation. */
-    private int psarAroonVote(List<Candle> k) {
-        double[] p = psar(k);
-        double[] a = aroon(k, 14);
-        if (p == null || a == null) return 0;
-        boolean bull = p[1] > 0 && a[0] > 55 && a[0] > a[1];
-        boolean bear = p[1] < 0 && a[1] > 55 && a[1] > a[0];
-        return bull ? 1 : bear ? -1 : 0;
-    }
-
-    /** 12. StochRSI fast momentum trigger. */
-    private int stochRsiVote(List<Candle> k) {
-        double[] s = stochRsi(k);
-        if (s == null) return 0;
-        if (s[0] < 20 && s[0] > s[1]) return 1;   // rising from oversold
-        if (s[0] > 80 && s[0] < s[1]) return -1;  // falling from overbought
-        return 0;
-    }
-
-    // ---- v5.9 PDF encyclopedia votes (13-35) ----
-
-    /** 13. Candlestick pattern vote — engulfing/hammer/star/soldiers etc. */
-    private int candleVote(List<Candle> k) {
-        Object[] p = candlePattern(k);
-        if (p == null) return 0;
-        // only trust reversal candles at extreme locations
-        double r = rsi(k, 14);
-        if (Double.isNaN(r)) return 0;
-        int dir = (Integer) p[1];
-        if (dir > 0 && r < 45) return 1;
-        if (dir < 0 && r > 55) return -1;
-        return 0;
-    }
-
-    /** 14. Donchian (20) channel breakout — Turtle rule. */
-    private int donchianVote(List<Candle> k) {
-        double[] d = donchian(k, 20);
-        if (d == null) return 0;
-        double c = k.get(k.size() - 1).c;
-        if (c >= d[0]) return 1;   // closing at/above 20-bar high
-        if (c <= d[2]) return -1;  // closing at/below 20-bar low
-        return 0;
-    }
-
-    /** 15. Hull MA slope flip. */
-    private int hullVote(List<Candle> k) {
-        double h = hma(k, 21);
-        if (Double.isNaN(h)) return 0;
-        double hPrev = hma(k.subList(0, k.size() - 1), 21);
-        if (Double.isNaN(hPrev)) return 0;
-        if (hPrev <= h && hma(k.subList(0, k.size() - 2), 21) > hPrev) return 0; // need consistent turn
-        if (h > hPrev && k.get(k.size() - 1).c > h) return 1;
-        if (h < hPrev && k.get(k.size() - 1).c < h) return -1;
-        return 0;
-    }
-
-    /** 16. KAMA adaptive trend. */
-    private int kamaVote(List<Candle> k) {
-        double km = kama(k);
-        if (Double.isNaN(km)) return 0;
-        double c = k.get(k.size() - 1).c;
-        double kmPrev = kama(k.subList(0, k.size() - 1));
-        if (Double.isNaN(kmPrev)) return 0;
-        if (c > km && km > kmPrev) return 1;
-        if (c < km && km < kmPrev) return -1;
-        return 0;
-    }
-
-    /** 17. Vortex (14) — VI+ vs VI-. */
-    private int vortexVote(List<Candle> k) {
-        double[] v = vortex(k, 14);
-        if (v == null) return 0;
-        if (v[0] > v[1] * 1.05) return 1;
-        if (v[1] > v[0] * 1.05) return -1;
-        return 0;
-    }
-
-    /** 18. Alligator 13/8/5 alignment + open mouth. */
-    private int alligatorVote(List<Candle> k) {
-        double[] a = alligator(k);
-        if (a == null) return 0;
-        double c = k.get(k.size() - 1).c;
-        boolean bull = c > a[0] && a[2] > a[1] && a[1] > a[0];
-        boolean bear = c < a[0] && a[2] < a[1] && a[1] < a[0];
-        return bull ? 1 : bear ? -1 : 0;
-    }
-
-    /** 19. TSI (25,13) sign + rising. */
-    private int tsiVote(List<Candle> k) {
-        double t = tsi(k);
-        if (Double.isNaN(t)) return 0;
-        double tPrev = tsi(k.subList(0, k.size() - 1));
-        if (Double.isNaN(tPrev)) return 0;
-        if (t > 0 && t > tPrev) return 1;
-        if (t < 0 && t < tPrev) return -1;
-        return 0;
-    }
-
-    /** 20. CMO (14) extremes reversal. */
-    private int cmoVote(List<Candle> k) {
-        double m = cmo(k, 14);
-        if (Double.isNaN(m)) return 0;
-        if (m < -50) return 1;
-        if (m > 50) return -1;
-        return 0;
-    }
-
-    /** 21. Fisher Transform turn from extremes. */
-    private int fisherVote(List<Candle> k) {
-        double f = fisher(k);
-        if (Double.isNaN(f)) return 0;
-        double fPrev = fisher(k.subList(0, k.size() - 1));
-        if (Double.isNaN(fPrev)) return 0;
-        if (fPrev < -1 && f > fPrev) return 1;
-        if (fPrev > 1 && f < fPrev) return -1;
-        return 0;
-    }
-
-    /** 22. DeMarker (14) 0.3/0.7 reversals. */
-    private int demarkerVote(List<Candle> k) {
-        double d = deMarker(k, 14);
-        if (Double.isNaN(d)) return 0;
-        if (d < 0.3) return 1;
-        if (d > 0.7) return -1;
-        return 0;
-    }
-
-    /** 23. Awesome Oscillator (5,34) zero-cross + momentum. */
-    private int aoVote(List<Candle> k) {
-        double a = awesomeOsc(k);
-        if (Double.isNaN(a)) return 0;
-        double aPrev = awesomeOsc(k.subList(0, k.size() - 1));
-        if (Double.isNaN(aPrev)) return 0;
-        if (aPrev <= 0 && a > 0) return 1;
-        if (aPrev >= 0 && a < 0) return -1;
-        return 0;
-    }
-
-    /** 24. Force Index + Ease of Movement combined volume flow. */
-    private int volumeFlowVote(List<Candle> k) {
-        double f = forceIndex(k, 13), e = eom(k, 14);
-        if (Double.isNaN(f) || Double.isNaN(e)) return 0;
-        if (f > 0 && e > 0) return 1;
-        if (f < 0 && e < 0) return -1;
-        return 0;
-    }
-
-    /** 25. Chaikin Money Flow (20) institutional flow. */
-    private int cmfVote(List<Candle> k) {
-        double c = cmf(k, 20);
-        if (Double.isNaN(c)) return 0;
-        if (c > 0.08) return 1;
-        if (c < -0.08) return -1;
-        return 0;
-    }
-
-    /** 26. Klinger oscillator vs zero. */
-    private int klingerVote(List<Candle> k) {
-        double kv = klinger(k);
-        if (Double.isNaN(kv)) return 0;
-        if (kv > 0) return 1;
-        if (kv < 0) return -1;
-        return 0;
-    }
-
-    /** 27. PVT + A/D accumulation agreement. */
-    private int pvtAdVote(List<Candle> k) {
-        double p = pvtSlope(k, 20), a = adSlope(k, 20);
-        if (p > 0.05 && a > 0.05) return 1;
-        if (p < -0.05 && a < -0.05) return -1;
-        return 0;
-    }
-
-    /** 28. Fibonacci retracement bounce (61.8/50 zone of last swing). */
-    private int fibVote(List<Candle> k) {
-        double[] f = fibLevels(k);
-        if (f == null) return 0;
-        double c = k.get(k.size() - 1).c;
-        double tol = 0.004 * c; // 0.4% tolerance band
-        if (f[5] > 0) { // up swing: support at 61.8/50 levels
-            if (Math.abs(c - f[3]) < tol || Math.abs(c - f[2]) < tol) return 1;
-        } else {        // down swing: resistance at 61.8/50
-            if (Math.abs(c - f[3]) < tol || Math.abs(c - f[2]) < tol) return -1;
+    /** Detect a completed 3C setup on candles (i-2, i-1, i); null if none. */
+    private Setup3C detect3C(List<Candle> k, int i, double entryBuf, double slBuf) {
+        Candle c1 = k.get(i - 2), c2 = k.get(i - 1), c3 = k.get(i);
+        boolean g1 = c1.c > c1.o, g2 = c2.c > c2.o, g3 = c3.c > c3.o;
+        boolean b1 = bodyPct(c1) >= THREEC_BODY_MIN, b2 = bodyPct(c2) >= THREEC_BODY_MIN;
+        if (!b1 || !b2) return null;
+        Setup3C s = new Setup3C();
+        s.c3Ts = c3.ts;
+        s.zoneHigh = Math.max(c1.h, Math.max(c2.h, c3.h));
+        s.zoneLow = Math.min(c1.l, Math.min(c2.l, c3.l));
+        if (g1 && g2 && !g3 && c3.c >= Math.min(c1.l, c2.l)) {          // BUY setup
+            s.side = "BUY";
+            s.boundary = s.zoneLow;
+            s.trigger = s.zoneHigh * (1 + entryBuf);
+            s.slPrice = s.zoneLow * (1 - slBuf);
+            return s;
         }
-        return 0;
+        if (!g1 && !g2 && g3 && c3.c <= Math.max(c1.h, c2.h)) {         // SELL setup
+            s.side = "SELL";
+            s.boundary = s.zoneHigh;
+            s.trigger = s.zoneLow * (1 - entryBuf);
+            s.slPrice = s.zoneHigh * (1 + slBuf);
+            return s;
+        }
+        return null;
     }
 
-    /** 29. Pivot point break — momentum through R1/S1. */
-    private int pivotVote(List<Candle> k) {
-        double[] p = pivotPoints(k);
-        if (p == null) return 0;
-        double c = k.get(k.size() - 1).c;
-        if (c > p[1]) return 1;   // above R1
-        if (c < p[4]) return -1;  // below S1
-        return 0;
+    /** One 3C lifecycle event, logged exactly once per setup+event. */
+    private void log3C(String sym, Setup3C s, String event, String details) {
+        String key = sym + "|" + s.c3Ts + "|" + event;
+        if (threecLogged.contains(key)) return;
+        threecLogged.add(key);
+        if (threecLogged.size() > 400) {
+            java.util.Iterator<String> it = threecLogged.iterator();
+            for (int i = 0; i < 200 && it.hasNext(); i++) { it.next(); it.remove(); }
+        }
+        db.log("INFO", "3C", event, sym + " — " + details);
+        lastPattern = event + " " + sym;
     }
 
-    /** 30. FVG imbalance fill — trade in direction of last gap. */
-    private int fvgVote(List<Candle> k) {
-        int f = fvg(k);
-        if (f == 0) return 0;
-        double r = rsi(k, 14);
-        if (Double.isNaN(r)) return 0;
-        if (f > 0 && r > 45 && r < 75) return 1;   // bullish imbalance, momentum intact
-        if (f < 0 && r > 25 && r < 55) return -1;
-        return 0;
-    }
-
-    /** 31. BOS — Break of Structure (SMC). */
-    private int bosVote(List<Candle> k) {
-        return bosVoteCalc(k);
-    }
-
-    /** 32. Liquidity sweep / stop hunt reversal (SMC). */
-    private int sweepVote(List<Candle> k) {
-        return sweepVoteCalc(k);
-    }
-
-    /** 33. Harmonic pattern completion (Gartley/Bat/Butterfly/Crab at D). */
-    private int harmonicVote(List<Candle> k) {
-        Object[] h = harmonicPattern(k);
-        if (h == null) return 0;
-        return (Integer) h[1];
-    }
-
-    /** 34. Schaff Trend Cycle (23,50,10) fast/slow zone cross. */
-    private int schaffVote(List<Candle> k) {
-        double s = schaff(k);
-        if (Double.isNaN(s)) return 0;
-        if (s < 20) return 1;
-        if (s > 80) return -1;
-        return 0;
-    }
-
-    /** 35. Crypto Fear & Greed contrarian (cached 60 min from alternative.me). */
-    private int fngVote(List<Candle> k) {
-        if (fngValue < 0) return 0; // no data (non-crypto or fetch failed)
-        if (fngValue <= 20) return 1;   // extreme fear — contrarian buy
-        if (fngValue >= 80) return -1;  // extreme greed — contrarian sell
-        return 0;
+    /**
+     * Chronological rebuild of the 3C state machine over closed candles. Deterministic
+     * and restart-proof: har loop state real candles se dobara derive hota hai, fragile
+     * memory nahi. Sirf LAST closed candle ka breakout trade kar sakta hai (purane
+     * breakouts consumed/expired hote hain — ek hi baar MISSED log hota hai).
+     */
+    private Walk3C walk3C(String sym, List<Candle> k) {
+        double entryBuf = bufSetting("threec_entry_buf_pct");
+        double slBuf = bufSetting("threec_sl_buf_pct");
+        Walk3C w = new Walk3C();
+        Setup3C pending = null;
+        int last = k.size() - 1;
+        for (int i = 2; i <= last; i++) {
+            Candle c = k.get(i);
+            if (pending != null) {
+                int winIdx = (int) ((c.ts - pending.c3Ts) / TF_MS);   // 1..5 inside the window
+                if (winIdx > THREEC_WINDOW) {
+                    log3C(sym, pending, "SETUP_EXPIRED", "no breakout by candle " + THREEC_WINDOW + " — setup expired");
+                    pending = null;                                    // fall through: candle i may start a new setup
+                } else {
+                    boolean buy = "BUY".equals(pending.side);
+                    boolean closeInvalid = buy ? c.c < pending.boundary : c.c > pending.boundary;
+                    boolean broke = buy ? c.h > pending.trigger : c.l < pending.trigger;
+                    if (broke && closeInvalid) {
+                        // MASTER PROMPT: breakout + close-beyond boundary in ONE candle —
+                        // OHLC alone cannot sequence them; kabhi guess nahi. Setup untraded dead.
+                        log3C(sym, pending, "SETUP_INVALIDATED",
+                                "UNKNOWN sequence — breakout + close beyond boundary in the same candle; skipped (no tick evidence)");
+                        w.state = "UNKNOWN — ambiguous candle, setup skipped";
+                        pending = null;
+                    } else if (closeInvalid) {
+                        log3C(sym, pending, "SETUP_INVALIDATED",
+                                "candle CLOSED beyond protected boundary " + fpx(pending.boundary) + " (wick alone never cancels)");
+                        pending = null;
+                    } else if (broke) {
+                        // BREAKOUT_DETECTED — stop-order fill at trigger; gap-open fills at open
+                        double fill = buy ? Math.max(pending.trigger, c.o) : Math.min(pending.trigger, c.o);
+                        Setup3C fired = pending;
+                        pending = null;
+                        log3C(sym, fired, "BREAKOUT_DETECTED",
+                                "candle " + winIdx + "/" + THREEC_WINDOW + " broke " + (buy ? "above " : "below ")
+                                        + fpx(fired.trigger));
+                        if (i == last) {
+                            w.fire = fired;
+                            w.fill = fill;
+                            w.state = "ENTRY " + fired.side + " — breakout on candle " + winIdx + "/"
+                                    + THREEC_WINDOW + ", fill " + fpx(fill);
+                            return w;
+                        }
+                        log3C(sym, fired, "SETUP_CONSUMED",
+                                "breakout candle is history (engine busy/off tha) — stale price par late fill nahi");
+                    } else {
+                        w.state = pending.side + " setup armed — window " + winIdx + "/" + THREEC_WINDOW
+                                + ", trigger " + fpx(pending.trigger)
+                                + ", invalidation close " + (buy ? "< " : "> ") + fpx(pending.boundary);
+                    }
+                }
+            }
+            if (pending == null) {
+                Setup3C s = detect3C(k, i, entryBuf, slBuf);
+                if (s != null) {
+                    pending = s;
+                    log3C(sym, s, "SETUP_DETECTED",
+                            s.side + " — C1/C2 body " + pct(bodyPct(k.get(i - 2))) + "% / " + pct(bodyPct(k.get(i - 1)))
+                                    + "%, zone " + fpx(s.zoneLow) + " - " + fpx(s.zoneHigh) + ", C3 protected close OK");
+                    // SETUP_WAITING — window opens on the NEXT candle
+                }
+            }
+        }
+        w.pending = pending;
+        if (pending != null && "no setup".equals(w.state)) {
+            w.state = pending.side + " setup armed — waiting for first window candle, trigger " + fpx(pending.trigger);
+        }
+        return w;
     }
 
     // ================== TRADE LOGIC ==================
     private void scanAndTrade() {
-        if (System.currentTimeMillis() < newsPauseUntil) { lastConsensus = "news pause active"; return; }
-        for (long uid : userIds()) {
-            if (dailyHalted(uid)) continue;
-
-            for (String sym : activeSymbols()) {
-                Cursor ex = db.getReadableDatabase().rawQuery(
-                        "SELECT COUNT(*) FROM trades WHERE user_id=? AND symbol=? AND status='OPEN'", new String[]{String.valueOf(uid), sym});
-                boolean have = ex.moveToFirst() && ex.getInt(0) > 0; ex.close();
-                if (have) continue;
-
-                List<Candle> k = loadCandles(sym);
-                if (k.size() < 60) continue;
-                // v5.9.2 FIX — Binance returns the CURRENT in-progress candle last; its
-                // timestamp is ALWAYS < 60s old, so the old check skipped EVERY symbol on
-                // EVERY scan and the engine could never open a single trade. Now we drop
-                // the unclosed candle and trade on the last CLOSED 1m candle instead.
-                if (!k.isEmpty() && System.currentTimeMillis() - k.get(k.size() - 1).ts < TF_MS) {
-                    k = k.subList(0, k.size() - 1);
-                    if (k.size() < 60) continue;
-                }
-
-                int[] votes = {emaCross(k), rsiBollinger(k), macdStoch(k), vwapReversion(k), breakout(k),
-                        supertrendVote(k), ichimokuVote(k), adxTrendVote(k), cciWilliamsVote(k),
-                        mfiObvVote(k), psarAroonVote(k), stochRsiVote(k),
-                        // v5.9 PDF encyclopedia votes 13-35
-                        candleVote(k), donchianVote(k), hullVote(k), kamaVote(k), vortexVote(k),
-                        alligatorVote(k), tsiVote(k), cmoVote(k), fisherVote(k), demarkerVote(k),
-                        aoVote(k), volumeFlowVote(k), cmfVote(k), klingerVote(k), pvtAdVote(k),
-                        fibVote(k), pivotVote(k), fvgVote(k), bosVote(k), sweepVote(k),
-                        harmonicVote(k), schaffVote(k), fngVote(k)};
-                int buy = 0, sell = 0;
-                for (int v : votes) { if (v > 0) buy++; else if (v < 0) sell++; }
-                lastVotes = votes; lastVoteSym = sym;   // v1.2 — live snapshot for the Strategies list
-                // Participation-based consensus: abstentions don't dilute the signal.
-                int participated = buy + sell;
-                double consensusBuy = participated > 0 ? buy / (double) participated : 0;
-                double consensusSell = participated > 0 ? sell / (double) participated : 0;
-                double dom = Math.max(consensusBuy, consensusSell);
-                boolean buyLeads = consensusBuy > consensusSell;
-
-                // v1.1 TWO-TIER ENTRY — replaces the old gate that demanded >=14 voting
-                // strategies (40% of 35). That gate almost never passed because ~20 of the
-                // 35 strategies are rare-EVENT voters by design, so a normal candle got
-                // only 5-12 votes and the engine sat silent forever (user-reported bug).
-                //
-                // TIER A — CONSENSUS (quality): >=9 voters AND >=60% dominant, strict lead.
-                // TIER B — SCOUT (activity): engine silent 20+ min -> >=6 voters AND >=65%
-                //   dominant is enough, so the lab always demonstrates real entries.
-                long silenceMs = System.currentTimeMillis() - lastEntryAt;
-                boolean scoutArmed = silenceMs >= 20L * 60_000;
-                String tier = null;
-                if (participated >= 9 && dom >= 0.60 && (buyLeads ? consensusBuy : consensusSell) > 0.5) {
-                    tier = "CONSENSUS_35";
-                } else if (scoutArmed && participated >= 6 && dom >= 0.65 && (buyLeads ? consensusBuy : consensusSell) > 0.5) {
-                    tier = "SCOUT_SIGNAL";
-                }
-
-                if (tier != null) {
-                    String side = buyLeads ? "BUY" : "SELL";
-                    double cons = buyLeads ? consensusBuy : consensusSell;
-                    openTrade(uid, sym, side, cons, k, tier);
-                    lastConsensus = "ENTRY OPEN — " + sym + " " + side + " (" + tier + ", " + (int)(cons * 100)
-                            + "% dominant, " + participated + "/35 voters) — managing SL/TP every 30s";
-                } else {
-                    long silentMin = silenceMs / 60000;
-                    lastConsensus = "24h scan #" + scanCount + " — " + activeSymbols + " syms on 1m — voters "
-                            + participated + "/35 · BUY " + buy + " vs SELL " + sell + " · best " + (int)(dom * 100)
-                            + "% (need 60% w/ 9 voters" + (scoutArmed ? ", or 65% w/ 6 as scout" : "") + ") — silent "
-                            + silentMin + " min" + (scoutArmed ? " · SCOUT ARMED" : "");
-                }
-
-                // v1.2 STRATEGY LAB — custom AI/YouTube strategies (PAPER + ACTIVE) trade on
-                // symbols the 35-consensus left silent. Owner-approved (ACTIVE) strategies
-                // are their own signal source; PAPER ones are shadow-phasing for review.
-                if (tier == null && lab != null) tryCustomStrategies(uid, sym, k);
+        List<Long> users = userIds();
+        List<String> syms = activeSymbols();
+        StringBuilder armedList = new StringBuilder();
+        int armed = 0;
+        String fireText = null;
+        for (String sym : syms) {
+            List<Candle> all = loadCandles(sym);
+            if (all.size() < 60) { threecStates.put(sym, "data kam — " + all.size() + "/60 candles"); continue; }
+            List<Candle> k = all;
+            if (!k.isEmpty() && System.currentTimeMillis() - k.get(k.size() - 1).ts < TF_MS) {
+                k = k.subList(0, k.size() - 1);            // trade CLOSED candles only (v5.9.2 rule)
+                if (k.size() < 8) continue;
             }
+            Walk3C w = walk3C(sym, k);
+            threecStates.put(sym, w.state);
+            if (w.fire != null) {
+                lastVotes = new int[]{"BUY".equals(w.fire.side) ? 1 : -1};
+                lastVoteSym = sym;
+                for (long uid : users) openTrade3C(uid, sym, w.fire, w.fill);
+                fireText = "ENTRY OPEN — " + sym + " " + w.fire.side + " @ " + fpx(w.fill)
+                        + " (3C breakout, SL " + fpx(w.fire.slPrice) + ", TP +3R, risk " + pct(riskPct() / 100)
+                        + "%) — breakeven at +1R";
+                lastPattern = "BREAKOUT " + sym;
+                continue;                                   // next symbol — unlimited positions allowed
+            }
+            if (w.pending != null) {
+                lastVotes = new int[]{"BUY".equals(w.pending.side) ? 1 : -1};
+                lastVoteSym = sym;
+                armed++;
+                if (armedList.length() > 0) armedList.append(" | ");
+                if (armedList.length() < 100) armedList.append(sym).append(" ").append(w.pending.side);
+            } else {
+                lastVotes = new int[1];
+            }
+            // v1.2 Strategy Lab — custom AI/YouTube strategies (PAPER + ACTIVE) ab bhi
+            // 5m candles par signal deti hain jab 3C kuch fire nahi karta.
+            if (lab != null) for (long uid : users) tryCustomStrategies(uid, sym, k);
+        }
+        if (fireText != null) {
+            lastConsensus = fireText;
+        } else if (armed > 0) {
+            lastConsensus = "3C M5 scan #" + scanCount + " — " + syms.size() + " syms — " + armed
+                    + " setup(s) armed: " + armedList + " — breakout window chal raha hai";
+        } else {
+            lastConsensus = "3C M5 scan #" + scanCount + " — " + syms.size()
+                    + " syms — koi valid 3C setup nahi (C1+C2 70% body + C3 protected + 5-candle breakout window)";
         }
     }
 
-    private void openTrade(long uid, String sym, String side, double consensus, List<Candle> k, String tier) {
-        double price = k.get(k.size() - 1).c;
-        double a = atr(k, 14);
-        if (Double.isNaN(a) || a <= 0) return;
-        double sl = "BUY".equals(side) ? price - 1.5 * a : price + 1.5 * a;
-        double tp = "BUY".equals(side) ? price + 2.5 * a : price - 2.5 * a;
-
-        Cursor c = db.getReadableDatabase().rawQuery("SELECT balance FROM accounts WHERE user_id=?", new String[]{String.valueOf(uid)});
-        double bal = c.moveToFirst() ? c.getDouble(0) : 100; c.close();
-        // v1.2 DYNAMIC RISK — consensus strength drives position size (0.5%–2% of balance).
-        double risk = riskFor(consensus);
-        double riskAmt = bal * risk;
-        double qty = riskAmt / (1.5 * a);
-        if (qty * price > bal * 0.95) qty = bal * 0.95 / price;
+    /** 3C entry — one trade per setup per account, one open position per symbol. */
+    private void openTrade3C(long uid, String sym, Setup3C s, double fill) {
+        Cursor ex = db.getReadableDatabase().rawQuery(
+                "SELECT COUNT(*) FROM trades WHERE user_id=? AND symbol=? AND status='OPEN'",
+                new String[]{String.valueOf(uid), sym});
+        boolean have = ex.moveToFirst() && ex.getInt(0) > 0;
+        ex.close();
+        if (have) return;                                   // one open position per symbol
+        Cursor du = db.getReadableDatabase().rawQuery(
+                "SELECT COUNT(*) FROM trades WHERE user_id=? AND symbol=? AND strategy LIKE '3C%' AND opened_at>=?",
+                new String[]{String.valueOf(uid), sym, String.valueOf(s.c3Ts)});
+        boolean dup = du.moveToFirst() && du.getInt(0) > 0;
+        du.close();
+        if (dup) return;                                    // ye setup pehle hi fire ho chuka
+        double riskDist = "BUY".equals(s.side) ? fill - s.slPrice : s.slPrice - fill;
+        if (riskDist <= 0) return;
+        double bal = balanceOf(uid);
+        if (bal <= 0) return;
+        double risk = bal * riskPct() / 100.0;
+        double qty = risk / riskDist;
+        if (qty * fill > bal * 0.95) qty = bal * 0.95 / fill;
         if (qty <= 0) return;
-
+        double tp = "BUY".equals(s.side) ? fill + THREEC_TP_R * riskDist : fill - THREEC_TP_R * riskDist;
         db.getWritableDatabase().execSQL(
-                "INSERT INTO trades(user_id, symbol, side, qty, entry, sl, tp, status, strategy, consensus, opened_at, risk) VALUES(?,?,?,?,?,?,?, 'OPEN', ?, ?, ?, ?)",
-                new Object[]{uid, sym, side, qty, price, sl, tp, tier, consensus, System.currentTimeMillis(), risk});
-        lastEntryAt = System.currentTimeMillis(); // v1.1 — scout timer resets on every real entry
-        db.log("INFO", "EXECUTOR", "PAPER_OPEN", sym + " " + side + " [" + tier + "] qty=" + String.format("%.6f", qty) + " entry=" + String.format("%.6f", price) + " consensus=" + (int)(consensus * 100) + "% risk=" + String.format(Locale.US, "%.1f", risk * 100) + "% ($" + String.format(Locale.US, "%.2f", riskAmt) + ")");
+                "INSERT INTO trades(user_id, symbol, side, qty, entry, sl, tp, status, strategy, consensus, opened_at, risk) VALUES(?,?,?,?,?,?,?,'OPEN',?,?,?,?)",
+                new Object[]{uid, sym, s.side, qty, fill, s.slPrice, tp, "3C_MASTER", 0, System.currentTimeMillis(), riskPct() / 100.0});
+        db.log("INFO", "3C", "ORDER_EXECUTED",
+                sym + " " + s.side + " qty=" + String.format(Locale.US, "%.6f", qty) + " entry=" + fpx(fill)
+                        + " SL=" + fpx(s.slPrice) + " TP=" + fpx(tp) + " (3R) risk=$"
+                        + String.format(Locale.US, "%.2f", risk) + " (" + riskPct() + "% of $" + String.format(Locale.US, "%.2f", bal) + ")");
+    }
+
+    private double balanceOf(long uid) {
+        Cursor c = db.getReadableDatabase().rawQuery("SELECT balance FROM accounts WHERE user_id=?",
+                new String[]{String.valueOf(uid)});
+        double b = c.moveToFirst() ? c.getDouble(0) : 0;
+        c.close();
+        return b;
+    }
+
+    private static String fpx(double v) {
+        return String.format(Locale.US, v >= 100 ? "%.3f" : "%.6f", v);
+    }
+
+    private static String pct(double v) {
+        return String.format(Locale.US, "%.1f", v * 100);
     }
 
     /** v1.2 — evaluate PAPER + ACTIVE custom strategies (Strategy Lab) on one symbol. */
@@ -1884,34 +1696,81 @@ public class EngineCore implements Runnable {
                 if ("BUY".equals(specSide) && dir < 0) continue;
                 if ("SELL".equals(specSide) && dir > 0) continue;
                 String tier = ("ACTIVE".equals(status) ? "AI:LIVE:" : "AI:PAPER:") + name;
-                openTrade(uid, sym, dir > 0 ? "BUY" : "SELL", 0.65, k, tier); // 1% risk bucket — single-signal, prudent
-                lastConsensus = "ENTRY OPEN — " + sym + " " + (dir > 0 ? "BUY" : "SELL") + " (" + tier + ") — Lab strategy signal, managing SL/TP every 30s";
+                openTradeLab(uid, sym, dir > 0 ? "BUY" : "SELL", k, tier);
             } catch (Throwable t) {
                 db.log("ERROR", "LAB", "CUSTOM_EVAL_FAIL", name + " — " + t);
             }
         }
     }
 
+    /** Lab strategy entry — ATR SL/TP model (1.5x / 2.5x), 1% risk, same guards as 3C. */
+    private void openTradeLab(long uid, String sym, String side, List<Candle> k, String tier) {
+        Cursor ex = db.getReadableDatabase().rawQuery(
+                "SELECT COUNT(*) FROM trades WHERE user_id=? AND symbol=? AND status='OPEN'",
+                new String[]{String.valueOf(uid), sym});
+        boolean have = ex.moveToFirst() && ex.getInt(0) > 0;
+        ex.close();
+        if (have) return;
+        double price = k.get(k.size() - 1).c;
+        double a = atr(k, 14);
+        if (Double.isNaN(a) || a <= 0) return;
+        double sl = "BUY".equals(side) ? price - 1.5 * a : price + 1.5 * a;
+        double tp = "BUY".equals(side) ? price + 2.5 * a : price - 2.5 * a;
+        double bal = balanceOf(uid);
+        if (bal <= 0) return;
+        double risk = bal * 0.01;
+        double qty = risk / (1.5 * a);
+        if (qty * price > bal * 0.95) qty = bal * 0.95 / price;
+        if (qty <= 0) return;
+        db.getWritableDatabase().execSQL(
+                "INSERT INTO trades(user_id, symbol, side, qty, entry, sl, tp, status, strategy, consensus, opened_at, risk) VALUES(?,?,?,?,?,?,?,'OPEN',?,?,?,?)",
+                new Object[]{uid, sym, side, qty, price, sl, tp, tier, 0.65, System.currentTimeMillis(), 0.01});
+        db.log("INFO", "LAB", "ORDER_EXECUTED", sym + " " + side + " [" + tier + "] qty="
+                + String.format(Locale.US, "%.6f", qty) + " entry=" + fpx(price)
+                + " (Lab strategy signal — ATR SL/TP, 1% risk)");
+    }
+
     private void manageOpenTrades() {
         Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT id, user_id, symbol, side, qty, entry, sl, tp FROM trades WHERE status='OPEN'", null);
+                "SELECT id, user_id, symbol, side, qty, entry, sl, tp, strategy FROM trades WHERE status='OPEN'", null);
         List<Object[]> rows = new ArrayList<>();
         while (c.moveToNext()) {
-            rows.add(new Object[]{c.getLong(0), c.getLong(1), c.getString(2), c.getString(3), c.getDouble(4), c.getDouble(5), c.getDouble(6), c.getDouble(7)});
+            rows.add(new Object[]{c.getLong(0), c.getLong(1), c.getString(2), c.getString(3),
+                    c.getDouble(4), c.getDouble(5), c.getDouble(6), c.getDouble(7), c.getString(8)});
         }
         c.close();
         for (Object[] r : rows) {
             long id = (Long) r[0], uid = (Long) r[1];
-            String sym = (String) r[2], side = (String) r[3];
+            String sym = (String) r[2], side = (String) r[3], strategy = (String) r[8];
             double qty = (Double) r[4], entry = (Double) r[5], sl = (Double) r[6], tp = (Double) r[7];
+            // last CLOSED candle high/low — stop-order semantics, close-only se zyada accurate
             Cursor cc = db.getReadableDatabase().rawQuery(
-                    "SELECT c FROM candles WHERE symbol=? AND tf=? ORDER BY ts DESC LIMIT 1", new String[]{sym, TF});
-            double price = cc.moveToFirst() ? cc.getDouble(0) : Double.NaN; cc.close();
-            if (Double.isNaN(price)) continue;
-
-            boolean hitSl = "BUY".equals(side) ? price <= sl : price >= sl;
-            boolean hitTp = "BUY".equals(side) ? price >= tp : price <= tp;
-            if (hitSl || hitTp) closeTrade(id, uid, price, hitSl ? "SL" : "TP", qty, entry, side);
+                    "SELECT h, l FROM candles WHERE symbol=? AND tf=? AND ts<=? ORDER BY ts DESC LIMIT 1",
+                    new String[]{sym, TF, String.valueOf(System.currentTimeMillis() - TF_MS)});
+            double hi = Double.NaN, lo = Double.NaN;
+            if (cc.moveToFirst()) { hi = cc.getDouble(0); lo = cc.getDouble(1); }
+            cc.close();
+            if (Double.isNaN(hi)) continue;
+            boolean buy = "BUY".equals(side);
+            // conservative same-candle order: SL pehle, TP baad mein (kabhi optimistic nahi)
+            boolean hitSl = buy ? lo <= sl : hi >= sl;
+            boolean hitTp = buy ? hi >= tp : lo <= tp;
+            if (hitSl || hitTp) {
+                closeTrade(id, uid, hitSl ? sl : tp, hitSl ? "SL" : "TP", qty, entry, side);
+                continue;
+            }
+            // 3C management: +1R par WHOLE position ka SL breakeven par; +3R TP already set.
+            boolean is3C = strategy != null && strategy.startsWith("3C");
+            if (is3C) {
+                double rDist = Math.abs(tp - entry) / THREEC_TP_R;      // 1R (TP 3R door fix hai)
+                boolean beMoved = buy ? sl >= entry : sl <= entry;      // SL pehle se entry par?
+                boolean beHit = buy ? hi >= entry + rDist : lo <= entry - rDist;
+                if (!beMoved && beHit && rDist > 0) {
+                    db.getWritableDatabase().execSQL("UPDATE trades SET sl=? WHERE id=?", new Object[]{entry, id});
+                    db.log("INFO", "3C", "TRADE_MANAGED",
+                            "trade #" + id + " " + sym + " — +1R hit — SL moved to breakeven " + fpx(entry) + " (whole position, no partial TP)");
+                }
+            }
         }
     }
 
@@ -1922,7 +1781,7 @@ public class EngineCore implements Runnable {
                 new Object[]{price, pnl, System.currentTimeMillis(), id});
         db.getWritableDatabase().execSQL(
                 "UPDATE accounts SET balance = balance + ? WHERE user_id=?", new Object[]{pnl, uid});
-        db.log(reason.equals("SL") ? "WARN" : "INFO", "EXECUTOR", "PAPER_CLOSE_" + reason,
+        db.log(reason.equals("SL") ? "WARN" : "INFO", "EXECUTOR", "TRADE_CLOSED_" + reason,
                 "trade #" + id + " pnl=" + String.format("%.2f", pnl));
     }
 
@@ -2333,9 +2192,10 @@ public class EngineCore implements Runnable {
                 // v1.0 BUGFIX: high-impact keywords are matched on WORD BOUNDARIES now.
                 // The old substring contains() matched "rate" inside "generate",
                 // "accurate", "moderate" etc. — pausing new entries almost PERMANENTLY.
+                // v1.4 — high-impact news sirf DISPLAY hoti hai. 3C entry kabhi news se
+                // block nahi hoti (owner: unlimited trading, sirf strategy rules chalenge).
                 if ("HIGH".equals(impact)) {
-                    newsPauseUntil = System.currentTimeMillis() + 30L * 60 * 1000;
-                    db.log("WARN", "NEWS", "PAUSE_ENTRIES", "high-impact news — new entries paused 30 min (" + title.substring(0, Math.min(60, title.length())) + ")");
+                    db.log("INFO", "NEWS", "HIGH_IMPACT", "display-only — entries NOT paused (" + title.substring(0, Math.min(60, title.length())) + ")");
                 }
             }
         }
@@ -2397,16 +2257,27 @@ public class EngineCore implements Runnable {
         m.put("engine_on", "1".equals(db.setting("engine_on", "1")));
         m.put("active_symbols", activeSymbols);
         m.put("consensus", lastConsensus.isEmpty() ? "warming up" : lastConsensus);
-        m.put("news_pause", System.currentTimeMillis() < newsPauseUntil);
         m.put("data_host", dataHost);
         m.put("timeframe", TF);
         m.put("scanner", "24h");
         m.put("scan_count", scanCount);
         m.put("last_scan_at", lastScanAt);
-        m.put("strategy_count", 35);
+        m.put("strategy_count", 1);
+        m.put("strategy_name", "3C Breakout (M5) — MASTER");
+        m.put("risk_pct", riskPct());
+        m.put("limits", "UNLIMITED — daily loss/profit cap nahi, kill switch nahi, position cap nahi (owner request)");
         m.put("indicator_count", INDICATOR_LIBRARY.length);
         m.put("fear_greed", fngValue);
         m.put("last_pattern", lastPattern);
+        org.json.JSONArray armed = new org.json.JSONArray();
+        for (Map.Entry<String, String> e : threecStates.entrySet()) {
+            if (e.getValue() != null && e.getValue().contains("armed")) {
+                try { armed.put(new org.json.JSONObject().put("symbol", e.getKey()).put("state", e.getValue())); }
+                catch (Throwable ignored) { }
+                if (armed.length() >= 8) break;
+            }
+        }
+        m.put("threec_armed", armed);
         return m;
     }
 
@@ -2470,7 +2341,7 @@ public class EngineCore implements Runnable {
         List<Candle> k = loadCandles(symbol);
         if (k.size() < 60) {
             out.put("ok", false);
-            out.put("reason", "not enough 1m candles for " + symbol + " (need 60, have " + k.size() + ")");
+            out.put("reason", "not enough 5m candles for " + symbol + " (need 60, have " + k.size() + ")");
             return out;
         }
         Map<String, Object> v = new HashMap<>();

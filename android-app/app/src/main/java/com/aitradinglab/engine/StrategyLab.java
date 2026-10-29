@@ -297,9 +297,64 @@ public class StrategyLab {
         return spec != null && spec.has("source") ? spec.optString("source", "MANUAL") : "MANUAL";
     }
 
+    // ================== v1.4 AUTO-EVOLVE ("aur strategies banati raho") ==================
+
+    /**
+     * Har 6h (EngineCore loop se call): AI ek NAYI complementary strategy propose
+     * karta hai (3C MASTER se different), use foran real candles par backtest kiya
+     * jata hai aur owner ko notification jati hai. Strategy BACKTESTED status mein
+     * Lab list mein aati hai — PAPER/LIVE sirf owner approve karta hai. AI kabhi
+     * khud live nahi jati (MASTER PROMPT category-D: hypothesis, approved nahi).
+     */
+    public void autoEvolve() {
+        if (!"1".equals(db.setting("lab_auto", "1"))) return;
+        try {
+            Cursor cnt = db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM strategies", null);
+            int n = cnt.moveToFirst() ? cnt.getInt(0) : 0;
+            cnt.close();
+            if (n >= 40) return; // owner review se pehle flood nahi — 40 strategies cap
+            StringBuilder names = new StringBuilder();
+            Cursor c = db.getReadableDatabase().rawQuery(
+                    "SELECT name FROM strategies ORDER BY id DESC LIMIT 25", null);
+            while (c.moveToNext()) { if (names.length() > 0) names.append("; "); names.append(c.getString(0)); }
+            c.close();
+            String prompt = "Hamara AI Trading Lab abhi 3C Breakout (M5) MASTER strategy paper-trade kar raha hai "
+                    + "(3 candles: C1+C2 strong body>=70% same direction, C3 opposite protected candle, "
+                    + "5-candle breakout window, SL opposite extreme, breakeven at +1R, close whole position at +3R). "
+                    + "Existing lab strategies: " + (names.length() == 0 ? "(none)" : names) + ". "
+                    + "Suggest ONE new complementary strategy that is DIFFERENT from all existing ones "
+                    + "and can be evaluated on 5m crypto candles with these indicators only: rsi, price_vs_ema, "
+                    + "ema_cross, sma, macd, bb, atr, supertrend, volume, change, stoch, cci, mfi, adx, candle. "
+                    + "Sirf strategy spec do, koi lambi explanation nahi.";
+            JSONObject spec = compileText(prompt);
+            if (spec == null) { db.log("WARN", "LAB", "AUTO_EVOLVE_SKIP", lastAiError != null ? lastAiError : "AI spec nahi bani"); return; }
+            JSONObject res = insert("AI_AUTO", "{}", spec);
+            if (!res.optBoolean("ok")) return;
+            long id = 0;
+            Cursor ic = db.getReadableDatabase().rawQuery(
+                    "SELECT id FROM strategies ORDER BY id DESC LIMIT 1", null);
+            if (ic.moveToFirst()) id = ic.getLong(0);
+            ic.close();
+            if (id > 0) {
+                JSONObject bt = backtest(id);
+                JSONObject st = bt == null ? null : bt.optJSONObject("stats");
+                db.log("INFO", "LAB", "AUTO_EVOLVE", "AI proposed '" + spec.optString("name", "Custom")
+                        + "' — backtest: " + (st == null ? "fail" : st.optInt("trades", 0) + " trades, WR "
+                        + st.optDouble("winrate", 0) + "%, net " + st.optDouble("netPct", 0) + "%"));
+                Notifier.post(ctx, "Strategy Lab — Auto-Evolve",
+                        "AI ne nayi strategy banayi: " + spec.optString("name", "Custom")
+                                + (st != null ? " — " + st.optInt("trades", 0) + " trades, WR "
+                                + st.optDouble("winrate", 0) + "%, net " + st.optDouble("netPct", 0) + "%" : "")
+                                + " — Lab tab mein review karein (PAPER/LIVE aap approve karenge)");
+            }
+        } catch (Throwable t) {
+            db.log("ERROR", "LAB", "AUTO_EVOLVE_FAIL", String.valueOf(t));
+        }
+    }
+
     // ================== LIFECYCLE ==================
 
-    /** Backtest on real 1m klines. Symbol: settings lab_symbol (default BTCUSDT). */
+    /** Backtest on real 5m klines. Symbol: settings lab_symbol (default BTCUSDT). */
     public JSONObject backtest(long id) {
         JSONObject spec = rowSpec(id);
         if (spec == null) return fail("Strategy nahi mili");
@@ -374,7 +429,7 @@ public class StrategyLab {
                     .put("net", Math.round(equity - 100) * 100.0 / 100.0)
                     .put("netPct", Math.round((equity - 100) * 100.0) / 100.0)
                     .put("maxDD", Math.round(maxDD * 1000.0) / 10.0)
-                    .put("riskModel", "1% baseline, SL 1.5xATR, TP 2.5xATR");
+                    .put("riskModel", "1% baseline, SL 1.5xATR, TP 2.5xATR (Lab strategies — 3C MASTER apne rules se chalta hai)");
         } catch (Exception ignored) { }
 
         db.getWritableDatabase().execSQL(
@@ -734,7 +789,7 @@ public class StrategyLab {
 
     // ================== LISTING (API) ==================
 
-    /** All strategies: 35 built-ins (with last vote) + custom lab rows. */
+    /** All strategies: 3C MASTER (v1.4) + custom lab rows. */
     public JSONObject listStrategies() {
         JSONObject out = new JSONObject();
         try {
@@ -747,6 +802,7 @@ public class StrategyLab {
                         .put("vote", i < votes.length ? votes[i] : 0));
             }
             out.put("builtin", builtin);
+            out.put("masterNote", "3C MASTER: C1+C2 body>=70%, C3 protected, 5-candle breakout window, SL opposite extreme, BE @+1R, TP @+3R — daily P/L UNLIMITED");
 
             JSONArray custom = new JSONArray();
             Cursor c = db.getReadableDatabase().rawQuery(

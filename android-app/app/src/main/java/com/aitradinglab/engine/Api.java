@@ -91,7 +91,7 @@ public class Api {
     private Res get(String path, String auth) throws Exception {
         if ("/".equals(path) || "/index.html".equals(path)) return Res.html(dashboardHtml);
         if ("/api/health".equals(path)) return Res.json(200, new JSONObject()
-                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "1.3.0").put("timeframe", "1m").put("scanner", "24h"));
+                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "1.4.0").put("timeframe", "5m").put("scanner", "24h").put("strategy", "3C Breakout (M5) — MASTER"));
 
         Long uid = userId(auth);
         if (uid == null) return Res.error(401, "authentication required");
@@ -586,7 +586,8 @@ public class Api {
     private Res settings() throws Exception {
         return Res.json(200, new JSONObject()
                 .put("engineOn", "1".equals(db.setting("engine_on", "1")))
-                .put("version", "1.3"));
+                .put("riskPct", engine != null ? engine.riskPct() : 1.0)
+                .put("version", "1.4"));
     }
 
     /** v1.2 — Paper Balance: owner apna paper amount khud set karta hai.
@@ -609,7 +610,7 @@ public class Api {
                 + String.format(Locale.US, "%.2f", amt) + " (open trades cancelled, risk counters reset)");
         return Res.json(200, new JSONObject().put("ok", true).put("balance", round2(amt))
                 .put("message", "Paper balance set: $" + String.format(Locale.US, "%.0f", amt)
-                        + " — ab har trade dynamic risk le gi: consensus 60%+ = 0.5%, 65%+ = 1%, 75%+ = 1.5%, 85%+ = 2%"));
+                        + " — ab 3C MASTER har trade " + (engine != null ? engine.riskPct() : 1.0) + "% risk leggi (Settings > Risk %) — daily loss/profit UNLIMITED"));
     }
 
     // ================== v1.2 STRATEGY LAB + PERMANENT HISTORY ==================
@@ -762,6 +763,13 @@ public class Api {
             boolean on = o.optBoolean("engineOn");
             db.setSetting("engine_on", on ? "1" : "0");
             db.log("INFO", "SYSTEM", on ? "ENGINE_ENABLED" : "ENGINE_DISABLED", "user toggled engine");
+        }
+        // v1.4 — 3C risk % of equity per trade (MASTER PROMPT: "The user controls risk percentage")
+        if (o.has("riskPct")) {
+            double r = o.optDouble("riskPct", 1.0);
+            if (r < 0.1 || r > 10) return Res.error(400, "Risk 0.1% se 10% ke beech set karein (3C default 1%)");
+            db.setSetting("risk_pct", String.valueOf(r));
+            db.log("INFO", "RISK", "RISK_SET", "3C per-trade risk = " + r + "% of equity (owner setting)");
         }
         return settings();
     }
