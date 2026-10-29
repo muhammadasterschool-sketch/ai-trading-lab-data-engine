@@ -91,7 +91,7 @@ public class Api {
     private Res get(String path, String auth) throws Exception {
         if ("/".equals(path) || "/index.html".equals(path)) return Res.html(dashboardHtml);
         if ("/api/health".equals(path)) return Res.json(200, new JSONObject()
-                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "1.2.0").put("timeframe", "1m").put("scanner", "24h"));
+                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "1.3.0").put("timeframe", "1m").put("scanner", "24h"));
 
         Long uid = userId(auth);
         if (uid == null) return Res.error(401, "authentication required");
@@ -380,6 +380,13 @@ public class Api {
         // v5.3: engine can be null if its init failed — dashboard must still load
         JSONObject eng = new JSONObject();
         try { if (engine != null) eng = new JSONObject(engine.status()); } catch (Throwable t) { }
+        // v1.3 24/7 — battery-optimization status: engine exemption ke baghair OEM
+        // (One UI etc.) process sula deta hai. Dashboard Home iska RED banner dikhata hai.
+        try {
+            android.os.PowerManager pm = (android.os.PowerManager) appCtx.getSystemService(android.content.Context.POWER_SERVICE);
+            eng.put("battery_ok", pm != null && pm.isIgnoringBatteryOptimizations(appCtx.getPackageName()));
+        } catch (Throwable t) { eng.put("battery_ok", true); }
+        try { eng.put("watchdog", "9-min Doze-safe alarm + thread watchdog + swipe-kill restart"); } catch (Throwable t) { }
 
         // v5.7: full identity on the dashboard payload — boot path uses it to restore
         // USER (role drives Control-tab visibility) without a separate /api/me round trip
@@ -579,7 +586,7 @@ public class Api {
     private Res settings() throws Exception {
         return Res.json(200, new JSONObject()
                 .put("engineOn", "1".equals(db.setting("engine_on", "1")))
-                .put("version", "1.2"));
+                .put("version", "1.3"));
     }
 
     /** v1.2 — Paper Balance: owner apna paper amount khud set karta hai.

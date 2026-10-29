@@ -67,6 +67,9 @@ public class ServerService extends Service {
             wakeLock.acquire();
         } catch (Throwable ignored) { }
         startWatchdog();   // v1.2 — 24/7: engine thread kabhi marr jaye to foran restart
+        // v1.3 — process-level watchdog: OEM/Doze ne poora process maar bhi diya ho to
+        // ye 9-min Doze-safe alarm service ko revive karta hai (START_STICKY delay-proof)
+        try { WatchdogReceiver.schedule(this); } catch (Throwable ignored) { }
     }
 
     /**
@@ -112,6 +115,7 @@ public class ServerService extends Service {
                     android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
                     android.os.SystemClock.elapsedRealtime() + 2000, pi);
         } catch (Throwable ignored) { }
+        try { WatchdogReceiver.schedule(this); } catch (Throwable ignored) { } // v1.3 re-arm periodic beat
         try {
             Intent i = new Intent(this, ServerService.class);
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(i);
@@ -240,6 +244,7 @@ public class ServerService extends Service {
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
+        try { WatchdogReceiver.schedule(this); } catch (Throwable ignored) { } // re-arm on every restart (v1.3)
         return START_STICKY; // restart if killed
     }
 

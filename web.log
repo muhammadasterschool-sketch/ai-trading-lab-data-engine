@@ -1,1 +1,6 @@
-error: Module not found "server.js"
+▲ Next.js 16.1.3
+- Local:         http://localhost:3000
+- Network:       http://0.0.0.0:3000
+
+✓ Starting...
+✓ Ready in 71ms

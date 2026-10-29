@@ -99,7 +99,7 @@ select{width:100%;background:#18181b;border:1px solid #27272a;border-radius:9px;
   <div class="logo">📈</div>
   <h1>AI Trading Lab <span style="color:#f59e0b">v1</span></h1>
   <div class="sub">Full trading engine on this device — paper trading</div>
-  <div class="sub" style="color:#fbbf24">v1.2 · Paper $100 + Custom Amount · Unlimited Positions · Two-Tier Entry</div>
+  <div class="sub" style="color:#fbbf24">v1.3 · 24/7 Triple Watchdog · Strategy Lab · Dynamic Risk · Permanent History</div>
   <div id="engStrip" class="eng">checking engine…</div>
   <div class="note"><b>Naya install / update?</b> Accounts is device ki local database mein hote hain — app reinstall ya update ke baad purana account <b>transfer nahi hota</b>. Is liye pehli dafa <b>Register</b> tab par account banayen (invite code pehle se bhara hai), phir <b>Sign in</b> — dashboard foran khulega. Kisi authenticator app ki zaroorat nahi.</div>
 
@@ -326,9 +326,12 @@ function renderDash(){
     if(r.status!==200){ document.getElementById('main').innerHTML = '<div class="banner warn">Engine busy/restarting — retrying…</div>'; return; }
     var d = r.data, e = d.engine||{};
     var ban = '';
-    if(!e.engine_on) ban = '<div class="banner red">Engine is OFF — enable in Settings</div>';
-    else if(e.news_pause) ban = '<div class="banner warn">📰 High-impact news — new entries paused 30 min</div>';
-    else ban = '<div class="banner green">⏱ 24h scanner LIVE — '+e.active_symbols+' instruments on '+(e.timeframe||'1m')+' chart, day & night</div>';
+    /* v1.3 24/7 — battery optimization sab se pehle: yehi engine band hone ki
+       sab se aam wajah hai (OEM battery managers background killers) */
+    if(e.battery_ok === false) ban += '<div class="banner red">🔋 <b>24/7 ke liye zaroori:</b> Battery optimization abhi bhi ON hai — Android engine ko sula dega. App kholte waqt aane wale dialog mein <b>Allow</b> dabayen, ya Settings → Battery → AI Trading Lab → <b>Unrestricted</b> karein.</div>';
+    if(!e.engine_on) ban += '<div class="banner red">Engine is OFF — enable in Settings</div>';
+    else if(e.news_pause) ban += '<div class="banner warn">📰 High-impact news — new entries paused 30 min</div>';
+    else ban += '<div class="banner green">⏱ 24h scanner LIVE — '+e.active_symbols+' instruments on '+(e.timeframe||'1m')+' chart, day & night · 24/7 shield: '+esc(e.watchdog||'watchdog ON')+'</div>';
     var spark = sparkSvg(d.equity||[]);
     document.getElementById('main').innerHTML =
       ban +

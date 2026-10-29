@@ -53,5 +53,11 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <!-- v1.3 24/7 process watchdog: exact alarm every 9 min revives the engine
+             service even after OEM process kills — fires inside Doze -->
+        <receiver
+            android:name="com.aitradinglab.engine.WatchdogReceiver"
+            android:exported="false" />
     </application>
 </manifest>

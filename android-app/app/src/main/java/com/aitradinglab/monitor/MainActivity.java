@@ -135,18 +135,22 @@ public class MainActivity extends Activity {
      */
     private void maybeBatteryPrompt() {
         try {
-            SharedPreferences p = getSharedPreferences("atl", MODE_PRIVATE);
-            if (p.getBoolean("battery_asked", false)) return;
-            p.edit().putBoolean("battery_asked", true).apply();
+            // v1.3 24/7 ROOT-CAUSE FIX: the old one-time "battery_asked" flag meant a user
+            // who missed or dismissed the very first dialog was NEVER asked again — One UI
+            // / battery-saver then killed the engine overnight ("automation off ho raha
+            // hai"). Now the dialog is shown on EVERY dashboard open while the app is not
+            // exempt; the system dialog itself has a Deny option, and once allowed it
+            // stops appearing forever.
             PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
-            if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
-                new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                    try {
-                        startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                                Uri.parse("package:" + getPackageName())));
-                    } catch (Exception ignored) { }
-                }, 2500);
-            }
+            if (pm == null || pm.isIgnoringBatteryOptimizations(getPackageName())) return;
+            SharedPreferences p = getSharedPreferences("atl", MODE_PRIVATE);
+            p.edit().putBoolean("battery_asked", true).apply(); // audit trail only
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                try {
+                    startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                            Uri.parse("package:" + getPackageName())));
+                } catch (Exception ignored) { }
+            }, 2500);
         } catch (Exception ignored) { }
     }
 

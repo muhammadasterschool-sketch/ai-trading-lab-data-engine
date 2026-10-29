@@ -1,3 +1,36 @@
+# AI Trading Lab — v1.3 Release (Android) — 24/7 TRIPLE WATCHDOG
+
+Release date: 2026-10-29
+APK: `AI-Trading-Lab-v1.3-Android.apk` (versionCode 20) — ORIGINAL keystore se signed
+(CN=AI Trading Lab, OU=Private, O=Muhammad) — v1.1/v1.2 installs ke upar seedha update hoga.
+
+Owner request: "engine automation off ho raha hai woh sahi karo" + "aap app khol kar
+sare features try karo, jo issues hain unko sahi karo".
+
+## WHAT CHANGED (v1.3 — on top of v1.2 Strategy Lab)
+
+1. **ROOT-CAUSE FIX — battery prompt har app-open par**: v1.2 mein prompt ONE-TIME
+   tha (`battery_asked` flag). Jo user pehli baar miss/deny kar gaya us se kabhi
+   dobara nahi poocha gaya — One UI / battery-saver raat ko engine process sula
+   deti hai. Yehi "automation off ho raha hai" ki #1 wajah hai. Ab jab tak
+   exemption nahi milti, har dashboard-open par system dialog aata hai.
+2. **WatchdogReceiver (process-level, naya)**: `setExactAndAllowWhileIdle` exact
+   alarm har 9 min — Doze ke andar bhi fire hota hai. Agar poora process mara ho
+   (OEM kill) to startForegroundService se foran revive. START_STICKY OEM-delay
+   ka ab guaranteed backup hai. onCreate/onStartCommand/onTaskRemoved se re-arm.
+3. **battery_ok dashboard par**: /api/dashboard ab PowerManager
+   isIgnoringBatteryOptimizations report karta hai — Home tab red banner with
+   exact steps (Settings → Battery → Unrestricted) jab tak exempt nahi.
+4. **Triple protection summary**: (a) 9-min Doze-safe alarm (naya), (b) in-process
+   30s engine-thread watchdog (v1.2), (c) swipe-kill 2s restart + boot receiver +
+   wake lock (existing).
+
+## SIGNATURE NOTE
+
+v1.2 rev-1 APK (jo is repo ke bahar ek env-reset se banaya gaya tha) naye keystore
+se tha — woh obsolete hai. v1.3 ORIGINAL keystore use karta hai: purana v1.1/v1.2
+install directly update ho jayega, uninstall ki zaroorat nahi.
+
 # AI Trading Lab — v1.2 Release (Android) — STRATEGY LAB (AI) + DYNAMIC RISK + 24/7 + $100
 
 Release date: 2026-10-29

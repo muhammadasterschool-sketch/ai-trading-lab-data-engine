@@ -1,9 +1,9 @@
 -- Merging decision tree log ---
 manifest
-ADDED from /home/z/my-project/android-app/app/src/main/AndroidManifest.xml:2:1-57:12
-INJECTED from /home/z/my-project/android-app/app/src/main/AndroidManifest.xml:2:1-57:12
-INJECTED from /home/z/my-project/android-app/app/src/main/AndroidManifest.xml:2:1-57:12
-INJECTED from /home/z/my-project/android-app/app/src/main/AndroidManifest.xml:2:1-57:12
+ADDED from /home/z/my-project/android-app/app/src/main/AndroidManifest.xml:2:1-63:12
+INJECTED from /home/z/my-project/android-app/app/src/main/AndroidManifest.xml:2:1-63:12
+INJECTED from /home/z/my-project/android-app/app/src/main/AndroidManifest.xml:2:1-63:12
+INJECTED from /home/z/my-project/android-app/app/src/main/AndroidManifest.xml:2:1-63:12
 	package
 		INJECTED from /home/z/my-project/android-app/app/src/main/AndroidManifest.xml
 	android:versionName
@@ -49,8 +49,8 @@ ADDED from /home/z/my-project/android-app/app/src/main/AndroidManifest.xml:12:5-
 	android:name
 		ADDED from /home/z/my-project/android-app/app/src/main/AndroidManifest.xml:12:22-78
 application
-ADDED from /home/z/my-project/android-app/app/src/main/AndroidManifest.xml:14:5-56:19
-INJECTED from /home/z/my-project/android-app/app/src/main/AndroidManifest.xml:14:5-56:19
+ADDED from /home/z/my-project/android-app/app/src/main/AndroidManifest.xml:14:5-62:19
+INJECTED from /home/z/my-project/android-app/app/src/main/AndroidManifest.xml:14:5-62:19
 	android:extractNativeLibs
 		INJECTED from /home/z/my-project/android-app/app/src/main/AndroidManifest.xml
 	android:label
@@ -123,6 +123,12 @@ action#android.intent.action.BOOT_COMPLETED
 ADDED from /home/z/my-project/android-app/app/src/main/AndroidManifest.xml:53:17-79
 	android:name
 		ADDED from /home/z/my-project/android-app/app/src/main/AndroidManifest.xml:53:25-76
+receiver#com.aitradinglab.engine.WatchdogReceiver
+ADDED from /home/z/my-project/android-app/app/src/main/AndroidManifest.xml:59:9-61:40
+	android:exported
+		ADDED from /home/z/my-project/android-app/app/src/main/AndroidManifest.xml:61:13-37
+	android:name
+		ADDED from /home/z/my-project/android-app/app/src/main/AndroidManifest.xml:60:13-68
 uses-sdk
 INJECTED from /home/z/my-project/android-app/app/src/main/AndroidManifest.xml reason: use-sdk injection requested
 INJECTED from /home/z/my-project/android-app/app/src/main/AndroidManifest.xml
