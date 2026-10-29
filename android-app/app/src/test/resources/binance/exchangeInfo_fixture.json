@@ -1,0 +1,85 @@
+{
+  "_NOTE": "FIXTURE — recorded-shape Binance /api/v3/exchangeInfo response, trimmed to 6 symbols for deterministic unit tests. NOT live market data. Shapes mirror the official API (symbols[], status, baseAsset, quoteAsset, permissions, isSpotTradingAllowed, filters).",
+  "timezone": "UTC",
+  "serverTime": 1793300000000,
+  "rateLimits": [
+    {"rateLimitType": "REQUEST_WEIGHT", "interval": "MINUTE", "intervalNum": 1, "limit": 6000}
+  ],
+  "symbols": [
+    {
+      "symbol": "BTCUSDT",
+      "status": "TRADING",
+      "baseAsset": "BTC",
+      "baseAssetPrecision": 8,
+      "quoteAsset": "USDT",
+      "quotePrecision": 8,
+      "permissions": ["SPOT"],
+      "permissionSets": [[ "SPOT" ]],
+      "isSpotTradingAllowed": true,
+      "isMarginTradingAllowed": false,
+      "filters": [
+        {"filterType": "PRICE_FILTER", "minPrice": "0.01000000", "maxPrice": "1000000.00000000", "tickSize": "0.01000000"},
+        {"filterType": "LOT_SIZE", "minQty": "0.00001000", "maxQty": "9000.00000000", "stepSize": "0.00001000"},
+        {"filterType": "NOTIONAL", "minNotional": "5.00000000", "applyMinToMarket": true}
+      ]
+    },
+    {
+      "symbol": "ETHUSDT",
+      "status": "TRADING",
+      "baseAsset": "ETH",
+      "quoteAsset": "USDT",
+      "permissions": ["SPOT", "MARGIN"],
+      "isSpotTradingAllowed": true,
+      "filters": [
+        {"filterType": "PRICE_FILTER", "minPrice": "0.01000000", "maxPrice": "1000000.00000000", "tickSize": "0.01000000"},
+        {"filterType": "LOT_SIZE", "minQty": "0.00010000", "maxQty": "9000.00000000", "stepSize": "0.00010000"},
+        {"filterType": "NOTIONAL", "minNotional": "5.00000000"}
+      ]
+    },
+    {
+      "symbol": "XYZBREAK",
+      "status": "BREAK",
+      "baseAsset": "XYZ",
+      "quoteAsset": "USDT",
+      "permissions": ["SPOT"],
+      "isSpotTradingAllowed": true,
+      "filters": [
+        {"filterType": "PRICE_FILTER", "tickSize": "0.00010000"},
+        {"filterType": "LOT_SIZE", "minQty": "1.00000000", "stepSize": "1.00000000"}
+      ]
+    },
+    {
+      "symbol": "ABCUSDC",
+      "status": "TRADING",
+      "baseAsset": "ABC",
+      "quoteAsset": "USDC",
+      "permissions": ["SPOT"],
+      "isSpotTradingAllowed": true,
+      "filters": [
+        {"filterType": "PRICE_FILTER", "tickSize": "0.00010000"},
+        {"filterType": "LOT_SIZE", "minQty": "0.10000000", "stepSize": "0.10000000"}
+      ]
+    },
+    {
+      "symbol": "MARGINONLY",
+      "status": "TRADING",
+      "baseAsset": "MRG",
+      "quoteAsset": "USDT",
+      "permissions": ["MARGIN"],
+      "isSpotTradingAllowed": false,
+      "filters": [
+        {"filterType": "PRICE_FILTER", "tickSize": "0.01000000"},
+        {"filterType": "LOT_SIZE", "minQty": "0.01000000", "stepSize": "0.01000000"}
+      ]
+    },
+    {
+      "symbol": "bad-lower-9",
+      "status": "TRADING",
+      "baseAsset": "BAD",
+      "quoteAsset": "USDT",
+      "permissions": ["SPOT"],
+      "isSpotTradingAllowed": true,
+      "filters": []
+    }
+  ]
+}

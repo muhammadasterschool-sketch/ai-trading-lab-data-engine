@@ -1,0 +1,5 @@
+{
+  "_NOTE": "RECORDED LIVE RESPONSE (fixture) — real body captured from https://api.binance.com/api/v3/exchangeInfo during the 2026-10-30 baseline audit of this project, when the sandbox shared IP was weight-banned by Binance (HTTP 418). Used verbatim as the failure-injection fixture for rate-limit backoff tests. NOT live market data; NOT fabricatable — recorded evidence of the exact 418 shape the adapter must survive.",
+  "code": -1003,
+  "msg": "Way too much request weight used; IP banned until 1793302554614. Please use WebSocket Streams for live updates to avoid bans."
+}
