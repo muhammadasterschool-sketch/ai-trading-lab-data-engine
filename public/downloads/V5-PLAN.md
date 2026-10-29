@@ -36,4 +36,4 @@ Status: v4 live (paper trading running). v5 phases below.
 2. Phone install: Termux app (F-Droid) + ~2 GB storage + charger
 3. v5 cloud later: VPS rental + (optional) domain name
 4. Live later: broker account + API keys (Binance/OANDA first)
-5. Keep the Android keystore (atl-v4-release) for app updates
+5. Keep the Android keystore (REDACTED-ROTATE-KEYSTORE) for app updates

@@ -380,7 +380,7 @@ Stage Summary:
 - dashboard.html: 🧪 Lab tab (AI compile, YouTube watch/subscribe, lifecycle buttons, built-ins table), Trades archive, dynamic-risk texts, iOS meta tags
 - Android routes: /api/strategies GET+POST (add/yt_add/yt_channel/yt_stop/backtest/paper/approve/reject/delete/set_symbol), /api/history, /api/history/csv
 - BUILD (env reset — toolchain rebuilt): gradle 8.9 + Temurin JDK 17 + cmdline-tools/build-tools 34.0.0 fresh installs; keystore recovered from /tmp/my-project; jlink fix via JDK17 (system JDK21 is JRE-only); minSdk 24 → java.time.Instant replaced with SimpleDateFormat
-- versionCode 19 / versionName 1.2; APK 153 KB signed (atl-v4-release) + source zip; triple-deploy public/ + .next/standalone/public/ + download/; bun restarted
+- versionCode 19 / versionName 1.2; APK 153 KB signed (REDACTED-ROTATE-KEYSTORE) + source zip; triple-deploy public/ + .next/standalone/public/ + download/; bun restarted
 - Verified 200: downloads.html, v1.2 APK, source zip; AI routes live-tested: /api/ai/strategy (Roman Urdu → spec ✅), /api/ai/ytlist (channel RSS ✅), /api/ai/transcript (transcript → spec ✅)
 
 ## Task 25 — v1.3: 24/7 TRIPLE WATCHDOG (battery prompt root-cause fix + process-level alarm) — on top of remote v1.2 Strategy Lab

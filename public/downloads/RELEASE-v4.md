@@ -17,7 +17,7 @@
 | Android source | `AI-Trading-Lab-v4.0-Android-source.zip` | 46 KB | Rebuild the APK yourself (commands below) |
 | Windows source | `AI-Trading-Lab-v4.0-Windows-source.zip` | 4 KB | Electron shell source |
 
-> 🔑 **Keep the keystore safe:** `android-app/ai-trading-lab.keystore` (password `atl-v4-release`) signs the APK. Future APK updates must be signed with the SAME keystore, or users must uninstall first.
+> 🔑 **Keep the keystore safe:** `android-app/ai-trading-lab.keystore` (password `REDACTED-ROTATE-KEYSTORE`) signs the APK. Future APK updates must be signed with the SAME keystore, or users must uninstall first.
 
 Screenshots: `preview-register-v4.png` (invitation-code registration) · `preview-trader-dashboard-v4.png` (live trader dashboard)
 

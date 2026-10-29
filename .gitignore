@@ -15,3 +15,7 @@ web.log
 .next/standalone/web.log
 scripts/klines_cache.json
 tool-results/
+
+# v3.0.2 secret hygiene — signing credentials are local-only, never committed
+android-app/keystore.properties
+android-app/ai-trading-lab.keystore

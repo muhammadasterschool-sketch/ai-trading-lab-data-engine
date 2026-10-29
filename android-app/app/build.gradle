@@ -2,6 +2,19 @@ plugins {
     id 'com.android.application'
 }
 
+// v3.0.2 SECRET HYGIENE: signing credentials are NOT stored in this file and the
+// keystore is NOT committed. They are read from android-app/keystore.properties
+// (local-only, gitignored). If that file is absent, release builds are unsigned
+// (assembleRelease still succeeds but the APK is unsigned — sign it manually with
+// apksigner, or restore the local keystore.properties). Debug builds are unaffected.
+// Owner action recommended: generate a NEW keystore, because the old keystore and
+// its passwords were historically committed to the public repository.
+def ksProps = new Properties()
+def ksPropsFile = rootProject.file("keystore.properties")
+if (ksPropsFile.exists()) {
+    ksPropsFile.withInputStream { ksProps.load(it) }
+}
+
 android {
     namespace 'com.aitradinglab.monitor'
     compileSdk 34
@@ -15,11 +28,13 @@ android {
     }
 
     signingConfigs {
-        release {
-            storeFile file("../ai-trading-lab.keystore")
-            storePassword "atl-v4-release"
-            keyAlias "atl"
-            keyPassword "atl-v4-release"
+        if (ksPropsFile.exists()) {
+            release {
+                storeFile file(ksProps["storeFile"])
+                storePassword ksProps["storePassword"]
+                keyAlias ksProps["keyAlias"]
+                keyPassword ksProps["keyPassword"]
+            }
         }
     }
 
@@ -27,7 +42,7 @@ android {
         release {
             minifyEnabled false
             shrinkResources false
-            signingConfig signingConfigs.release
+            if (ksPropsFile.exists()) signingConfig signingConfigs.release
         }
     }
 
