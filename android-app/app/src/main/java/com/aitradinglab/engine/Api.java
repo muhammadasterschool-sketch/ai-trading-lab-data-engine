@@ -92,7 +92,7 @@ public class Api {
     private Res get(String path, String auth) throws Exception {
         if ("/".equals(path) || "/index.html".equals(path)) return Res.html(dashboardHtml);
         if ("/api/health".equals(path)) return Res.json(200, new JSONObject()
-                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "1.9.0").put("timeframe", "5m").put("scanner", "24h").put("strategy", "3C Breakout (M5) — MASTER + PRO FILTER PACK"));
+                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "2.0.0").put("timeframe", "5m").put("scanner", "24h").put("strategy", "3C Breakout (M5) — MASTER + PRO FILTER PACK"));
 
         Long uid = userId(auth);
         if (uid == null) return Res.error(401, "authentication required");
@@ -670,7 +670,7 @@ public class Api {
                 .put("proEmaFilter", engine == null || engine.proEmaFilter())
                 .put("proAtrFloor", engine != null ? engine.proAtrFloor() : 0.08)
                 .put("proVolFilter", engine == null || engine.proVolFilter())
-                .put("version", "1.9"));
+                .put("version", "2.0"));
     }
 
     /** v1.8 — candlestick chart data: GET /api/candles?symbol=BTCUSDT&n=60 → 5m closed candles. */

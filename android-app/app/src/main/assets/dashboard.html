@@ -95,6 +95,32 @@ select{width:100%;background:var(--card);border:1px solid var(--line);border-rad
 .logline .cmp{color:var(--gold);font-weight:700}
 .logline.unread{border-left:3px solid var(--gold);padding-left:9px;background:rgba(240,180,41,.04)}
 .navbadge{display:inline-block;min-width:15px;padding:0 4px;border-radius:8px;background:#ef4444;color:#fff;font-size:9px;font-weight:800;line-height:14px;margin-top:1px}
+/* ---------- v2.0 SIDE DRAWER — saare options ek jagah ---------- */
+#burger{background:none;border:1px solid var(--line);color:var(--txt);border-radius:8px;width:34px;height:34px;font-size:16px;cursor:pointer;flex-shrink:0;line-height:1}
+#burger:active{background:var(--card2)}
+#scrim{position:fixed;inset:0;background:rgba(4,8,14,.62);backdrop-filter:blur(3px);z-index:19;opacity:0;pointer-events:none;transition:opacity .22s}
+#scrim.open{opacity:1;pointer-events:auto}
+#drawer{position:fixed;top:0;bottom:0;left:0;width:276px;max-width:84vw;background:var(--bg2);border-right:1px solid var(--line2);z-index:20;transform:translateX(-103%);transition:transform .24s cubic-bezier(.2,.8,.25,1);display:flex;flex-direction:column;box-shadow:8px 0 32px rgba(0,0,0,.45);padding-bottom:env(safe-area-inset-bottom)}
+#drawer.open{transform:translateX(0)}
+.dhead{display:flex;align-items:center;gap:10px;padding:14px 12px 10px;border-bottom:1px solid var(--line)}
+.dhead img{width:38px;height:38px;border-radius:10px}
+.dhead .dt{font-weight:800;font-size:13.5px;letter-spacing:-.01em}
+.dhead .ds{font-size:9.5px;color:var(--mut)}
+.dclose{margin-left:auto;background:none;border:0;color:var(--mut);font-size:19px;cursor:pointer;padding:4px 8px}
+.duser{margin:10px 10px 0;background:var(--card);border:1px solid var(--line);border-radius:11px;padding:10px 12px;display:flex;align-items:center;gap:9px}
+.duser .un{font-weight:800;font-size:13px}
+.duser .ur{font-size:9.5px;color:var(--mut);word-break:break-all}
+.ditems{flex:1;overflow-y:auto;padding:10px 8px 8px}
+.ditem{display:flex;align-items:center;gap:11px;width:100%;background:none;border:0;color:var(--txt);font-size:13.5px;font-weight:600;padding:11px 10px;border-radius:10px;cursor:pointer;text-align:left;transition:background .13s}
+.ditem:active{background:var(--card2)}
+.ditem.on{background:rgba(16,185,129,.10);color:var(--greenS)}
+.ditem .ic{font-size:17px;width:22px;text-align:center;filter:grayscale(25%)}
+.ditem.on .ic{filter:none}
+.ditem .dsub{margin-left:auto;font-size:9px;color:var(--mut2);font-weight:700;text-align:right;line-height:1.35;max-width:96px}
+.ditem.on .dsub{color:rgba(52,211,153,.75)}
+.dsep{height:1px;background:var(--line);margin:8px 10px}
+.dlabel{font-size:9px;text-transform:uppercase;letter-spacing:.09em;color:var(--mut2);font-weight:800;padding:6px 12px 2px}
+.dfoot{padding:9px 14px;border-top:1px solid var(--line);font-size:9.5px;color:var(--mut2);line-height:1.5}
 .pillbtn{border:0;cursor:pointer;margin-top:6px}
 .empty{color:var(--mut2);text-align:center;padding:30px 10px;font-size:12.5px}
 .small{font-size:11px;color:var(--mut);line-height:1.65}
@@ -118,7 +144,7 @@ select{width:100%;background:var(--card);border:1px solid var(--line);border-rad
   <div class="logo"><img src="logo.png" alt="AI Trading Lab"></div>
   <h1>AI Trading Lab</h1>
   <div class="sub">Full trading engine on this device — paper trading</div>
-  <div class="sub" style="color:var(--gold)">v1.9 · OWNER GATE · PRO FILTER PACK · LIVE P/L · Candlestick Chart</div>
+  <div class="sub" style="color:var(--gold)">v2.0 · SIDE DRAWER · OWNER GATE · PRO FILTER PACK · Candlestick</div>
   <div id="engStrip" class="eng">checking engine…</div>
   <div class="note"><b>Naya install / update?</b> Accounts is device ki local database mein hote hain — app reinstall ya update ke baad purana account <b>transfer nahi hota</b>. Pehla account = <b>OWNER (ADMIN)</b>. Baaki log <b>Register</b> se apply karein — <b>invite code owner se milega</b> (kahin likha hua nahi hota), aur owner ke <b>APPROVE</b> karne ke baad hi sign in possible hoga. Kisi authenticator app ki zaroorat nahi.</div>
 
@@ -182,10 +208,22 @@ select{width:100%;background:var(--card);border:1px solid var(--line);border-rad
 <!-- ============ APP ============ -->
 <div id="app">
   <header>
+    <button id="burger" onclick="openDrawer()" aria-label="Menu">☰</button>
     <img class="applogo" src="logo.png" alt="">
     <div><div class="ttl">AI Trading Lab</div><div class="st" id="hdrSub">engine running</div></div>
     <button class="out" onclick="doLogout()">Sign out</button>
   </header>
+  <div id="scrim" onclick="closeDrawer()"></div>
+  <aside id="drawer">
+    <div class="dhead">
+      <img src="logo.png" alt="">
+      <div><div class="dt">AI Trading Lab</div><div class="ds" id="drEngine">engine · v2.0</div></div>
+      <button class="dclose" onclick="closeDrawer()">✕</button>
+    </div>
+    <div class="duser" id="drUser"></div>
+    <div class="ditems" id="drItems"></div>
+    <div class="dfoot">v2.0 · SIDE DRAWER · paper trading only — engine is device par 24/7 chalta hai</div>
+  </aside>
   <main id="main"></main>
   <nav>
     <button data-t="dash" class="on" onclick="go('dash')"><span class="ic">📊</span>Home</button>
@@ -325,6 +363,52 @@ function updateNavBadges(){
   var n = UNREAD + PENDING;
   var base = '<span class="ic">⚙️</span>Settings';
   b.innerHTML = n > 0 ? base + ' <span class="navbadge">' + n + '</span>' : base;
+  /* v2.0 — drawer khula ho to uska Control badge bhi live update */
+  var dr = document.getElementById('drawer');
+  if(dr && dr.classList.contains('open')) renderDrawer();
+}
+
+/* ---------------- v2.0 SIDE DRAWER — saare options ek jagah, kuch chhupa nahi ---------------- */
+function openDrawer(){
+  renderDrawer();
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('scrim').classList.add('open');
+}
+function closeDrawer(){
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('scrim').classList.remove('open');
+}
+/* drawer navigation — setTab optional deep-link (Broker/Control seedha khulta hai) */
+function dGo(tab, setTab){
+  if(setTab) SET_TAB = setTab;
+  closeDrawer();
+  go(tab);
+}
+function dItem(t, ic, label, sub, setTab, badge){
+  var on = (TAB===t && (!setTab || SET_TAB===setTab)) ? ' on' : '';
+  return '<button class="ditem'+on+'" onclick="dGo(\''+t+'\',\''+(setTab||'')+'\')"><span class="ic">'+ic+'</span><span>'+label+'</span>'+
+    (badge>0?' <span class="navbadge">'+badge+'</span>':'')+
+    (sub?'<span class="dsub">'+sub+'</span>':'')+'</button>';
+}
+function renderDrawer(){
+  var u = document.getElementById('drUser');
+  if(u && USER) u.innerHTML = '<div style="flex:1;min-width:0"><div class="un">'+esc(USER.name)+'</div><div class="ur">'+esc(USER.email)+'</div></div><span class="pill '+(USER.role==='ADMIN'?'ADMIN':'INFO')+'">'+(USER.role==='ADMIN'?'ADMIN':'TRADER')+'</span>';
+  var admin = USER && USER.role==='ADMIN';
+  var n = UNREAD + PENDING;
+  var h = '<div class="dlabel">Trading</div>';
+  h += dItem('dash','📊','Home','','');
+  h += dItem('trades','💱','Trades','live P/L','');
+  h += dItem('lab','🧪','Strategy Lab','3C · AI · trash','');
+  h += dItem('ins','📡','Insights','news · instruments','');
+  h += '<div class="dsep"></div><div class="dlabel">System — saare options</div>';
+  h += dItem('set','⚙️','Settings — General','risk · engine · guards','general');
+  h += dItem('set','🔌','Broker — Add / Saved','api keys · remove','broker');
+  if(admin){
+    h += dItem('set','🛡️','Owner Control','users · invites · alerts','control', n);
+  }
+  h += '<div class="dsep"></div>';
+  h += '<button class="ditem" onclick="closeDrawer();doLogout()"><span class="ic">🚪</span><span>Sign out</span></button>';
+  document.getElementById('drItems').innerHTML = h;
 }
 
 /* ---------------- tabs ---------------- */
