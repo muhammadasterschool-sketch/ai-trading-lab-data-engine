@@ -6,3 +6,10 @@ node_modules/
 /jdk17.tar.gz
 /gradle.zip
 /*.tar.gz
+
+# Android build artifacts (v1.7 se)
+android-app/.gradle/
+android-app/app/build/
+android-app/local.properties
+web.log
+.next/standalone/web.log

@@ -8,10 +8,12 @@ import android.database.sqlite.SQLiteOpenHelper;
 /** SQLite ledger store — instruments, logs, trades, news, brokers, users, strategies. */
 public class Db extends SQLiteOpenHelper {
     private static final String NAME = "atl-engine.db";
+    // v1.7: VERSION 4 — strategies.deleted_at (SOFT DELETE / UNDO — galti se delete ho
+    // jaye to 7 din tak restore ho sakta hai, phir auto-purge)
     // v1.2: VERSION 3 — adds the Strategy Lab table (AI/YouTube/custom strategies:
     // spec JSON, backtest stats, CANDIDATE→BACKTESTED→PAPER→ACTIVE lifecycle) and
     // the trades.risk column (per-trade risk fraction, dynamic by consensus).
-    private static final int VERSION = 3;
+    private static final int VERSION = 4;
 
     public Db(Context ctx) { super(ctx, NAME, null, VERSION); }
 
@@ -62,8 +64,9 @@ public class Db extends SQLiteOpenHelper {
         // v1.2 Strategy Lab — user ki strategies (AI text / YouTube video / manual).
         // status lifecycle: CANDIDATE -> BACKTESTED -> PAPER -> ACTIVE (ya REJECTED).
         // video = source video meta JSON; stats = backtest results JSON.
-        exec(d, "CREATE TABLE IF NOT EXISTS strategies(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, source TEXT DEFAULT 'MANUAL', video TEXT DEFAULT '{}', spec TEXT, status TEXT DEFAULT 'CANDIDATE', stats TEXT DEFAULT '{}', created_at INTEGER, updated_at INTEGER)");
+        exec(d, "CREATE TABLE IF NOT EXISTS strategies(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, source TEXT DEFAULT 'MANUAL', video TEXT DEFAULT '{}', spec TEXT, status TEXT DEFAULT 'CANDIDATE', stats TEXT DEFAULT '{}', created_at INTEGER, updated_at INTEGER, deleted_at INTEGER DEFAULT 0)");
         exec(d, "CREATE INDEX IF NOT EXISTS idx_strategies_status ON strategies(status, created_at)");
+        exec(d, "CREATE INDEX IF NOT EXISTS idx_strategies_del ON strategies(deleted_at)");
         exec(d, "CREATE INDEX IF NOT EXISTS idx_logs_ts ON logs(ts)");
         exec(d, "CREATE INDEX IF NOT EXISTS idx_trades_uid ON trades(user_id, status)");
         exec(d, "CREATE INDEX IF NOT EXISTS idx_candles ON candles(symbol, ts)");
@@ -82,6 +85,11 @@ public class Db extends SQLiteOpenHelper {
             exec(d, "CREATE TABLE IF NOT EXISTS strategies(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, source TEXT DEFAULT 'MANUAL', video TEXT DEFAULT '{}', spec TEXT, status TEXT DEFAULT 'CANDIDATE', stats TEXT DEFAULT '{}', created_at INTEGER, updated_at INTEGER)");
             exec(d, "CREATE INDEX IF NOT EXISTS idx_strategies_status ON strategies(status, created_at)");
             try { exec(d, "ALTER TABLE trades ADD COLUMN risk REAL"); } catch (Throwable ignored) { } // column may already exist
+        }
+        // v1.7 (db v3→v4): strategy soft-delete — deleted_at>0 = Trash mein (7 din tak UNDO)
+        if (a < 4) {
+            try { exec(d, "ALTER TABLE strategies ADD COLUMN deleted_at INTEGER DEFAULT 0"); } catch (Throwable ignored) { }
+            exec(d, "CREATE INDEX IF NOT EXISTS idx_strategies_del ON strategies(deleted_at)");
         }
     }
 

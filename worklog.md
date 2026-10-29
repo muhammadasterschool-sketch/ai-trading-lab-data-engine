@@ -413,3 +413,13 @@ Stage Summary:
 - dashboard.html: Trades tab — per-OPEN-trade live cell (abhi price + colored $ P/L + R), LIVE P/L banner (combined floating, green/red), 5s self-rescheduling auto-refresh with TAB guard (no interval stacking); Home Open Positions card now shows live floating P/L (15s poll already existed)
 - versionCode 22→23 / "1.6"; health 1.6.0; settings 1.6; ENGINE_START updated; JS node --check OK
 - Build 27s; apksigner+zipalign verified (same keystore); v1.5 files removed; v1.6 APK (154699b) + source zip + RELEASE-v1.6.md deployed dual-copy + download/; bun restarted; ALL 200
+
+## Task 25 — v1.7 "PRO GUARD" (2026-10-29)
+- Owner request: "professional level par le jao — repos dekh kar + strategy delete UNDO"
+- Research: freqtrade (protections: CooldownPeriod/StoplossGuard/MaxDrawdown, fee modeling), hummingbot (kill switch), jesse — 3 features selected, 3C rules UNTOUCHED
+- UNDO: Db v3→v4 strategies.deleted_at (idempotent ALTER); StrategyLab.remove() = soft delete + restore()/trash()/purgeTrash() (7-day auto-purge); all strategy queries filter deleted_at=0; Api actions restore/trash
+- dashboard: UNDO toast 8s (labUndoToast/labRestore), Lab Trash section w/ RESTORE buttons, Settings PRO GUARD card (cooldownMin/consecLoss/dailyKillPct inputs + setGuard)
+- PRO GUARD EngineCore: TAKER_FEE=0.0005 fee modeling in closeTrade (pnl − (entry+exit notional)×0.0005, logged); SL loss → cooldownUntil map (uid:sym, 15 min default); checkConsecutiveLoss (3 SL losses = 1h pause); entryBlocked() guard in openTrade3C+openTradeLab (cooldown + opt-in daily kill switch, default OFF — owner UNLIMITED); guard settings cooldownMin()/consecLossN()/dailyKillPct()
+- Api: settings() returns cooldownMin/consecLoss/dailyKillPct/feePct; saveSettings() handles all 3; version 1.7.0/1.7
+- Repo hygiene: android-app/.gradle + app/build + web.log UNTRACKED (154 files removed from index) + .gitignore rules (sandbox auto-add trap fixed for future)
+- versionCode 23→24 / "1.7"; build 60s clean; zipalign+apksigner verified; v1.6 files removed; v1.7 APK (164880b) + src zip (146528b) + RELEASE-v1.7.md deployed 3x; bun restarted; ALL 200

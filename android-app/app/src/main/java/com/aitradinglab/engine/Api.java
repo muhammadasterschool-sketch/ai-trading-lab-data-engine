@@ -91,7 +91,7 @@ public class Api {
     private Res get(String path, String auth) throws Exception {
         if ("/".equals(path) || "/index.html".equals(path)) return Res.html(dashboardHtml);
         if ("/api/health".equals(path)) return Res.json(200, new JSONObject()
-                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "1.6.0").put("timeframe", "5m").put("scanner", "24h").put("strategy", "3C Breakout (M5) — MASTER"));
+                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "1.7.0").put("timeframe", "5m").put("scanner", "24h").put("strategy", "3C Breakout (M5) — MASTER"));
 
         Long uid = userId(auth);
         if (uid == null) return Res.error(401, "authentication required");
@@ -632,7 +632,12 @@ public class Api {
         return Res.json(200, new JSONObject()
                 .put("engineOn", "1".equals(db.setting("engine_on", "1")))
                 .put("riskPct", engine != null ? engine.riskPct() : 1.0)
-                .put("version", "1.6"));
+                // v1.7 PRO GUARD settings
+                .put("cooldownMin", engine != null ? engine.cooldownMin() : 15)
+                .put("consecLoss", engine != null ? engine.consecLossN() : 3)
+                .put("dailyKillPct", engine != null ? engine.dailyKillPct() : 0)
+                .put("feePct", 0.05)
+                .put("version", "1.7"));
     }
 
     /** v1.2 — Paper Balance: owner apna paper amount khud set karta hai.
@@ -704,6 +709,8 @@ public class Api {
             case "approve":  out = lab.approve(id); break;
             case "reject":   out = lab.reject(id); break;
             case "delete":   out = lab.remove(id); break;
+            case "restore":  out = lab.restore(id); break;   // v1.7 UNDO
+            case "trash":    out = lab.trash(); break;        // v1.7 trash list
             case "set_symbol": {
                 String sym = HttpServer.jStr(o, "symbol").toUpperCase(Locale.US);
                 if (!sym.matches("[A-Z0-9]{5,20}")) return Res.error(400, "Symbol format galat hai (e.g. BTCUSDT)");
@@ -815,6 +822,27 @@ public class Api {
             if (r < 0.1 || r > 10) return Res.error(400, "Risk 0.1% se 10% ke beech set karein (3C default 1%)");
             db.setSetting("risk_pct", String.valueOf(r));
             db.log("INFO", "RISK", "RISK_SET", "3C per-trade risk = " + r + "% of equity (owner setting)");
+        }
+        // v1.7 PRO GUARD — SL-loss cooldown minutes (0=off)
+        if (o.has("cooldownMin")) {
+            int c = (int) o.optDouble("cooldownMin", 15);
+            if (c < 0 || c > 240) return Res.error(400, "Cooldown 0–240 minutes ke beech set karein (0 = off)");
+            db.setSetting("cooldown_min", String.valueOf(c));
+            db.log("INFO", "GUARD", "COOLDOWN_SET", "SL-loss cooldown = " + c + " min (owner setting)");
+        }
+        // v1.7 — consecutive-loss pause trigger count (0=off)
+        if (o.has("consecLoss")) {
+            int n = (int) o.optDouble("consecLoss", 3);
+            if (n < 0 || n > 10) return Res.error(400, "Consecutive losses 0–10 ke beech set karein (0 = off)");
+            db.setSetting("consec_loss", String.valueOf(n));
+            db.log("INFO", "GUARD", "CONSEC_LOSS_SET", "StoplossGuard = " + n + " lagatar SL losses → 1 ghanta pause");
+        }
+        // v1.7 — daily kill switch % (0 = OFF default — owner UNLIMITED chahta hai)
+        if (o.has("dailyKillPct")) {
+            double k = o.optDouble("dailyKillPct", 0);
+            if (k < 0 || k > 90) return Res.error(400, "Daily kill 0–90% ke beech set karein (0 = off)");
+            db.setSetting("daily_kill_pct", String.valueOf(k));
+            db.log("INFO", "GUARD", "DAILY_KILL_SET", "Daily kill switch = " + k + "%" + (k <= 0 ? " (OFF — unlimited)" : ""));
         }
         return settings();
     }

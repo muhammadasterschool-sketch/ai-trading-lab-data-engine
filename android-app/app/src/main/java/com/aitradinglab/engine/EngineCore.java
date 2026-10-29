@@ -66,6 +66,14 @@ public class EngineCore implements Runnable {
     public static final int THREEC_WINDOW = 5;          // breakout window: next 5 M5 candles
     public static final double THREEC_TP_R = 3.0;       // take profit at +3R, whole position
     private static final double RISK_DEFAULT_PCT = 1.0; // settings risk_pct override
+    // ==== v1.7 PRO GUARD — professional protections (freqtrade-inspired) ====
+    /** Binance USDT-M futures taker fee per side (0.05%) — paper P/L ab realistic.
+     *  freqtrade/production bots hamesha fees model karte hain warna paper results
+     *  real se 10-20% door hote hain. */
+    public static final double TAKER_FEE = 0.0005;
+    /** Consecutive-loss guard: itne SL losses ek symbol par = cooldown. */
+    private static final int CONSEC_LOSS_DEFAULT = 3;
+    private static final long CONSEC_LOSS_COOLDOWN_MS = 60L * 60 * 1000; // 1 ghanta
 
     private final Db db;
     private volatile boolean running = true;
@@ -91,6 +99,13 @@ public class EngineCore implements Runnable {
     public final java.util.Map<String, String> threecStates = new HashMap<>();
     /** Logged 3C event keys (dedup — every event logs exactly once per setup). */
     private final java.util.LinkedHashSet<String> threecLogged = new java.util.LinkedHashSet<>();
+    // ===== v1.7 PRO GUARD state =====
+    /** Per-(uid:sym) cooldown until timestamp — SL loss ke baad naya entry block. */
+    private final java.util.Map<String, Long> cooldownUntil = new HashMap<>();
+    /** Cooldown-block log dedup (har cooldown period mein ek hi baar log ho). */
+    private final java.util.Set<String> cooldownLogged = new java.util.HashSet<>();
+    /** Daily kill-switch notification dedup (per UTC day). */
+    private final java.util.Set<String> killLogged = new java.util.HashSet<>();
 
     /** v1.4 — owner-controlled risk % of equity per trade (settings risk_pct, 0.1-10). */
     public double riskPct() {
@@ -109,6 +124,39 @@ public class EngineCore implements Runnable {
             if (v < 0) v = 0;
             if (v > 1) v = 1;
             return v / 100.0;
+        } catch (Exception e) { return 0; }
+    }
+
+    // ===== v1.7 PRO GUARD settings (owner-configurable, freqtrade-inspired) =====
+
+    /** SL loss ke baad us symbol par naya entry kitni der block (minutes, default 15, 0=off). */
+    public int cooldownMin() {
+        try {
+            int v = (int) Double.parseDouble(db.setting("cooldown_min", "15"));
+            if (v < 0) v = 0;
+            if (v > 240) v = 240;
+            return v;
+        } catch (Exception e) { return 15; }
+    }
+
+    /** Consecutive SL losses ek symbol par = us symbol par 1 ghanta pause (default 3, 0=off). */
+    public int consecLossN() {
+        try {
+            int v = (int) Double.parseDouble(db.setting("consec_loss", String.valueOf(CONSEC_LOSS_DEFAULT)));
+            if (v < 0) v = 0;
+            if (v > 10) v = 10;
+            return v;
+        } catch (Exception e) { return CONSEC_LOSS_DEFAULT; }
+    }
+
+    /** Daily kill switch: aaj ka realized P/L equity ke is % se neeche gaya to aaj aur
+     *  naye entries nahi (default 0 = OFF — owner ne UNLIMITED manga tha, opt-in guard). */
+    public double dailyKillPct() {
+        try {
+            double v = Double.parseDouble(db.setting("daily_kill_pct", "0"));
+            if (v < 0) v = 0;
+            if (v > 90) v = 90;
+            return v;
         } catch (Exception e) { return 0; }
     }
 
@@ -136,7 +184,7 @@ public class EngineCore implements Runnable {
 
     // ================== MAIN LOOP ==================
     @Override public void run() {
-        db.log("INFO", "SYSTEM", "ENGINE_START", "v1.6 3C MASTER engine — SPEED + LIVE MONEY: 10s scan, LIVE-candle stop-order trigger, live SL/TP/breakeven, REAL-TIME floating P/L on every open trade (price + unrealized P/L + R multiple, 5s dashboard refresh) | 3C rules: C1+C2 body>=70%, C3 protected close, 5-candle breakout window, close-based invalidation, SL=opposite extreme, breakeven at +1R, close ALL at +3R, no partial TP | risk " + riskPct() + "% (Settings risk_pct) | UNLIMITED daily P/L — no kill switch, no position cap (owner request) | Strategy Lab + auto-evolve every 6h");
+        db.log("INFO", "SYSTEM", "ENGINE_START", "v1.7 3C MASTER engine — PRO GUARD: freqtrade-inspired protections (SL-loss cooldown 15 min, consecutive-loss pause, opt-in daily kill switch), REALISTIC FEES (taker 0.05%/side), strategy UNDO (7-day trash + restore) | v1.6 LIVE MONEY: real-time floating P/L | v1.5 SPEED: 10s scan, LIVE-candle stop-order trigger, live SL/TP/breakeven | 3C rules unchanged: C1+C2 body>=70%, C3 protected close, 5-candle breakout window, close-based invalidation, SL=opposite extreme, breakeven at +1R, close ALL at +3R | risk " + riskPct() + "% (Settings risk_pct) | UNLIMITED daily P/L default — kill switch opt-in | Strategy Lab + auto-evolve every 6h");
 
 
         // v1.2 ONE-TIME MIGRATION — paper money is now $100 (owner request). Accounts still
@@ -1666,6 +1714,7 @@ public class EngineCore implements Runnable {
 
     /** 3C entry — one trade per setup per account, one open position per symbol. */
     private void openTrade3C(long uid, String sym, Setup3C s, double fill) {
+        if (entryBlocked(uid, sym)) return;                 // v1.7 PRO GUARD
         Cursor ex = db.getReadableDatabase().rawQuery(
                 "SELECT COUNT(*) FROM trades WHERE user_id=? AND symbol=? AND status='OPEN'",
                 new String[]{String.valueOf(uid), sym});
@@ -1715,7 +1764,7 @@ public class EngineCore implements Runnable {
     /** v1.2 — evaluate PAPER + ACTIVE custom strategies (Strategy Lab) on one symbol. */
     private void tryCustomStrategies(long uid, String sym, List<Candle> k) {
         Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT name, spec, status FROM strategies WHERE status IN ('PAPER','ACTIVE')", null);
+                "SELECT name, spec, status FROM strategies WHERE status IN ('PAPER','ACTIVE') AND deleted_at=0", null);
         List<Object[]> rows = new ArrayList<>();
         while (c.moveToNext()) rows.add(new Object[]{c.getString(0), c.getString(1), c.getString(2)});
         c.close();
@@ -1739,6 +1788,7 @@ public class EngineCore implements Runnable {
 
     /** Lab strategy entry — ATR SL/TP model (1.5x / 2.5x), 1% risk, same guards as 3C. */
     private void openTradeLab(long uid, String sym, String side, List<Candle> k, String tier) {
+        if (entryBlocked(uid, sym)) return;                 // v1.7 PRO GUARD
         Cursor ex = db.getReadableDatabase().rawQuery(
                 "SELECT COUNT(*) FROM trades WHERE user_id=? AND symbol=? AND status='OPEN'",
                 new String[]{String.valueOf(uid), sym});
@@ -1821,14 +1871,108 @@ public class EngineCore implements Runnable {
     }
 
     private void closeTrade(long id, long uid, double price, String reason, double qty, double entry, String side) {
-        double pnl = ("BUY".equals(side) ? price - entry : entry - price) * qty;
+        // v1.7 PRO GUARD — fee modeling (freqtrade-style): entry + exit dono sides par
+        // Binance futures taker fee 0.05%. Paper results ab real trading jaise realistic.
+        double fees = (qty * entry + qty * price) * TAKER_FEE;
+        double pnl = ("BUY".equals(side) ? price - entry : entry - price) * qty - fees;
         db.getWritableDatabase().execSQL(
                 "UPDATE trades SET exit=?, pnl=?, status='CLOSED', closed_at=? WHERE id=?",
                 new Object[]{price, pnl, System.currentTimeMillis(), id});
         db.getWritableDatabase().execSQL(
                 "UPDATE accounts SET balance = balance + ? WHERE user_id=?", new Object[]{pnl, uid});
         db.log(reason.equals("SL") ? "WARN" : "INFO", "EXECUTOR", "TRADE_CLOSED_" + reason,
-                "trade #" + id + " pnl=" + String.format("%.2f", pnl));
+                "trade #" + id + " pnl=" + String.format("%.2f", pnl)
+                        + " (fees $" + String.format("%.4f", fees) + " @ " + pct(TAKER_FEE) + "%/side)");
+        // v1.7 — SL loss par protections trigger: cooldown + consecutive-loss guard
+        if ("SL".equals(reason) && pnl < 0) {
+            String sym = tradeSymbol(id);
+            if (sym != null) {
+                int cm = cooldownMin();
+                if (cm > 0) {
+                    long until = System.currentTimeMillis() + cm * 60_000L;
+                    cooldownUntil.put(uid + ":" + sym, until);
+                    cooldownLogged.remove(uid + ":" + sym); // naya cooldown = fresh log
+                    db.log("WARN", "GUARD", "COOLDOWN_SET", sym + " — SL loss ke baad "
+                            + cm + " min tak naya entry band (freqtrade CooldownPeriod)");
+                }
+                checkConsecutiveLoss(uid, sym);
+            }
+        }
+    }
+
+    /** trade ki symbol nikalo (v1.7 guard ke liye). */
+    private String tradeSymbol(long id) {
+        Cursor c = db.getReadableDatabase().rawQuery("SELECT symbol FROM trades WHERE id=?",
+                new String[]{String.valueOf(id)});
+        String s = c.moveToFirst() ? c.getString(0) : null;
+        c.close();
+        return s;
+    }
+
+    /** v1.7 StoplossGuard — ek symbol par lagatar N SL losses = 1 ghanta cooldown. */
+    private void checkConsecutiveLoss(long uid, String sym) {
+        int n = consecLossN();
+        if (n <= 0) return;
+        Cursor c = db.getReadableDatabase().rawQuery(
+                "SELECT pnl FROM trades WHERE user_id=? AND symbol=? AND status='CLOSED' "
+                        + "ORDER BY closed_at DESC LIMIT ?",
+                new String[]{String.valueOf(uid), sym, String.valueOf(n)});
+        int cnt = 0;
+        boolean allLoss = c.moveToFirst();
+        while (allLoss && cnt < n && c.getDouble(0) < 0) { cnt++; if (!c.moveToNext()) break; }
+        c.close();
+        if (cnt >= n) {
+            long until = System.currentTimeMillis() + CONSEC_LOSS_COOLDOWN_MS;
+            String key = uid + ":" + sym;
+            if (until > cooldownUntil.getOrDefault(key, 0L)) cooldownUntil.put(key, until);
+            cooldownLogged.remove(key);
+            db.log("WARN", "GUARD", "CONSEC_LOSS_PAUSE", sym + " — " + n
+                    + " lagatar SL losses: 1 ghanta trading pause (freqtrade StoplossGuard)");
+        }
+    }
+
+    /**
+     * v1.7 PRO GUARD — entry se pehle teen professional checks (freqtrade-inspired).
+     * Sirf NAYE entries block hoti hain — khuli positions ka SL/TP/breakeven normal
+     * chalta rehta hai. 3C setups aage bhi arm hote rehte hain (discard nahi hote),
+     * cooldown khatam hote hi valid setup se trade khul sakti hai.
+     */
+    private boolean entryBlocked(long uid, String sym) {
+        long now = System.currentTimeMillis();
+        String key = uid + ":" + sym;
+        // 1) CooldownPeriod — SL loss ke baad symbol par naya entry band
+        Long until = cooldownUntil.get(key);
+        if (until != null && until > now) {
+            if (cooldownLogged.add(key)) {
+                long mins = (until - now) / 60000L + 1;
+                db.log("INFO", "GUARD", "ENTRY_COOLDOWN_BLOCKED",
+                        sym + " — cooldown active, " + mins + " min baakI (loss ke baad thanda waqt)");
+            }
+            return true;
+        }
+        if (until != null && until <= now) cooldownUntil.remove(key); // expired — clear
+        // 2) Daily kill switch (opt-in, default OFF — owner ne UNLIMITED manga tha)
+        double kill = dailyKillPct();
+        if (kill > 0) {
+            long dayStart = now / 86400000L * 86400000L; // UTC day
+            Cursor c = db.getReadableDatabase().rawQuery(
+                    "SELECT IFNULL(SUM(pnl),0) FROM trades WHERE user_id=? AND status='CLOSED' AND closed_at>=?",
+                    new String[]{String.valueOf(uid), String.valueOf(dayStart)});
+            double dayPnl = c.moveToFirst() ? c.getDouble(0) : 0;
+            c.close();
+            double eq = balanceOf(uid) - dayPnl; // day-start equity (approx)
+            if (eq > 0 && dayPnl <= -eq * kill / 100.0) {
+                String dayKey = uid + ":" + (dayStart / 86400000L);
+                if (killLogged.add(dayKey)) {
+                    db.log("WARN", "GUARD", "DAILY_KILL_SWITCH",
+                            "Aaj ka P/L $" + String.format("%.2f", dayPnl) + " — daily -" + pct(kill / 100)
+                                    + "% guard trigger: aaj ke naye entries band, kal UTC reset");
+                    Notifier.post(appContext(), "PRO GUARD", "Daily loss limit hit — aaj ke naye entries band (open trades ka SL/TP chal raha hai)");
+                }
+                return true;
+            }
+        }
+        return false;
     }
 
     private void closeAll(long uid, String reason) {

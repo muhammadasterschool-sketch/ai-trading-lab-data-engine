@@ -309,13 +309,13 @@ public class StrategyLab {
     public void autoEvolve() {
         if (!"1".equals(db.setting("lab_auto", "1"))) return;
         try {
-            Cursor cnt = db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM strategies", null);
+            Cursor cnt = db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM strategies WHERE deleted_at=0", null);
             int n = cnt.moveToFirst() ? cnt.getInt(0) : 0;
             cnt.close();
             if (n >= 40) return; // owner review se pehle flood nahi — 40 strategies cap
             StringBuilder names = new StringBuilder();
             Cursor c = db.getReadableDatabase().rawQuery(
-                    "SELECT name FROM strategies ORDER BY id DESC LIMIT 25", null);
+                    "SELECT name FROM strategies WHERE deleted_at=0 ORDER BY id DESC LIMIT 25", null);
             while (c.moveToNext()) { if (names.length() > 0) names.append("; "); names.append(c.getString(0)); }
             c.close();
             String prompt = "Hamara AI Trading Lab abhi 3C Breakout (M5) MASTER strategy paper-trade kar raha hai "
@@ -332,7 +332,7 @@ public class StrategyLab {
             if (!res.optBoolean("ok")) return;
             long id = 0;
             Cursor ic = db.getReadableDatabase().rawQuery(
-                    "SELECT id FROM strategies ORDER BY id DESC LIMIT 1", null);
+                    "SELECT id FROM strategies WHERE deleted_at=0 ORDER BY id DESC LIMIT 1", null);
             if (ic.moveToFirst()) id = ic.getLong(0);
             ic.close();
             if (id > 0) {
@@ -457,16 +457,70 @@ public class StrategyLab {
         return setStatus(id, "REJECTED", "strategy reject hui");
     }
 
+    /** v1.7 SOFT DELETE — strategy Trash mein jati hai, 7 din tak UNDO ho sakti hai.
+     *  (owner request: "galti se koi strategy delete kardi ho to undo ka option ho") */
     public JSONObject remove(long id) {
-        db.getWritableDatabase().execSQL("DELETE FROM strategies WHERE id=?", new Object[]{id});
-        db.log("INFO", "LAB", "STRATEGY_DELETED", "strategy #" + id + " deleted");
+        Cursor c = db.getReadableDatabase().rawQuery(
+                "SELECT name, status FROM strategies WHERE id=? AND deleted_at=0", new String[]{String.valueOf(id)});
+        if (!c.moveToFirst()) { c.close(); return fail("Strategy nahi mili (shayad pehle hi delete ho chuki)"); }
+        String name = c.getString(0), status = c.getString(1); c.close();
+        long now = System.currentTimeMillis();
+        db.getWritableDatabase().execSQL("UPDATE strategies SET deleted_at=?, updated_at=? WHERE id=?",
+                new Object[]{now, now, id});
+        db.log("INFO", "LAB", "STRATEGY_TRASHED", "'" + name + "' (#" + id + ", " + status
+                + ") Trash mein — 7 din tak UNDO possible, phir auto-purge");
+        purgeTrash();
         JSONObject out = new JSONObject();
-        try { out.put("ok", true); } catch (Exception ignored) { }
+        try { out.put("ok", true).put("message", "'" + name + "' delete hui — "
+                + "ghalti se hui? 7 din tak UNDO button se wapas la sakte ho"); } catch (Exception ignored) { }
         return out;
     }
 
+    /** v1.7 UNDO — Trash se strategy wapas layen (deleted_at=0, original status ke saath). */
+    public JSONObject restore(long id) {
+        Cursor c = db.getReadableDatabase().rawQuery(
+                "SELECT name FROM strategies WHERE id=? AND deleted_at>0", new String[]{String.valueOf(id)});
+        if (!c.moveToFirst()) { c.close(); return fail("Trash mein aisi koi strategy nahi mili"); }
+        String name = c.getString(0); c.close();
+        db.getWritableDatabase().execSQL("UPDATE strategies SET deleted_at=0, updated_at=? WHERE id=?",
+                new Object[]{System.currentTimeMillis(), id});
+        db.log("INFO", "LAB", "STRATEGY_RESTORED", "'" + name + "' (#" + id + ") Trash se restore — UNDO kaam kar gaya");
+        JSONObject out = new JSONObject();
+        try { out.put("ok", true).put("message", "'" + name + "' wapas restore ho gayi — apni original status ke saath"); } catch (Exception ignored) { }
+        return out;
+    }
+
+    /** v1.7 — Trash list (deleted_at>0) with remaining UNDO days. */
+    public JSONObject trash() {
+        JSONObject out = new JSONObject();
+        try {
+            JSONArray arr = new JSONArray();
+            Cursor c = db.getReadableDatabase().rawQuery(
+                    "SELECT id, name, status, deleted_at FROM strategies WHERE deleted_at>0 ORDER BY deleted_at DESC", null);
+            long now = System.currentTimeMillis();
+            while (c.moveToNext()) {
+                long del = c.getLong(3);
+                long daysLeft = 7 - ((now - del) / 86400000L);
+                if (daysLeft < 0) daysLeft = 0;
+                arr.put(new JSONObject()
+                        .put("id", c.getLong(0)).put("name", c.getString(1))
+                        .put("status", c.getString(2)).put("deleted_at", del)
+                        .put("daysLeft", daysLeft));
+            }
+            c.close();
+            out.put("trash", arr).put("ok", true);
+        } catch (Exception e) { return fail("Trash load fail: " + e.getMessage()); }
+        return out;
+    }
+
+    /** v1.7 — 7 din se purani deleted strategies permanently purge (auto-cleanup). */
+    private void purgeTrash() {
+        long cutoff = System.currentTimeMillis() - 7L * 86400000L;
+        db.getWritableDatabase().execSQL("DELETE FROM strategies WHERE deleted_at>0 AND deleted_at<?", new Object[]{cutoff});
+    }
+
     private JSONObject setStatus(long id, String status, String msg) {
-        Cursor c = db.getReadableDatabase().rawQuery("SELECT name FROM strategies WHERE id=?", new String[]{String.valueOf(id)});
+        Cursor c = db.getReadableDatabase().rawQuery("SELECT name FROM strategies WHERE id=? AND deleted_at=0", new String[]{String.valueOf(id)});
         if (!c.moveToFirst()) { c.close(); return fail("Strategy nahi mili"); }
         String name = c.getString(0); c.close();
         db.getWritableDatabase().execSQL("UPDATE strategies SET status=?, updated_at=? WHERE id=?",
@@ -479,7 +533,7 @@ public class StrategyLab {
     }
 
     private JSONObject rowSpec(long id) {
-        Cursor c = db.getReadableDatabase().rawQuery("SELECT spec FROM strategies WHERE id=?", new String[]{String.valueOf(id)});
+        Cursor c = db.getReadableDatabase().rawQuery("SELECT spec FROM strategies WHERE id=? AND deleted_at=0", new String[]{String.valueOf(id)});
         JSONObject spec = null;
         if (c.moveToFirst()) { try { spec = new JSONObject(c.getString(0)); } catch (Exception ignored) { } }
         c.close();
@@ -805,8 +859,9 @@ public class StrategyLab {
             out.put("masterNote", "3C MASTER: C1+C2 body>=70%, C3 protected, 5-candle breakout window, SL opposite extreme, BE @+1R, TP @+3R — daily P/L UNLIMITED");
 
             JSONArray custom = new JSONArray();
+            purgeTrash(); // v1.7 — 7+ din purani deleted strategies ka auto-cleanup
             Cursor c = db.getReadableDatabase().rawQuery(
-                    "SELECT id, name, source, video, spec, status, stats, created_at, updated_at FROM strategies ORDER BY id DESC", null);
+                    "SELECT id, name, source, video, spec, status, stats, created_at, updated_at FROM strategies WHERE deleted_at=0 ORDER BY id DESC", null);
             while (c.moveToNext()) {
                 JSONObject s = new JSONObject();
                 s.put("id", c.getLong(0)).put("name", c.getString(1)).put("source", c.getString(2));
@@ -831,6 +886,11 @@ public class StrategyLab {
             }
             c.close();
             out.put("custom", custom);
+            // v1.7 — Trash preview (UNDO ki khabar dashboard par rehne ke liye)
+            Cursor tc = db.getReadableDatabase().rawQuery(
+                    "SELECT COUNT(*) FROM strategies WHERE deleted_at>0", null);
+            out.put("trashCount", tc.moveToFirst() ? tc.getInt(0) : 0);
+            tc.close();
             out.put("ytChannel", new JSONObject()
                     .put("id", db.setting("yt_channel_id", ""))
                     .put("name", db.setting("yt_channel_name", "")));
