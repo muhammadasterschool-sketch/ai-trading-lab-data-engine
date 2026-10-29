@@ -443,3 +443,10 @@ Stage Summary:
 - versionCode 25->26 / "1.8"->"1.9"; health 1.9.0; build 26s clean; signed+verified (same keystore); v1.8 files removed; v1.9 APK (210277b) + src zip (198346b) + RELEASE-v1.9.md deployed 3x; downloads.html v1.9 standalone sync; bun restarted; ALL 200; downloads.html preview 200
 - GIT: tool-results/ + scripts/ gitignored; clean commit (no artifacts); pushed 197b7a2..7c7d105
 - NOTE for owner: purana master code M•••• ab bhi DB me active hai (kisi ne dekh liya ho to use sakta hai) — owner ko Control > Invitation Codes me REVOKE karke NAYA code generate karna chahiye
+
+## Task 27 — v2.0 "SIDE DRAWER" (versionCode 27) — Oct 29
+- OWNER REQUEST: "broker add karne ke functions remove ho gaye — side drawer ana do jis mai saare options honge"
+- DIAGNOSIS: broker functions remove NAHI hue — v1.8 UI consolidation me Settings > 🔌 Broker chip ban gaye the (renderBroker/addBroker/delBroker intact). Discoverability issue.
+- SIDE DRAWER: header ☰ button; #drawer (276px, slide 0.24s cubic-bezier, z-20) + #scrim (blur, tap-out close) + ✕; user card (name/email/role pill); sections: Trading (Home/Trades/Strategy Lab/Insights) | System — saare options (Settings-General / Broker — Add/Saved / Owner Control[admin, badge UNREAD+PENDING]) | Sign out; active item green highlight; SET_TAB deep-link (dGo); bottom nav barkarar
+- Live badge: updateNavBadges → drawer open ho to renderDrawer() refresh
+- versionCode 26->27 / "1.9"->"2.0"; health 2.0.0; build 24s clean; signed+verified; v1.9 files removed; v2.0 APK (214373b) + src zip (199792b) + RELEASE-v2.0.md deployed 3x; bun restarted; ALL 200; pushed 7814855..270f545
