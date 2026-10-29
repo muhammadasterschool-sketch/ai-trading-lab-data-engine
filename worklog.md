@@ -393,3 +393,15 @@ Stage Summary:
 - TOOLCHAIN rebuilt in fresh env: Temurin JDK17 + gradle 8.9 + cmdline-tools/build-tools 34.0.0 (downloads were fine; dapa tar+zip quirks handled)
 - BROWSER-TESTED full dashboard v1.3 against scripts/mock-device.js (rewritten to v1.3 contract: history tree {y,m,d aggregates + CSV}, Lab {custom/builtin/ytChannel}, strategy POST actions): Home banner OK, Trades + Archive OK, Lab OK (AI compile POST 200), zero JS errors
 - Deploy: v1.3 APK 151519b + source zip → public/downloads + .next/standalone/public/downloads + download/; v1.2 APKs removed; standalone rebuilt (git reset had wiped .next); bun restarted; ALL URLS 200 (/ downloads.html v1.3 APK zip RELEASE manifest)
+
+## Task 24 — v1.5: 3C MASTER + SPEED (owner request: "1 trade per sec")
+- Owner report: "ye aik hi baar mai aik trade khol raha hai" — wants instant execution when setups fire
+- DIAGNOSIS: 2 bottlenecks — (1) 30s scan loop, (2) entry only on candle CLOSE (breakout detected up to 5 min late)
+- FIX 1: scan loop 30s→10s (entry ~10s after breakout; API weight 360/min vs 1200 limit — safe)
+- FIX 2: LIVE-candle stop-order trigger — in-progress M5 candle crossing setup trigger = INSTANT entry (fill = max(trigger,open) BUY / min(trigger,open) SELL); window discipline intact (live trigger only inside 5-candle window; liveWin>5 → SETUP_EXPIRED)
+- FIX 3: manageOpenTrades now checks CLOSED + LIVE candles (SL/TP hit + +1R breakeven move in seconds; SL-first conservative; local sl update prevents double BE move)
+- UNCHANGED: 3C rules verbatim (body>=70%, C3 protected close, close-based invalidation on closed candles only, ambiguous same-candle = untraded dead), 1-position-per-symbol guard, unlimited cross-symbol burst, daily P/L unlimited
+- versionCode 21→22 / "1.5"; health 1.5.0; badge v1.5; ENGINE_START log updated
+- ENV REBUILT from scratch (sandbox reset again): Temurin JDK 17.0.21+9 (/home/z/jdk), gradle 8.9 (/home/z/gradle), cmdline-tools + platform-34 + build-tools 34.0.0 (/home/z/android-sdk); build OK in 1m2s; apksigner verify OK (same keystore SHA-1 0440b7f9)
+- v1.3/v1.4 APKs + source zips removed; AI-Trading-Lab-v1.5-Android.apk (153735b) + source zip + RELEASE-v1.5.md deployed dual-copy (public/ + .next/standalone/public/) + download/; bun restarted; ALL LINKS 200
+- GIT: sandbox auto-commit had captured 146MB/184MB build-env downloads at repo root → GH001 pre-receive rejection ×3; fixed via mixed reset + .gitignore rules (cmdtools.zip/jdk17.tar.gz/gradle.zip) + clean single commit; pushed 9ce352e..13deae1
