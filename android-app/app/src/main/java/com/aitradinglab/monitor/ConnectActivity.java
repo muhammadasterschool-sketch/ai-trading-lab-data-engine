@@ -213,7 +213,14 @@ public class ConnectActivity extends Activity {
         prefs.edit().putString("server_url", phoneUrl).putString("last_device", phoneUrl).apply();
         askNotificationPermission();
         try {
-            startForegroundService(new Intent(this, ServerService.class));
+            // v3.0.2 lint fix: startForegroundService is API 26+; minSdk is 24 — on a
+            // 7.x device the bare call raises NoSuchMethodError (an Error, NOT caught
+            // by catch(Exception) below). Explicit SDK guard, same as WatchdogReceiver.
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                startForegroundService(new Intent(this, ServerService.class));
+            } else {
+                startService(new Intent(this, ServerService.class));
+            }
         } catch (Exception e) {
             try { startService(new Intent(this, ServerService.class)); } catch (Exception ignored) { }
         }
