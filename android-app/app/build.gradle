@@ -9,7 +9,7 @@ plugins {
 // apksigner, or restore the local keystore.properties). Debug builds are unaffected.
 // Owner action recommended: generate a NEW keystore, because the old keystore and
 // its passwords were historically committed to the public repository.
-// v3.0.3 P1: settings + strategy governance gates (owner-only), allowBackup=false,
+// v3.1.0: Binance SPOT read-only market data + broker registry + Markets dashboard (v3.0.3 P1 gates intact),
 // request-size cap. Version identity stays single-sourced from defaultConfig.
 def ksProps = new Properties()
 def ksPropsFile = rootProject.file("keystore.properties")
@@ -25,8 +25,8 @@ android {
         applicationId "com.aitradinglab.monitor"
         minSdk 24
         targetSdk 34
-        versionCode 32
-        versionName "3.0.3"
+        versionCode 33
+        versionName "3.1.0"
     }
 
     signingConfigs {
