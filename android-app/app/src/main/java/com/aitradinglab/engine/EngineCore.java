@@ -136,7 +136,7 @@ public class EngineCore implements Runnable {
 
     // ================== MAIN LOOP ==================
     @Override public void run() {
-        db.log("INFO", "SYSTEM", "ENGINE_START", "v1.5 3C MASTER engine — SPEED edition: 10s scan loop, LIVE-candle stop-order trigger (entry candle close ka intezaar nahi karti), live SL/TP/breakeven tracking | 3C rules: C1+C2 body>=70%, C3 protected close, 5-candle breakout window, close-based invalidation, SL=opposite extreme, breakeven at +1R, close ALL at +3R, no partial TP | risk " + riskPct() + "% (Settings risk_pct) | UNLIMITED daily P/L — no kill switch, no position cap (owner request) | Strategy Lab + auto-evolve every 6h");
+        db.log("INFO", "SYSTEM", "ENGINE_START", "v1.6 3C MASTER engine — SPEED + LIVE MONEY: 10s scan, LIVE-candle stop-order trigger, live SL/TP/breakeven, REAL-TIME floating P/L on every open trade (price + unrealized P/L + R multiple, 5s dashboard refresh) | 3C rules: C1+C2 body>=70%, C3 protected close, 5-candle breakout window, close-based invalidation, SL=opposite extreme, breakeven at +1R, close ALL at +3R, no partial TP | risk " + riskPct() + "% (Settings risk_pct) | UNLIMITED daily P/L — no kill switch, no position cap (owner request) | Strategy Lab + auto-evolve every 6h");
 
 
         // v1.2 ONE-TIME MIGRATION — paper money is now $100 (owner request). Accounts still

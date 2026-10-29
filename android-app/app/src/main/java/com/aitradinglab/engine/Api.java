@@ -91,7 +91,7 @@ public class Api {
     private Res get(String path, String auth) throws Exception {
         if ("/".equals(path) || "/index.html".equals(path)) return Res.html(dashboardHtml);
         if ("/api/health".equals(path)) return Res.json(200, new JSONObject()
-                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "1.5.0").put("timeframe", "5m").put("scanner", "24h").put("strategy", "3C Breakout (M5) — MASTER"));
+                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "1.6.0").put("timeframe", "5m").put("scanner", "24h").put("strategy", "3C Breakout (M5) — MASTER"));
 
         Long uid = userId(auth);
         if (uid == null) return Res.error(401, "authentication required");
@@ -359,10 +359,24 @@ public class Api {
         a.close();
 
         Cursor oc = db.getReadableDatabase().rawQuery(
-                "SELECT COUNT(*), IFNULL(SUM(pnl),0) FROM trades WHERE user_id=? AND status='OPEN'", new String[]{String.valueOf(uid)});
-        int openCount = 0; double openPnl = 0;
-        if (oc.moveToFirst()) { openCount = oc.getInt(0); openPnl = oc.getDouble(1); }
+                "SELECT COUNT(*) FROM trades WHERE user_id=? AND status='OPEN'", new String[]{String.valueOf(uid)});
+        int openCount = 0;
+        if (oc.moveToFirst()) openCount = oc.getInt(0);
         oc.close();
+
+        // v1.6 — REAL-TIME floating P/L: OPEN trades ka unrealized profit/loss live price
+        // par (latest candle close — live candle included, engine har 10s refresh karta hai).
+        // Owner request: "kitna plus mein trades ja rahi hai ya loss — zyada loss avoid kar pao".
+        double openPnl = 0;
+        Cursor fc = db.getReadableDatabase().rawQuery(
+                "SELECT symbol, side, qty, entry FROM trades WHERE user_id=? AND status='OPEN'", new String[]{String.valueOf(uid)});
+        while (fc.moveToNext()) {
+            double price = livePrice(fc.getString(0));
+            if (Double.isNaN(price)) continue;
+            double qty = fc.getDouble(2), entry = fc.getDouble(3);
+            openPnl += ("BUY".equals(fc.getString(1)) ? price - entry : entry - price) * qty;
+        }
+        fc.close();
 
         Cursor tc = db.getReadableDatabase().rawQuery(
                 "SELECT COUNT(*), IFNULL(SUM(pnl),0), IFNULL(SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END),0) FROM trades WHERE user_id=? AND status='CLOSED'", new String[]{String.valueOf(uid)});
@@ -404,6 +418,7 @@ public class Api {
                 .put("dayPnlPct", round2((bal - dayStart) / dayStart * 100))
                 .put("drawdownPct", round2(peak > 0 ? (bal - peak) / peak * 100 : 0))
                 .put("openCount", openCount).put("openPnl", round2(openPnl))
+                .put("equityNow", round2(bal + openPnl))
                 .put("closedCount", closed).put("winRate", closed > 0 ? round2(wins * 100.0 / closed) : 0)
                 .put("equity", eq)
                 .put("engine", eng)
@@ -496,22 +511,52 @@ public class Api {
         } catch (Throwable t) { return 0; }
     }
 
+    /** v1.6 — latest price for a symbol: most recent candle close (live candle included). */
+    private double livePrice(String sym) {
+        Cursor c = db.getReadableDatabase().rawQuery(
+                "SELECT c FROM candles WHERE symbol=? AND tf='5m' ORDER BY ts DESC LIMIT 1", new String[]{sym});
+        double p = Double.NaN;
+        if (c.moveToFirst()) p = c.getDouble(0);
+        c.close();
+        return p;
+    }
+
     private Res trades(long uid) throws Exception {
         JSONArray arr = new JSONArray();
+        double floating = 0; int fCount = 0;
         Cursor c = db.getReadableDatabase().rawQuery(
                 "SELECT id, symbol, side, qty, entry, sl, tp, exit, pnl, status, strategy, consensus, opened_at, closed_at FROM trades WHERE user_id=? ORDER BY id DESC LIMIT 100", new String[]{String.valueOf(uid)});
         while (c.moveToNext()) {
-            arr.put(new JSONObject()
+            String status = c.getString(9);
+            JSONObject t = new JSONObject()
                     .put("id", c.getLong(0)).put("symbol", c.getString(1)).put("side", c.getString(2))
                     .put("qty", c.getDouble(3)).put("entry", c.getDouble(4)).put("sl", c.getDouble(5))
                     .put("tp", c.getDouble(6)).put("exit", c.isNull(7) ? JSONObject.NULL : c.getDouble(7))
                     .put("pnl", c.isNull(8) ? JSONObject.NULL : round2(c.getDouble(8)))
-                    .put("status", c.getString(9)).put("strategy", c.getString(10))
+                    .put("status", status).put("strategy", c.getString(10))
                     .put("consensus", c.getDouble(11)).put("openedAt", c.getLong(12))
-                    .put("closedAt", c.isNull(13) ? 0 : c.getLong(13)));
+                    .put("closedAt", c.isNull(13) ? 0 : c.getLong(13));
+            // v1.6 — OPEN trade par LIVE price + unrealized P/L (+ R multiple for 3C trades):
+            // abhi ka plus/minus dikhe to owner bada loss hone se pehle react kar sake.
+            if ("OPEN".equals(status)) {
+                double price = livePrice(c.getString(1));
+                if (!Double.isNaN(price)) {
+                    double qty = c.getDouble(3), entry = c.getDouble(4), tp = c.getDouble(6);
+                    double pl = ("BUY".equals(c.getString(2)) ? price - entry : entry - price) * qty;
+                    t.put("price", price).put("pnlLive", round2(pl));
+                    floating += pl; fCount++;
+                    String strat = c.getString(10);
+                    if (strat != null && strat.startsWith("3C")) {
+                        double rDist = Math.abs(tp - entry) / 3.0;
+                        if (rDist > 0 && qty > 0) t.put("rNow", Math.round(pl / (rDist * qty) * 100.0) / 100.0);
+                    }
+                }
+            }
+            arr.put(t);
         }
         c.close();
-        return Res.json(200, new JSONObject().put("trades", arr));
+        return Res.json(200, new JSONObject().put("trades", arr)
+                .put("floating", round2(floating)).put("floatingCount", fCount));
     }
 
     private Res logs() throws Exception {
@@ -587,7 +632,7 @@ public class Api {
         return Res.json(200, new JSONObject()
                 .put("engineOn", "1".equals(db.setting("engine_on", "1")))
                 .put("riskPct", engine != null ? engine.riskPct() : 1.0)
-                .put("version", "1.5"));
+                .put("version", "1.6"));
     }
 
     /** v1.2 — Paper Balance: owner apna paper amount khud set karta hai.

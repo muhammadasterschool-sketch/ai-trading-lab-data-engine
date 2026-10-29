@@ -405,3 +405,11 @@ Stage Summary:
 - ENV REBUILT from scratch (sandbox reset again): Temurin JDK 17.0.21+9 (/home/z/jdk), gradle 8.9 (/home/z/gradle), cmdline-tools + platform-34 + build-tools 34.0.0 (/home/z/android-sdk); build OK in 1m2s; apksigner verify OK (same keystore SHA-1 0440b7f9)
 - v1.3/v1.4 APKs + source zips removed; AI-Trading-Lab-v1.5-Android.apk (153735b) + source zip + RELEASE-v1.5.md deployed dual-copy (public/ + .next/standalone/public/) + download/; bun restarted; ALL LINKS 200
 - GIT: sandbox auto-commit had captured 146MB/184MB build-env downloads at repo root → GH001 pre-receive rejection ×3; fixed via mixed reset + .gitignore rules (cmdtools.zip/jdk17.tar.gz/gradle.zip) + clean single commit; pushed 9ce352e..13deae1
+
+## Task 25 — v1.6: LIVE MONEY floating P/L (owner request)
+- Owner: "real time money show ho ke kitna plus mai abhi trades ja rahi hai ya phir loss taake zyada loss avoid kar pao"
+- ALSO: owner clarified lessons were for their FRIEND ("ye mere dost ke the, inko skip kardo") — teaching mode OFF, no more lessons
+- Api.java: livePrice() helper (latest 5m candle close incl. in-progress); trades() now returns price + pnlLive + rNow per OPEN trade (rNow = pl/(|tp−entry|/3 × qty), 3C trades only — TP never moves so original 1R always computable) + floating/floatingCount totals; dashboard() computes real openPnl via live prices (was SUM(pnl) of OPEN rows = always 0) + equityNow
+- dashboard.html: Trades tab — per-OPEN-trade live cell (abhi price + colored $ P/L + R), LIVE P/L banner (combined floating, green/red), 5s self-rescheduling auto-refresh with TAB guard (no interval stacking); Home Open Positions card now shows live floating P/L (15s poll already existed)
+- versionCode 22→23 / "1.6"; health 1.6.0; settings 1.6; ENGINE_START updated; JS node --check OK
+- Build 27s; apksigner+zipalign verified (same keystore); v1.5 files removed; v1.6 APK (154699b) + source zip + RELEASE-v1.6.md deployed dual-copy + download/; bun restarted; ALL 200

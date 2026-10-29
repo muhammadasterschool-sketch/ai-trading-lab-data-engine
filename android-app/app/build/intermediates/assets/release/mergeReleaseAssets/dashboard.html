@@ -338,7 +338,7 @@ function renderDash(){
       '<div class="grid">' +
       card('Paper Balance', '$'+d.balance.toFixed(2), d.totalPnl>=0?'green':'red') +
       card('Total P&L', (d.totalPnl>=0?'+':'')+d.totalPnl.toFixed(2)+' ('+(d.pnlPct>=0?'+':'')+d.pnlPct.toFixed(2)+'%)', d.totalPnl>=0?'green':'red') +
-      card('Open Positions', d.openCount+' <span class="mut" style="font-size:11px">('+(d.openPnl>=0?'+':'')+d.openPnl.toFixed(2)+')</span>', d.openPnl>=0?'green':'red') +
+      card('Open Positions', d.openCount+' <span class="mut" style="font-size:11px">trades</span><br><b style="font-size:15px">'+(d.openPnl>=0?'+':'')+d.openPnl.toFixed(2)+' $ live</b>', d.openPnl>=0?'green':'red') +
       card('Win Rate', d.winRate.toFixed(1)+'% <span class="mut" style="font-size:11px">'+d.closedCount+' closed</span>', d.winRate>=50?'green':'red') +
       card('Today', (d.dayPnlPct>=0?'+':'')+d.dayPnlPct.toFixed(2)+'%', d.dayPnlPct>=0?'green':'red') +
       card('Drawdown', d.drawdownPct.toFixed(2)+'%', d.drawdownPct>-5?'green':'red') +
@@ -473,19 +473,32 @@ function renderNews(){
   });
 }
 function renderTrades(){
+  if(TAB!=='trades') return;   /* v1.6 — stale auto-refresh timer guard */
   api('/api/trades').then(function(r){
     var open='', closed='';
     (r.data.trades||[]).forEach(function(t){
+      /* v1.6 — LIVE floating P/L: abhi ka price + unrealized plus/minus + R multiple */
+      var liveCell='';
+      if(t.status==='OPEN' && t.price!=null){
+        var pl=t.pnlLive||0;
+        liveCell='<br><span class="mut" style="font-size:10px">abhi '+t.price.toFixed(4)+'</span> '+
+          '<b style="font-size:12px;color:'+(pl>=0?'#4ade80':'#f87171')+'">'+(pl>=0?'+':'')+pl.toFixed(2)+' $</b>'+
+          (t.rNow!=null?' <span class="mut" style="font-size:10px">('+(t.rNow>=0?'+':'')+t.rNow.toFixed(2)+'R)</span>':'');
+      }
       var row = '<tr><td><b>'+esc(t.symbol)+'</b> <span class="pill '+t.side+'">'+t.side+'</span><br><span class="mut" style="font-size:10px">'+esc(t.strategy)+' · '+(t.consensus*100).toFixed(0)+'% · '+fmtTime(t.openedAt)+'</span></td>' +
-        '<td style="text-align:right">qty '+t.qty.toFixed(5)+'<br>entry '+t.entry.toFixed(4)+'</td>' +
+        '<td style="text-align:right">qty '+t.qty.toFixed(5)+'<br>entry '+t.entry.toFixed(4)+liveCell+'</td>' +
         (t.status==='OPEN'
           ? '<td style="text-align:right"><button class="pill ACTIVE" style="border:0" onclick="closeTrade('+t.id+')">CLOSE</button></td>'
           : '<td style="text-align:right"><b style="color:'+(t.pnl>=0?'#4ade80':'#f87171')+'">'+(t.pnl>=0?'+':'')+t.pnl.toFixed(2)+'</b><br><span class="mut" style="font-size:10px">'+t.status+' '+fmtTime(t.closedAt)+'</span></td>') +
         '</tr>';
       if(t.status==='OPEN') open += row; else closed += row;
     });
+    /* v1.6 — total floating P/L banner: sab open trades ka combined unrealized P/L */
+    var f=r.data.floating||0, fc=r.data.floatingCount||0;
+    var flBanner = open? '<div class="banner '+(f>=0?'green':'red')+'">⚡ <b>LIVE P/L: '+(f>=0?'+':'')+f.toFixed(2)+' $</b> — '+fc+' open trade(s) is waqt is plus/minus mein chal rahi hain · har 5s update</div>' : '';
     document.getElementById('main').innerHTML =
-      '<h2>Open Positions</h2>' + (open? '<table>'+open+'</table>' : '<div class="empty">No open positions — 24h scanner is watching the market on 1m candles</div>') +
+      flBanner +
+      '<h2>Open Positions</h2>' + (open? '<table>'+open+'</table>' : '<div class="empty">No open positions — 24h scanner is watching the market on 5m candles</div>') +
       '<h2>History</h2>' + (closed? '<table>'+closed+'</table>' : '<div class="empty">No closed trades yet</div>') +
       '<div id="histWrap"><div class="empty">Archive load ho raha hai…</div></div>' +
       '<div class="small" style="margin-top:14px">Archive <b>permanent</b> hai — trades kabhi delete nahi hoti, page refresh par gayab nahi hotin. Year → Month → Day kholein, ya kisi bhi month ki CSV file download karein.</div>';
@@ -493,6 +506,8 @@ function renderTrades(){
       var el = document.getElementById('histWrap'); if(!el) return;
       el.innerHTML = histHtml((h.data&&h.data.years)||[]);
     });
+    /* v1.6 — trades tab active rahe to har 5s live P/L refresh */
+    if(TAB==='trades') setTimeout(renderTrades, 5000);
   });
 }
 /* v1.2 — permanent archive: Year → Month → Day accordion + per-month CSV download */
