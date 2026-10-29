@@ -33,11 +33,20 @@ public class Api {
     private final EngineCore engine;
     private final String dashboardHtml;
     private final Context appCtx;
+    /** v3.0.2 — single source of truth for the operator-visible app version
+     *  (was: three different hardcoded strings "3.0.0"/"3.0"/"3.0.1" across
+     *  /api/health, /api/settings and EngineCore.status()). */
+    public final String appVersion;
 
     public Api(Context ctx, Db db, EngineCore engine) {
         this.db = db;
         this.engine = engine;
         this.appCtx = ctx.getApplicationContext();
+        String ver = "3.0.2";
+        try {
+            ver = ctx.getPackageManager().getPackageInfo(ctx.getPackageName(), 0).versionName;
+        } catch (Throwable ignored) { }
+        this.appVersion = ver;
         String html = "";
         try {
             java.io.InputStream is = ctx.getAssets().open("dashboard.html");
@@ -92,7 +101,7 @@ public class Api {
     private Res get(String path, String auth) throws Exception {
         if ("/".equals(path) || "/index.html".equals(path)) return Res.html(dashboardHtml);
         if ("/api/health".equals(path)) return Res.json(200, new JSONObject()
-                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "3.0.0").put("timeframe", "5m").put("scanner", "24h").put("strategy", "3C Breakout (M5) — MASTER + QUANT PRO stack + HALAL MT5"));
+                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", appVersion).put("timeframe", "5m").put("scanner", "24h").put("strategy", "3C Breakout (M5) — MASTER + QUANT PRO stack + HALAL MT5"));
 
         Long uid = userId(auth);
         if (uid == null) return Res.error(401, "authentication required");
@@ -824,7 +833,7 @@ public class Api {
                 .put("feedIntervalSec", db.setting("feed_interval_sec", "60"))
                 .put("labSymbol", db.setting("lab_symbol", "XAUUSD"))
                 .put("safeMode", engine != null && engine.isSafeMode())
-                .put("version", "3.0"));
+                .put("version", appVersion));
     }
 
     /** v1.8 — candlestick chart data: GET /api/candles?symbol=XAUUSD&n=60 → 5m candles.

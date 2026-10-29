@@ -3321,8 +3321,14 @@ public class EngineCore implements Runnable {
         m.put("strategy_name", "3C Breakout (M5) — MASTER + QUANT PRO stack");
         m.put("risk_pct", riskPct());
         m.put("limits", "UNLIMITED daily P/L (owner) — heat/bucket/event/session caps default OFF opt-in");
-        // v3.0 QUANT PRO status
-        m.put("version", "3.0.1");
+        // v3.0 QUANT PRO status — v3.0.2: version now read from the package (single
+        // source of truth) instead of a hardcoded string that drifted across releases
+        String engVer = "3.0.2";
+        try {
+            android.content.Context c = appContext();
+            if (c != null) engVer = c.getPackageManager().getPackageInfo(c.getPackageName(), 0).versionName;
+        } catch (Throwable ignored) { }
+        m.put("version", engVer);
         boolean mktClosed = marketClosedET();
         m.put("safe_mode", safeMode && !mktClosed);   // v3.0.1 — band market par SAFE MODE jhoota lagta tha
         m.put("market_closed", mktClosed);            // v3.0.1 — weekend / CME halt indicator
