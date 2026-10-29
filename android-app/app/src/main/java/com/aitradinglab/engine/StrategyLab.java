@@ -422,13 +422,18 @@ public class StrategyLab {
         int nT = wins + losses;
         JSONObject stats = new JSONObject();
         try {
+            double pf = grossLoss > 0 ? Math.round(100.0 * grossWin / grossLoss) / 100.0 : (grossWin > 0 ? 99 : 0);
+            double netPct = Math.round((equity - 100) * 100.0) / 100.0;
+            // v1.8 QUALITY GATE — verdict: STRONG (PF>=1.15 & >=30 trades) / OK (PF>=1.0) / WEAK
+            String verdict = (pf >= 1.15 && nT >= 30) ? "STRONG" : (pf >= 1.0 && nT >= 15) ? "OK" : "WEAK";
             stats.put("symbol", sym).put("bars", bars)
                     .put("trades", nT).put("wins", wins).put("losses", losses)
                     .put("winrate", nT > 0 ? Math.round(1000.0 * wins / nT) / 10.0 : 0)
-                    .put("pf", grossLoss > 0 ? Math.round(100.0 * grossWin / grossLoss) / 100.0 : (grossWin > 0 ? 99 : 0))
+                    .put("pf", pf)
                     .put("net", Math.round(equity - 100) * 100.0 / 100.0)
-                    .put("netPct", Math.round((equity - 100) * 100.0) / 100.0)
+                    .put("netPct", netPct)
                     .put("maxDD", Math.round(maxDD * 1000.0) / 10.0)
+                    .put("verdict", verdict)
                     .put("riskModel", "1% baseline, SL 1.5xATR, TP 2.5xATR (Lab strategies — 3C MASTER apne rules se chalta hai)");
         } catch (Exception ignored) { }
 
@@ -450,7 +455,26 @@ public class StrategyLab {
 
     /** Owner approval — strategy goes LIVE as its own signal source. */
     public JSONObject approve(long id) {
-        return setStatus(id, "ACTIVE", "owner ne LIVE approve kiya — ye strategy ab apne aap trade karegi");
+        // v1.8 quality gate — WEAK verdict par owner ko warning (phir bhi approve allowed)
+        JSONObject st = statsOf(id);
+        String verdict = st != null ? st.optString("verdict", "") : "";
+        double pf = st != null ? st.optDouble("pf", 0) : 0;
+        int trades = st != null ? st.optInt("trades", 0) : 0;
+        String msg = "owner ne LIVE approve kiya — ye strategy ab apne aap trade karegi";
+        if ("WEAK".equals(verdict))
+            msg = "owner ne LIVE approve kiya — ⚠ WARNING: backtest verdict WEAK (PF " + pf + ", " + trades
+                    + " trades) — ye strategy loss de sakti hai";
+        return setStatus(id, "ACTIVE", msg);
+    }
+
+    /** v1.8 — strategy ka latest backtest stats (quality gate ke liye). */
+    private JSONObject statsOf(long id) {
+        Cursor c = db.getReadableDatabase().rawQuery("SELECT stats FROM strategies WHERE id=?",
+                new String[]{String.valueOf(id)});
+        JSONObject st = null;
+        if (c.moveToFirst()) { try { st = new JSONObject(c.getString(0)); } catch (Exception ignored) { } }
+        c.close();
+        return st;
     }
 
     public JSONObject reject(long id) {

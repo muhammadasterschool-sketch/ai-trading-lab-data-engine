@@ -3,6 +3,7 @@ package com.aitradinglab.engine;
 import android.content.Context;
 import android.database.Cursor;
 import java.util.Locale;
+import java.util.List;
 import java.util.Map;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -91,7 +92,7 @@ public class Api {
     private Res get(String path, String auth) throws Exception {
         if ("/".equals(path) || "/index.html".equals(path)) return Res.html(dashboardHtml);
         if ("/api/health".equals(path)) return Res.json(200, new JSONObject()
-                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "1.7.0").put("timeframe", "5m").put("scanner", "24h").put("strategy", "3C Breakout (M5) — MASTER"));
+                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "1.8.0").put("timeframe", "5m").put("scanner", "24h").put("strategy", "3C Breakout (M5) — MASTER + PRO FILTER PACK"));
 
         Long uid = userId(auth);
         if (uid == null) return Res.error(401, "authentication required");
@@ -110,6 +111,7 @@ public class Api {
         if ("/api/logs".equals(path)) return logs();
         if ("/api/brokers".equals(path)) return brokers();
         if ("/api/settings".equals(path)) return settings();
+        if (path.startsWith("/api/candles")) return candles(path);   // v1.8 candlestick chart
         // v5.7 FULL MOBILE CONTROL — owner admin endpoints (role=ADMIN required)
         if ("/api/admin/users".equals(path)) return adminUsers(uid);
         if ("/api/admin/invites".equals(path)) return adminInvites(uid);
@@ -631,13 +633,35 @@ public class Api {
     private Res settings() throws Exception {
         return Res.json(200, new JSONObject()
                 .put("engineOn", "1".equals(db.setting("engine_on", "1")))
-                .put("riskPct", engine != null ? engine.riskPct() : 1.0)
+                .put("riskPct", engine != null ? engine.riskPct() : 2.0)
                 // v1.7 PRO GUARD settings
                 .put("cooldownMin", engine != null ? engine.cooldownMin() : 15)
                 .put("consecLoss", engine != null ? engine.consecLossN() : 3)
                 .put("dailyKillPct", engine != null ? engine.dailyKillPct() : 0)
                 .put("feePct", 0.05)
-                .put("version", "1.7"));
+                // v1.8 PRO FILTER PACK (backtest-proved)
+                .put("proRdMin", engine != null ? engine.proRdMin() : 0.25)
+                .put("proEmaFilter", engine == null || engine.proEmaFilter())
+                .put("proAtrFloor", engine != null ? engine.proAtrFloor() : 0.08)
+                .put("proVolFilter", engine == null || engine.proVolFilter())
+                .put("version", "1.8"));
+    }
+
+    /** v1.8 — candlestick chart data: GET /api/candles?symbol=BTCUSDT&n=60 → 5m closed candles. */
+    private Res candles(String path) throws Exception {
+        String sym = qParam("symbol").toUpperCase(Locale.US).trim();
+        if (!sym.matches("[A-Z0-9]{5,20}")) return Res.error(400, "Symbol galat hai (e.g. BTCUSDT)");
+        int n;
+        try { n = Integer.parseInt(qParam("n")); } catch (Exception e) { n = 60; }
+        if (engine == null) return Res.error(503, "engine band hai");
+        List<EngineCore.Candle> ks = engine.recentCandles(sym, n);
+        JSONArray arr = new JSONArray();
+        for (EngineCore.Candle k : ks) {
+            arr.put(new JSONObject().put("ts", k.ts).put("o", k.o).put("h", k.h)
+                    .put("l", k.l).put("c", k.c).put("v", k.v));
+        }
+        return Res.json(200, new JSONObject().put("ok", true).put("symbol", sym)
+                .put("candles", arr).put("count", arr.length()));
     }
 
     /** v1.2 — Paper Balance: owner apna paper amount khud set karta hai.
@@ -817,11 +841,33 @@ public class Api {
             db.log("INFO", "SYSTEM", on ? "ENGINE_ENABLED" : "ENGINE_DISABLED", "user toggled engine");
         }
         // v1.4 — 3C risk % of equity per trade (MASTER PROMPT: "The user controls risk percentage")
+        // v1.8 — owner "risk increase karoo": range 0.1–20%, default 2%
         if (o.has("riskPct")) {
-            double r = o.optDouble("riskPct", 1.0);
-            if (r < 0.1 || r > 10) return Res.error(400, "Risk 0.1% se 10% ke beech set karein (3C default 1%)");
+            double r = o.optDouble("riskPct", 2.0);
+            if (r < 0.1 || r > 20) return Res.error(400, "Risk 0.1% se 20% ke beech set karein (3C default 2%)");
             db.setSetting("risk_pct", String.valueOf(r));
             db.log("INFO", "RISK", "RISK_SET", "3C per-trade risk = " + r + "% of equity (owner setting)");
+        }
+        // v1.8 PRO FILTER PACK toggles (backtest-proved defaults)
+        if (o.has("proRdMin")) {
+            double v = o.optDouble("proRdMin", 0.25);
+            if (v < 0 || v > 2) return Res.error(400, "Risk-distance min 0–2% ke beech set karein (0 = off)");
+            db.setSetting("threec_rd_min_pct", String.valueOf(v));
+            db.log("INFO", "FILTER", "RD_MIN_SET", "3C min risk-distance = " + v + "% of price");
+        }
+        if (o.has("proEmaFilter")) {
+            db.setSetting("threec_ema_filter", o.optBoolean("proEmaFilter") ? "1" : "0");
+            db.log("INFO", "FILTER", "EMA_FILTER_SET", "EMA200 trend filter = " + o.optBoolean("proEmaFilter"));
+        }
+        if (o.has("proAtrFloor")) {
+            double v = o.optDouble("proAtrFloor", 0.08);
+            if (v < 0 || v > 2) return Res.error(400, "ATR floor 0–2% ke beech set karein (0 = off)");
+            db.setSetting("threec_atr_floor_pct", String.valueOf(v));
+            db.log("INFO", "FILTER", "ATR_FLOOR_SET", "3C ATR floor = " + v + "% of price");
+        }
+        if (o.has("proVolFilter")) {
+            db.setSetting("threec_vol_filter", o.optBoolean("proVolFilter") ? "1" : "0");
+            db.log("INFO", "FILTER", "VOL_FILTER_SET", "Volume filter = " + o.optBoolean("proVolFilter"));
         }
         // v1.7 PRO GUARD — SL-loss cooldown minutes (0=off)
         if (o.has("cooldownMin")) {

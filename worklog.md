@@ -423,3 +423,13 @@ Stage Summary:
 - Api: settings() returns cooldownMin/consecLoss/dailyKillPct/feePct; saveSettings() handles all 3; version 1.7.0/1.7
 - Repo hygiene: android-app/.gradle + app/build + web.log UNTRACKED (154 files removed from index) + .gitignore rules (sandbox auto-add trap fixed for future)
 - versionCode 23→24 / "1.7"; build 60s clean; zipalign+apksigner verified; v1.6 files removed; v1.7 APK (164880b) + src zip (146528b) + RELEASE-v1.7.md deployed 3x; bun restarted; ALL 200
+
+## Task 26 — v1.8 "CLEAN & PRO" (2026-10-29)
+- Owner: "deep research, losses kyu, risk badhao, prediction/strategy check, UI clean+aesthetic, logo change, candlestick chart"
+- DEEP RESEARCH: Python backtest engine (scripts/backtest_3c.py) — exact port of walk3C/detect3C/manageOpenTrades (intrabar fill, BE+1R, SL-first conservative, fee-aware 0.05%/side, cooldown). Data: Binance Vision Jul-Sep 2026 (api.binance.com 418-blocked), 26,496 x 5m candles x 6 syms = 92 din
+- DIAGNOSIS: baseline 1336 trades PF 0.07 avgR -5.22 maxDD -6982R. (1) FEE BOMB: tiny zones (rd 0.02%) -> 0.1% fees = 20R loss/trade (BTC avgR -20.8), (2) counter-trend entries, (3) dead chop. 83% SL / 17% TP / 0% BE exits
+- EXPERIMENTS: EMA200/ATR/volume/close-confirm/TP-r/slbuf/C3-quality/window/regime/rd_min variants. INTRABAR (v1.5) beat close-confirm (0.83 vs 0.71). Extra filters HURT. WINNER: rd_min 0.25% + EMA200 + ATR floor 0.08% + c3-volume 1.2x -> PF 0.83, avgR -0.11, maxDD -40R, n=268; XRP PF 1.01
+- ENGINE: proFilter3C() gate in walk3C (precomputed EMA200/ATR14/VolSMA20 arrays, O(n) pass), SETUP_FILTERED logging; settings threec_rd_min_pct/threec_ema_filter/threec_atr_floor_pct/threec_vol_filter; RISK_DEFAULT_PCT 1->2, max 20%; StrategyLab backtest verdict STRONG/OK/WEAK + approve() warning; /api/candles endpoint + recentCandles()
+- LOGO: PIL generator (scripts/make_logo.py) — 3 candles + gold arrow on navy rounded square; ic_launcher + round all 5 densities + assets/logo.png
+- UI: premium dark theme (emerald/gold CSS vars), 10 tabs -> 5 (Home/Trades/Lab/Insights/Settings), Insights=Ind/News/Inst/Logs chips, Settings=General/Broker/Control chips, tgt() renderer target helper, auth+header logo img; candlestick canvas chart on Home (DPR-aware, price axis, last-price tag, 15s refresh, 6 symbol chips)
+- versionCode 24->25 / "1.8"; build clean (List import fix); signed+verified; v1.7 files removed; v1.8 APK (210277b) + src zip (197420b) + RELEASE-v1.8.md deployed 3x + logo.png to standalone root; bun restarted; ALL 200

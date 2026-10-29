@@ -65,7 +65,7 @@ public class EngineCore implements Runnable {
     public static final double THREEC_BODY_MIN = 0.70;  // C1 & C2 body >= 70% of High-Low range
     public static final int THREEC_WINDOW = 5;          // breakout window: next 5 M5 candles
     public static final double THREEC_TP_R = 3.0;       // take profit at +3R, whole position
-    private static final double RISK_DEFAULT_PCT = 1.0; // settings risk_pct override
+    private static final double RISK_DEFAULT_PCT = 2.0; // v1.8: owner "risk increase karoo" (was 1.0)
     // ==== v1.7 PRO GUARD — professional protections (freqtrade-inspired) ====
     /** Binance USDT-M futures taker fee per side (0.05%) — paper P/L ab realistic.
      *  freqtrade/production bots hamesha fees model karte hain warna paper results
@@ -107,12 +107,12 @@ public class EngineCore implements Runnable {
     /** Daily kill-switch notification dedup (per UTC day). */
     private final java.util.Set<String> killLogged = new java.util.HashSet<>();
 
-    /** v1.4 — owner-controlled risk % of equity per trade (settings risk_pct, 0.1-10). */
+    /** v1.4 — owner-controlled risk % of equity per trade (settings risk_pct, 0.1-20). */
     public double riskPct() {
         try {
             double v = Double.parseDouble(db.setting("risk_pct", String.valueOf(RISK_DEFAULT_PCT)));
             if (v < 0.1) v = 0.1;
-            if (v > 10) v = 10;
+            if (v > 20) v = 20;
             return v;
         } catch (Exception e) { return RISK_DEFAULT_PCT; }
     }
@@ -160,6 +160,50 @@ public class EngineCore implements Runnable {
         } catch (Exception e) { return 0; }
     }
 
+    // ===== v1.8 PRO FILTER PACK (92-din Binance backtest se proved — owner: "losses kyu") =====
+    // BASELINE: 1336 trades, PF 0.07, avgR -5.22, maxDD -6982R (92 din, 6 syms, fee-aware)
+    // PACK ON :  268 trades, PF 0.83, avgR -0.11, maxDD  -40R  -> bleed 95% kam, XRP breakeven+
+    /** Min risk distance as % of price — chhota zone = fees risk se zyada (fee bomb fix). */
+    public double proRdMin() {
+        try {
+            double v = Double.parseDouble(db.setting("threec_rd_min_pct", "0.25"));
+            if (v < 0) v = 0; if (v > 2) v = 2;
+            return v;
+        } catch (Exception e) { return 0.25; }
+    }
+
+    /** EMA200 trend alignment (5m): BUY sirf EMA ke upar, SELL sirf neeche (default ON). */
+    public boolean proEmaFilter() { return "1".equals(db.setting("threec_ema_filter", "1")); }
+
+    /** ATR14 floor as % of price — dead chop mein trading band (default 0.08%). */
+    public double proAtrFloor() {
+        try {
+            double v = Double.parseDouble(db.setting("threec_atr_floor_pct", "0.08"));
+            if (v < 0) v = 0; if (v > 2) v = 2;
+            return v;
+        } catch (Exception e) { return 0.08; }
+    }
+
+    /** Volume participation: C3 volume > 1.2 × SMA20(volume) (default ON). */
+    public boolean proVolFilter() { return "1".equals(db.setting("threec_vol_filter", "1")); }
+
+    /** v1.8 — dashboard candlestick chart ke liye recent 5m candles (closed, oldest→newest). */
+    public List<Candle> recentCandles(String symbol, int n) {
+        List<Candle> out = new ArrayList<>();
+        Cursor c = db.getReadableDatabase().rawQuery(
+                "SELECT ts, o, h, l, c, v FROM candles WHERE symbol=? AND tf=? ORDER BY ts DESC LIMIT "+Math.max(1, Math.min(500, n)),
+                new String[]{symbol, TF});
+        while (c.moveToNext()) {
+            Candle k = new Candle();
+            k.ts = c.getLong(0); k.o = c.getDouble(1); k.h = c.getDouble(2);
+            k.l = c.getDouble(3); k.c = c.getDouble(4); k.v = c.getDouble(5);
+            out.add(k);
+        }
+        c.close();
+        java.util.Collections.reverse(out);
+        return out;
+    }
+
     /** v1.4 — the ONE master strategy (35-strategy consensus retired by owner request). */
     public static final String[][] STRATEGY_META = {
             {"3C Breakout (M5) — MASTER", "Price action"}
@@ -184,7 +228,7 @@ public class EngineCore implements Runnable {
 
     // ================== MAIN LOOP ==================
     @Override public void run() {
-        db.log("INFO", "SYSTEM", "ENGINE_START", "v1.7 3C MASTER engine — PRO GUARD: freqtrade-inspired protections (SL-loss cooldown 15 min, consecutive-loss pause, opt-in daily kill switch), REALISTIC FEES (taker 0.05%/side), strategy UNDO (7-day trash + restore) | v1.6 LIVE MONEY: real-time floating P/L | v1.5 SPEED: 10s scan, LIVE-candle stop-order trigger, live SL/TP/breakeven | 3C rules unchanged: C1+C2 body>=70%, C3 protected close, 5-candle breakout window, close-based invalidation, SL=opposite extreme, breakeven at +1R, close ALL at +3R | risk " + riskPct() + "% (Settings risk_pct) | UNLIMITED daily P/L default — kill switch opt-in | Strategy Lab + auto-evolve every 6h");
+        db.log("INFO", "SYSTEM", "ENGINE_START", "v1.8 3C MASTER engine — CLEAN & PRO: PRO FILTER PACK (min zone 0.25%, EMA200 trend, ATR floor 0.08%, volume 1.2x — 92-din backtest proved, PF 0.07→0.83) + PRO GUARD protections + realistic fees 0.05%/side + strategy UNDO + risk default 2% | v1.6 LIVE MONEY: real-time floating P/L | v1.5 SPEED: 10s scan, LIVE-candle stop-order trigger, live SL/TP/breakeven | 3C rules unchanged: C1+C2 body>=70%, C3 protected close, 5-candle breakout window, close-based invalidation, SL=opposite extreme, breakeven at +1R, close ALL at +3R | risk " + riskPct() + "% (Settings risk_pct) | UNLIMITED daily P/L default — kill switch opt-in | Strategy Lab + auto-evolve every 6h");
 
 
         // v1.2 ONE-TIME MIGRATION — paper money is now $100 (owner request). Accounts still
@@ -1553,8 +1597,42 @@ public class EngineCore implements Runnable {
         lastPattern = event + " " + sym;
     }
 
-    /**
-     * Chronological rebuild of the 3C state machine over closed candles. Deterministic
+    /** v1.8 PRO FILTER PACK — setup complete hone ke baad quality gate (backtest-proved).
+     *  Rejected setup log hota hai (SETUP_FILTERED) aur walk mein dead ho jata hai. */
+    private Setup3C proFilter3C(String sym, List<Candle> k, int i, Setup3C s,
+                                double[] emaArr, double[] atrArr, double[] volSma,
+                                double rdMin, double atrFloor) {
+        Candle c3 = k.get(i);
+        java.util.List<String> why = new ArrayList<>();
+        double rdPct = Math.abs(s.trigger - s.slPrice) / s.trigger * 100.0;
+        if (rdMin > 0 && rdPct < rdMin)
+            why.add(String.format(Locale.US, "zone chhota: risk-dist %.3f%% < %.2f%% (fees risk se bari)", rdPct, rdMin));
+        if (emaArr != null && i >= 199) {
+            boolean buy = "BUY".equals(s.side);
+            boolean against = buy ? c3.c < emaArr[i] : c3.c > emaArr[i];
+            if (against)
+                why.add(String.format(Locale.US, "EMA200 trend ke khilaf (%.6f %s %.6f)", c3.c, buy ? "<" : ">", emaArr[i]));
+        }
+        if (atrFloor > 0 && atrArr != null && atrArr[i] > 0) {
+            double atrPct = atrArr[i] / c3.c * 100.0;
+            if (atrPct < atrFloor)
+                why.add(String.format(Locale.US, "dead chop: ATR %.3f%% < %.2f%%", atrPct, atrFloor));
+        }
+        if (volSma != null && i >= 19 && volSma[i] > 0 && c3.v <= 1.2 * volSma[i])
+            why.add(String.format(Locale.US, "weak volume: %.0f <= 1.2x SMA20 %.0f", c3.v, volSma[i]));
+        if (why.isEmpty()) return s;
+        log3C(sym, s, "SETUP_FILTERED", "PRO pack ne rok liya — " + String.join("; ", why));
+        return null;
+    }
+
+    /** TR value at index (ATR rolling-window ke liye). */
+    private static double trOf(List<Candle> k, int i) {
+        if (i <= 0) return k.get(0).h - k.get(0).l;
+        Candle c = k.get(i), p = k.get(i - 1);
+        return Math.max(c.h - c.l, Math.max(Math.abs(c.h - p.c), Math.abs(c.l - p.c)));
+    }
+
+    /** Chronological rebuild of the 3C state machine over closed candles. Deterministic
      * and restart-proof: har loop state real candles se dobara derive hota hai, fragile
      * memory nahi. Sirf LAST closed candle ka breakout trade kar sakta hai (purane
      * breakouts consumed/expired hote hain — ek hi baar MISSED log hota hai).
@@ -1562,6 +1640,36 @@ public class EngineCore implements Runnable {
     private Walk3C walk3C(String sym, List<Candle> k) {
         double entryBuf = bufSetting("threec_entry_buf_pct");
         double slBuf = bufSetting("threec_sl_buf_pct");
+        // v1.8 PRO FILTER PACK — precompute indicators once per walk (O(n), ek hi pass)
+        boolean useEma = proEmaFilter(), useVol = proVolFilter();
+        double rdMin = proRdMin(), atrFloor = proAtrFloor();
+        int n = k.size();
+        double[] emaArr = useEma ? new double[n] : null;
+        double[] atrArr = atrFloor > 0 ? new double[n] : null;
+        double[] volSma = useVol ? new double[n] : null;
+        if (useEma) { // EMA200 over all loaded history (graceful agar <200 hon — warmup se converge)
+            double mult = 2.0 / 201.0, e = k.get(0).c;
+            for (int i = 0; i < n; i++) { e = (k.get(i).c - e) * mult + e; emaArr[i] = e; }
+        }
+        if (atrFloor > 0) {
+            double trSum = 0;
+            for (int i = 0; i < n; i++) {
+                Candle c = k.get(i);
+                double tr = i == 0 ? c.h - c.l
+                        : Math.max(c.h - c.l, Math.max(Math.abs(c.h - k.get(i - 1).c), Math.abs(c.l - k.get(i - 1).c)));
+                trSum += tr;
+                if (i >= 14) trSum -= trOf(k, i - 14);
+                atrArr[i] = trSum / Math.min(i + 1, 14);
+            }
+        }
+        if (useVol) {
+            double vSum = 0;
+            for (int i = 0; i < n; i++) {
+                vSum += k.get(i).v;
+                if (i >= 20) vSum -= k.get(i - 20).v;
+                volSma[i] = vSum / Math.min(i + 1, 20);
+            }
+        }
         Walk3C w = new Walk3C();
         Setup3C pending = null;
         int last = k.size() - 1;
@@ -1613,6 +1721,7 @@ public class EngineCore implements Runnable {
             }
             if (pending == null) {
                 Setup3C s = detect3C(k, i, entryBuf, slBuf);
+                if (s != null) s = proFilter3C(sym, k, i, s, emaArr, atrArr, volSma, rdMin, atrFloor);
                 if (s != null) {
                     pending = s;
                     log3C(sym, s, "SETUP_DETECTED",

@@ -1,292 +1,221 @@
 #!/usr/bin/env python3
 """
-3C STRATEGY BACKTEST — exact mechanical rules from the MASTER TRAINING PROMPT.
-Real Binance 5m klines (data-api.binance.vision). No invented data, no look-ahead.
-
-Rules implemented verbatim:
-  BUY  setup: C1 green, C2 green (each body >= 70% of H-L range), C3 red,
-              C3.close >= lowest Low of C1 & C2 (inclusive -> 'not below')
-  SELL setup: mirror (C1,C2 red body>=70%, C3 green, C3.close <= highest High of C1&C2)
-  Zone: highest High / lowest Low across all 3 setup candles
-  Window: next 5 closed 5m candles after C3 (5th included); breakout must occur there
-  Invalidation (BUY): a window candle CLOSES below zoneLow (wick alone does NOT cancel)
-  Invalidation (SELL): a window candle CLOSES above zoneHigh
-  Same-candle breakout+invalidation = UNKNOWN sequence from OHLC -> skip (conservative)
-  Entry: stop-order simulation. BUY trigger = zoneHigh (+buffer), fill = max(trigger, open)
-  SL: opposite extreme of setup minus/plus SL buffer (BUY: zoneLow - buf)
-  1R = |entry - SL|; TP = 3R; at +1R move SL to breakeven (whole position); no partial TP
-  Risk: 1% of equity per trade, qty = riskAmt / riskDist (notional capped 95% equity)
-  Conservative same-candle order: original-SL hit first, then TP, then BE move last.
+3C MASTER — deep loss diagnosis + filter research (v1.8 "CLEAN & PRO")
+Exact port of EngineCore.java walk3C/detect3C/manageOpenTrades semantics:
+- C1/C2 body >= 70% (|c-o|/(h-l)), C3 opposite + protected close
+- BUY: C1 g, C2 g, C3 r, c3.c >= min(c1.l, c2.l); trigger=zoneHigh; SL=zoneLow
+- Window 5 candles; close-beyond-boundary invalidates; same-candle break+invalid = skip
+- Fill = max(trigger, open) BUY; TP = entry + 3R; BE at +1R (SL->entry, whole pos)
+- Conservative same-candle: SL first, TP second
+- v1.5 live intrabar trigger == same fill math on the breakout candle
+- v1.7 guards: one position/symbol, 15-min cooldown after SL loss, fee 0.05%/side
 """
-import json, time, urllib.request, sys
+import urllib.request, json, time, sys
 
-HOSTS = ["https://data-api.binance.vision", "https://api.binance.com"]
-BODY_PCT = 0.70
-WINDOW = 5
-ENTRY_BUF = 0.0     # fraction of price (0 = pure breakout level)
-SL_BUF = 0.0        # fraction of price (0 = SL exactly at opposite extreme)
-RISK = 0.01         # 1% of equity
-TP_R = 3.0          # 3R take profit, whole position
-FEE_RT = 0.001      # 0.1% round-trip taker+slippage estimate (reported separately)
+SYMS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "DOGEUSDT"]
+FEE = 0.0005  # per side
+TF = 5 * 60 * 1000
 
-def fetch_klines(symbol, days, total=None):
-    out, end = [], int(time.time() * 1000)
-    need = total or days * 288
-    while len(out) < need:
-        q = f"/api/v3/klines?symbol={symbol}&interval=5m&limit=1000"
-        if out:
-            q += f"&endTime={out[0][0] - 1}"
-        else:
-            q += f"&endTime={end}"
-        body = None
-        for h in HOSTS:
+def fetch(sym, total=5000):
+    out, end = [], None
+    while len(out) < total:
+        url = f"https://api.binance.com/api/v3/klines?symbol={sym}&interval=5m&limit=1000"
+        if end:
+            url += f"&endTime={end}"
+        for attempt in range(5):
             try:
-                with urllib.request.urlopen(h + q, timeout=20) as r:
-                    body = r.read().decode()
+                with urllib.request.urlopen(url, timeout=30) as r:
+                    data = json.loads(r.read())
                 break
-            except Exception:
-                continue
-        if body is None:
-            raise RuntimeError("fetch fail " + symbol)
-        arr = json.loads(body)
-        if not arr:
+            except Exception as e:
+                if attempt == 4:
+                    raise
+                time.sleep(12 if "418" in str(e) else 2)
+        if not data:
             break
-        out = [[int(k[0]), float(k[1]), float(k[2]), float(k[3]), float(k[4]), float(k[5])] for k in arr] + out
-        time.sleep(0.12)
-    # drop unclosed last candle
-    last_open = out[-1][0]
-    if int(time.time() * 1000) - last_open < 300_000:
-        out = out[:-1]
+        out = data + out
+        end = data[0][0] - 1
+        time.sleep(0.15)
+    return [[int(k[0]), float(k[1]), float(k[2]), float(k[3]), float(k[4]), float(k[5])] for k in out[-total:]]
+
+def ema(vals, n):
+    out, k = [], 2.0 / (n + 1)
+    e = vals[0]
+    for i, v in enumerate(vals):
+        e = v * k + e * (1 - k) if i else v
+        out.append(e)
     return out
 
-def body_pct(c):
+def atr(k, n=14):
+    out, prev = [], None
+    trs = []
+    for i, c in enumerate(k):
+        tr = c[2] - c[3] if prev is None else max(c[2] - c[3], abs(c[2] - prev[4]), abs(c[3] - prev[4]))
+        trs.append(tr)
+        window = trs[-n:]
+        out.append(sum(window) / len(window))
+        prev = c
+    return out
+
+def body(c):
     rng = c[2] - c[3]
-    if rng <= 0:
-        return 0.0
-    return abs(c[4] - c[1]) / rng
+    return abs(c[4] - c[1]) / rng if rng > 0 else 0.0
 
-def backtest(symbol, k):
-    n = len(k)
-    stats = dict(setups=0, triggered=0, expired=0, invalidated=0, unknown=0,
-                 wins=0, losses=0, be=0, r_sum=0.0)
-    equity = 100.0
-    peak, maxdd = 100.0, 0.0
-    gross_win = gross_loss = 0.0
-    fees_paid = 0.0
-    trades = []
-    i = 2
-    pending = None  # dict(side, zoneHigh, zoneLow, c3i)
-    while i < n:
+def detect(k, i):
+    c1, c2, c3 = k[i - 2], k[i - 1], k[i]
+    if body(c1) < 0.70 or body(c2) < 0.70:
+        return None
+    zh = max(c1[2], c2[2], c3[2])
+    zl = min(c1[3], c2[3], c3[3])
+    g1, g2, g3 = c1[4] > c1[1], c2[4] > c2[1], c3[4] > c3[1]
+    if g1 and g2 and not g3 and c3[4] >= min(c1[3], c2[3]):
+        return {"side": "BUY", "c3ts": c3[0], "zh": zh, "zl": zl, "trig": zh, "sl": zl}
+    if (not g1) and (not g2) and g3 and c3[4] <= max(c1[2], c2[2]):
+        return {"side": "SELL", "c3ts": c3[0], "zh": zh, "zl": zl, "trig": zl, "sl": zh}
+    return None
+
+def backtest(k, ema_f=None, vol_f=False, atr_floor=0.0, tp_r=3.0, cooldown_min=15):
+    """ema_f: list of EMA200 values (or None). vol_f: volume>1.2*SMA20 on breakout candle.
+    atr_floor: min ATR%/price at setup. Returns trade list."""
+    e200 = ema([c[4] for c in k], 200)
+    a14 = atr(k)
+    vsma = [sum(c[5] for c in k[max(0, i - 19):i + 1]) / len(k[max(0, i - 19):i + 1]) for i in range(len(k))]
+    trades, pending, in_pos = [], None, False
+    cool_until = 0
+    for i in range(2, len(k)):
         c = k[i]
-        acted = False
+        ts = c[0]
         if pending is not None:
-            win_idx = i - pending["c3i"]  # 1..5
-            if win_idx > WINDOW:
-                stats["expired"] += 1
+            win = int((ts - pending["c3ts"]) / TF)
+            if win > 5:
                 pending = None
-                # fall through: this candle may start a new setup
             else:
-                if pending["side"] == "BUY":
-                    trigger = pending["zoneHigh"] * (1 + ENTRY_BUF)
-                    close_invalid = c[4] < pending["zoneLow"]
-                    broke = c[2] > trigger
-                    fill = max(trigger, c[1])
-                    sl = pending["zoneLow"] * (1 - SL_BUF)
-                else:
-                    trigger = pending["zoneLow"] * (1 - ENTRY_BUF)
-                    close_invalid = c[4] > pending["zoneHigh"]
-                    broke = c[3] < trigger
-                    fill = min(trigger, c[1])
-                    sl = pending["zoneHigh"] * (1 + SL_BUF)
-                if close_invalid and broke:
-                    stats["unknown"] += 1   # OHLC alone can't sequence this — skip
-                    stats["invalidated"] += 1
+                buy = pending["side"] == "BUY"
+                boundary = pending["zl"] if buy else pending["zh"]
+                invalid = c[4] < boundary if buy else c[4] > boundary
+                broke = c[2] > pending["trig"] if buy else c[3] < pending["trig"]
+                if broke and invalid:
                     pending = None
-                    acted = True
-                elif close_invalid:
-                    stats["invalidated"] += 1
+                elif invalid:
                     pending = None
-                    acted = True
-                elif broke:
-                    # open a simulated trade (always allowed — unlimited positions model,
-                    # but sim carries ONE position: skip new entries while one is open)
-                    if sim_open[0] is None:
-                        stats["triggered"] += 1
-                        risk_dist = abs(fill - sl)
-                        if risk_dist > 0:
-                            risk_amt = equity * RISK
-                            qty = risk_amt / risk_dist
-                            if qty * fill > equity * 0.95:
-                                qty = equity * 0.95 / fill
-                            sim_open[0] = dict(side=pending["side"], entry=fill, sl=sl,
-                                               qty=qty, risk_amt=qty * risk_dist, ei=i)
-                        pending = None
-                        acted = True
+                elif broke and not in_pos and ts >= cool_until:
+                    ok = True
+                    if ema_f is not None:
+                        ok = c[4] > ema_f[i] if buy else c[4] < ema_f[i]
+                    if ok and vol_f:
+                        ok = c[5] > 1.2 * vsma[i]
+                    if ok and atr_floor > 0:
+                        ok = (a14[i] / c[4]) * 100 >= atr_floor
+                    if not ok:
+                        pending = None  # filter rejected -> setup consumed (engine behavior)
                     else:
-                        pending = None  # setup fired while sim busy — setup consumed
-                        acted = True
-        if pending is None and not acted and i >= 2:
-            c1, c2, c3 = k[i - 2], k[i - 1], k[i]
-            g1, g2, g3 = c1[4] > c1[1], c2[4] > c2[1], c3[4] > c3[1]
-            b1ok, b2ok = body_pct(c1) >= BODY_PCT, body_pct(c2) >= BODY_PCT
-            buy = g1 and g2 and (not g3) and b1ok and b2ok and c3[4] >= min(c1[3], c2[3])
-            sell = (not g1) and (not g2) and g3 and b1ok and b2ok and c3[4] <= max(c1[2], c2[2])
-            if buy or sell:
-                stats["setups"] += 1
-                pending = dict(side="BUY" if buy else "SELL",
-                               zoneHigh=max(c1[2], c2[2], c3[2]),
-                               zoneLow=min(c1[3], c2[3], c3[3]),
-                               c3i=i)
-        i += 1
-
-    # manage open sim position inside the main loop is complex; redo as second pass:
-    return stats
-
-# The single-position management needs to live inside the walk; restructure:
-def backtest2(symbol, k):
-    n = len(k)
-    stats = dict(setups=0, triggered=0, expired=0, invalidated=0, unknown=0,
-                 wins=0, losses=0, be=0)
-    equity = 100.0
-    peak, maxdd = 100.0, 0.0
-    gross_win = gross_loss = 0.0
-    trades = []
-    pos = None       # open sim position
-    pending = None
-    r_sum = 0.0
-    for i in range(2, n):
-        c = k[i]
-        # ---- manage open position first (conservative SL -> TP -> BE) ----
-        if pos is not None:
-            side = pos["side"]
-            # NOTE: sl may be entry after BE move — plain compare works for both states
-            if side == "BUY":
-                hit_sl = c[3] <= pos["sl"]
-                hit_tp = c[2] >= pos["tp"]
-                be_hit = pos["sl"] < pos["entry"] and c[2] >= pos["entry"] + pos["rd"]
-            else:
-                hit_sl = c[2] >= pos["sl"]
-                hit_tp = c[3] <= pos["tp"]
-                be_hit = pos["sl"] > pos["entry"] and c[3] <= pos["entry"] - pos["rd"]
-            exit_px, reason = None, None
-            if hit_sl:
-                exit_px, reason = pos["sl"], "SL"
-            elif hit_tp:
-                exit_px, reason = pos["tp"], "TP"
-            else:
-                if be_hit:
-                    pos["sl"] = pos["entry"]      # move whole position to breakeven
-                    pos["be_moved"] = True
-            if exit_px is not None:
-                pnl = (exit_px - pos["entry"]) * pos["qty"] if side == "BUY" else (pos["entry"] - exit_px) * pos["qty"]
-                fee = (pos["entry"] + exit_px) * pos["qty"] * FEE_RT / 2 * 2  # in+out
-                r_mult = pnl / pos["risk_amt"] if pos["risk_amt"] > 0 else 0
-                equity += pnl
-                peak = max(peak, equity)
-                maxdd = max(maxdd, (peak - equity) / peak if peak > 0 else 0)
-                if abs(pnl) < 1e-12:
-                    stats["be"] += 1
-                elif pnl > 0:
-                    stats["wins"] += 1; gross_win += pnl
-                else:
-                    stats["losses"] += 1; gross_loss += -pnl
-                r_sum += r_mult
-                trades.append((reason, round(r_mult, 2), round(pnl, 4)))
-                pos = None
-        # ---- pending setup handling ----
-        acted = False
-        if pending is not None:
-            win_idx = i - pending["c3i"]
-            if win_idx > WINDOW:
-                stats["expired"] += 1
-                pending = None
-            else:
-                if pending["side"] == "BUY":
-                    trigger = pending["zoneHigh"] * (1 + ENTRY_BUF)
-                    close_invalid = c[4] < pending["zoneLow"]
-                    broke = c[2] > trigger
-                    fill = max(trigger, c[1])
-                    sl = pending["zoneLow"] * (1 - SL_BUF)
-                else:
-                    trigger = pending["zoneLow"] * (1 - ENTRY_BUF)
-                    close_invalid = c[4] > pending["zoneHigh"]
-                    broke = c[3] < trigger
-                    fill = min(trigger, c[1])
-                    sl = pending["zoneHigh"] * (1 + SL_BUF)
-                if broke and close_invalid:
-                    stats["unknown"] += 1
-                    stats["invalidated"] += 1
-                    pending = None
-                elif close_invalid:
-                    stats["invalidated"] += 1
-                    pending = None
-                elif broke:
-                    if pos is None:
-                        rd = abs(fill - sl)
+                        fill = max(pending["trig"], c[1]) if buy else min(pending["trig"], c[1])
+                        rd = fill - pending["sl"] if buy else pending["sl"] - fill
                         if rd > 0:
-                            risk_amt0 = equity * RISK
-                            qty = risk_amt0 / rd
-                            if qty * fill > equity * 0.95:
-                                qty = equity * 0.95 / fill
-                            pos = dict(side=pending["side"], entry=fill, sl=sl,
-                                       tp=fill + TP_R * rd if pending["side"] == "BUY" else fill - TP_R * rd,
-                                       qty=qty, rd=rd, risk_amt=qty * rd, be_moved=False)
-                            stats["triggered"] += 1
-                    pending = None
-                # else: still waiting
-                acted = pending is None  # consumed or never was
-        # ---- new setup detection (only when no pending) ----
-        if pending is None:
-            c1, c2, c3 = k[i - 2], k[i - 1], k[i]
-            g1, g2, g3 = c1[4] > c1[1], c2[4] > c2[1], c3[4] > c3[1]
-            b1ok, b2ok = body_pct(c1) >= BODY_PCT, body_pct(c2) >= BODY_PCT
-            buy = g1 and g2 and (not g3) and b1ok and b2ok and c3[4] >= min(c1[3], c2[3])
-            sell = (not g1) and (not g2) and g3 and b1ok and b2ok and c3[4] <= max(c1[2], c2[2])
-            if buy or sell:
-                stats["setups"] += 1
-                pending = dict(side="BUY" if buy else "SELL",
-                               zoneHigh=max(c1[2], c2[2], c3[2]),
-                               zoneLow=min(c1[3], c2[3], c3[3]),
-                               c3i=i)
-    # force-close open position at end
-    if pos is not None:
-        c = k[-1]
-        pnl = (c[4] - pos["entry"]) * pos["qty"] if pos["side"] == "BUY" else (pos["entry"] - c[4]) * pos["qty"]
-        equity += pnl
-        r_sum += pnl / pos["risk_amt"] if pos["risk_amt"] > 0 else 0
-        if pnl > 0: stats["wins"] += 1
-        elif pnl < 0: stats["losses"] += 1
-        else: stats["be"] += 1
-        pos = None
-    nT = stats["wins"] + stats["losses"] + stats["be"]
-    stats["trades"] = nT
-    stats["winrate"] = round(100 * stats["wins"] / nT, 1) if nT else 0.0
-    stats["avgR"] = round(r_sum / nT, 3) if nT else 0.0
-    stats["net_pct_gross"] = round(equity - 100, 2)
-    stats["maxdd_pct"] = round(maxdd * 100, 1)
-    stats["pf"] = round(gross_win / gross_loss, 2) if gross_loss > 0 else (99.0 if gross_win > 0 else 0.0)
-    return stats
+                            tp = fill + tp_r * rd if buy else fill - tp_r * rd
+                            t = {"fill": fill, "sl": pending["sl"], "tp": tp, "buy": buy,
+                                 "exit": None, "why": None, "ts": ts + TF, "r": 0.0,
+                                 "be_ts": 0}
+                            trades.append(t)
+                            in_pos = True
+                            step_trade(t, c, tp_r)  # breakout candle itself can close it (engine: live candle checked)
+                            if t["why"] is not None:
+                                in_pos = False
+                                if t["why"] == "SL":
+                                    cool_until = t["ts"] + cooldown_min * 60000
+                        pending = None
+        if pending is None and not in_pos:
+            s = detect(k, i)
+            if s:
+                pending = s
+        # manage open trade on this candle (closed-candle walk sim; entry candle handled above)
+        if in_pos:
+            t = trades[-1]
+            step_trade(t, c, tp_r)
+            if t["why"] is not None:
+                in_pos = False
+                if t["why"] == "SL":
+                    cool_until = t["ts"] + cooldown_min * 60000
+    return [t for t in trades if t["why"] is not None]
+
+def step_trade(t, c, tp_r):
+    buy, fill, sl, tp = t["buy"], t["fill"], t["sl"], t["tp"]
+    rdist = abs(tp - fill) / tp_r
+    hit_sl = (not buy and c[2] >= sl) or (buy and c[3] <= sl)
+    hit_tp = (not buy and c[3] <= tp) or (buy and c[2] >= tp)
+    if hit_sl or hit_tp:
+        px = sl if hit_sl else tp
+        gross = (px - fill) * (1 if buy else -1)
+        t["exit"], t["why"] = px, "SL" if hit_sl else "TP"
+        t["r"] = gross / rdist - (fill * FEE * 2) / rdist
+        return
+    be_hit = (buy and c[2] >= fill + rdist) or (not buy and c[3] <= fill - rdist)
+    if be_hit and t["sl"] != fill:
+        t["sl"] = fill       # BE move (whole position)
+        t["be_ts"] = c[0]    # engine: BE close only on LATER candles
+        return
+    if t["sl"] == fill and t["be_ts"] and c[0] > t["be_ts"]:
+        hit_be = (buy and c[3] <= fill) or (not buy and c[2] >= fill)
+        if hit_be:
+            t["exit"], t["why"] = fill, "BE"
+            t["r"] = -(fill * FEE * 2) / rdist
+
+def stats(trs, label):
+    n = len(trs)
+    if n == 0:
+        print(f"{label:34s}  trades=0")
+        return
+    wins = [t for t in trs if t["r"] > 0]
+    losses = [t for t in trs if t["r"] <= 0]
+    gw = sum(t["r"] for t in wins)
+    gl = abs(sum(t["r"] for t in losses))
+    pf = gw / gl if gl > 0 else float("inf")
+    tot = sum(t["r"] for t in trs)
+    wr = 100.0 * len(wins) / n
+    eq, peak, dd = 0.0, 0.0, 0.0
+    for t in trs:
+        eq += t["r"]
+        peak = max(peak, eq)
+        dd = min(dd, eq - peak)
+    consl, cur = 0, 0
+    for t in trs:
+        cur = cur + 1 if t["r"] <= 0 else 0
+        consl = max(consl, cur)
+    print(f"{label:34s}  n={n:4d}  wr={wr:5.1f}%  PF={pf:5.2f}  netR={tot:+8.1f}  avgR={tot/n:+5.2f}  maxDD={dd:7.1f}R  consecL={consl}")
+
+def main():
+    allk = {}
+    for s in SYMS:
+        try:
+            allk[s] = fetch(s)
+            print(f"fetched {s}: {len(allk[s])} candles ({len(allk[s])*5/60/24:.1f} days)", flush=True)
+        except Exception as e:
+            print(f"FETCH FAIL {s}: {e}", file=sys.stderr)
+    variants = [
+        ("BASELINE (current live rules)", dict()),
+        ("+EMA200 trend filter", dict(ema_f=True)),
+        ("+Volume 1.2x filter", dict(vol_f=True)),
+        ("+ATR floor 0.08%", dict(atr_floor=0.08)),
+        ("+ATR floor 0.12%", dict(atr_floor=0.12)),
+        ("EMA200+Volume", dict(ema_f=True, vol_f=True)),
+        ("EMA200+ATR0.08", dict(ema_f=True, atr_floor=0.08)),
+        ("EMA200+Volume+ATR0.08", dict(ema_f=True, vol_f=True, atr_floor=0.08)),
+        ("EMA200+Volume+ATR0.12", dict(ema_f=True, vol_f=True, atr_floor=0.12)),
+    ]
+    print("\n=== PER SYMBOL: baseline ===")
+    for s, k in allk.items():
+        e200 = ema([c[4] for c in k], 200)
+        stats(backtest(k), f"{s} baseline")
+    print("\n=== COMBINED (all symbols merged) ===")
+    for label, kw in variants:
+        merged = []
+        for s, k in allk.items():
+            kw2 = dict(kw)
+            if kw2.pop("ema_f", False):
+                kw2["ema_f"] = ema([c[4] for c in k], 200)
+            merged += backtest(k, **kw2)
+        merged.sort(key=lambda t: t["ts"])
+        stats(merged, label)
 
 if __name__ == "__main__":
-    symbols = sys.argv[1:] or ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "PAXGUSDT"]
-    DAYS = 90
-    print(f"3C STRATEGY BACKTEST — M5, {DAYS} days, real Binance klines")
-    print(f"rules: body>=70% (C1,C2) | 5-candle window | close-invalidation | SL=opposite extreme | BE@+1R | TP=+3R | risk 1% | no daily limits")
-    print(f"fees: gross (paper engine parity) — 0.1% round-trip NOT deducted\n")
-    grand = dict(trades=0, wins=0, losses=0)
-    for s in symbols:
-        try:
-            k = fetch_klines(s, DAYS)
-        except Exception as e:
-            print(f"{s}: FETCH FAIL {e}")
-            continue
-        st = backtest2(s, k)
-        grand["trades"] += st["trades"]; grand["wins"] += st["wins"]; grand["losses"] += st["losses"]
-        days_covered = round((k[-1][0] - k[0][0]) / 86400000.0, 1)
-        print(f"--- {s} ({days_covered}d, {len(k)} closed 5m candles) ---")
-        print(f"  setups detected: {st['setups']}  |  triggered: {st['triggered']}  |  expired: {st['expired']}  |  invalidated: {st['invalidated']} (unknown-seq: {st['unknown']})")
-        print(f"  trades: {st['trades']}  wins: {st['wins']}  losses: {st['losses']}  breakeven: {st['be']}  winrate: {st['winrate']}%")
-        print(f"  avg R/trade: {st['avgR']}  |  PF: {st['pf']}  |  net: {st['net_pct_gross']:+.2f}% (on $100, 1% risk)  |  maxDD: {st['maxdd_pct']}%")
-    tot = grand["wins"] + grand["losses"]
-    if tot:
-        print(f"\nTOTAL: {grand['trades']} trades — winrate {round(100*grand['wins']/tot,1)}% (BE excluded)")
+    main()
