@@ -433,3 +433,13 @@ Stage Summary:
 - LOGO: PIL generator (scripts/make_logo.py) — 3 candles + gold arrow on navy rounded square; ic_launcher + round all 5 densities + assets/logo.png
 - UI: premium dark theme (emerald/gold CSS vars), 10 tabs -> 5 (Home/Trades/Lab/Insights/Settings), Insights=Ind/News/Inst/Logs chips, Settings=General/Broker/Control chips, tgt() renderer target helper, auth+header logo img; candlestick canvas chart on Home (DPR-aware, price axis, last-price tag, 15s refresh, 6 symbol chips)
 - versionCode 24->25 / "1.8"; build clean (List import fix); signed+verified; v1.7 files removed; v1.8 APK (210277b) + src zip (197420b) + RELEASE-v1.8.md deployed 3x + logo.png to standalone root; bun restarted; ALL 200
+
+## Task 26 — v1.9 "OWNER GATE" (versionCode 26) — Oct 29
+- OWNER REQUEST: "code pehle se likha hua nahi ana chahiye; register karne ke baad mere pass notification ana chahiye, iske baad hi login kar sakta hai; aik admin sirf, baaki sare users; iOS+Android links"
+- CODE LEAK FIX: register form `value="M2991474"` (hardcoded pre-fill) removed + reset form + **public downloads.html warn paragraph** (sab se bara leak) + RELEASE-v4/v5/setup-atl.ps1 redacted (M•••••••) — ab code sirf owner Control se generate hoga, khud user ko bhejega
+- OWNER GATE: Db v5 `users.approved INTEGER DEFAULT 1` (idempotent ALTER — purane accounts unlock/out nahi); register() first=ADMIN+approved=1, baaki sab TRADER+approved=0 PENDING; login() approved=0 → 403 clear message + PENDING_LOGIN in-app row + owner reminder status-bar notification; /api/admin/users +approved +pendingUsers; POST action "approve" (USER_APPROVED log)
+- NOTIFICATIONS (3 channels): Notifier.registration(...,owner) status-bar (high-importance channel atl_alerts), notifications table feed (Control > Registration Alerts, unread badge), Home red banner "⏳ N PENDING — names — APPROVE karein" (admin only, pollAlerts 30s); Settings nav red badge = UNREAD+PENDING
+- UI: Control Users table PENDING pill + LOGIN BLOCKED + ✓ APPROVE button; Pending Approval card; invite section note "code kahin display nahi hota"; register note approval flow explained; auth note v1.9
+- versionCode 25->26 / "1.8"->"1.9"; health 1.9.0; build 26s clean; signed+verified (same keystore); v1.8 files removed; v1.9 APK (210277b) + src zip (198346b) + RELEASE-v1.9.md deployed 3x; downloads.html v1.9 standalone sync; bun restarted; ALL 200; downloads.html preview 200
+- GIT: tool-results/ + scripts/ gitignored; clean commit (no artifacts); pushed 197b7a2..7c7d105
+- NOTE for owner: purana master code M•••• ab bhi DB me active hai (kisi ne dekh liya ho to use sakta hai) — owner ko Control > Invitation Codes me REVOKE karke NAYA code generate karna chahiye
