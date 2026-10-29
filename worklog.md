@@ -477,3 +477,15 @@ Stage Summary:
 - DEPLOY: v3.0 APK (230757b) + src zip (226092b) + RELEASE-v3.0.md + bridge v2.0 → 3x locations; v2.1 files removed sab se; downloads.html v3.0 QUANT PRO rewrite + standalone sync; bun restarted; ALL 6 URLS 200.
 - GIT: staged size check (pycache removed) → clean commit c54532b → pushed f69ca17..c54532b.
 - 3C MASTER rules UNTOUCHED (sirf aas-paas ki discipline); UNLIMITED daily P/L qayam (sab caps opt-in default OFF); owner gates unchanged.
+
+## Task 31 — v3.0.1 "FIXED ENTRIES" (versionCode 30) — Oct 29
+- OWNER REPORT: "Bhai ye to trades hi nahi le raha" — v3.0 par zero trades.
+- ROOT CAUSES (live Yahoo test + code read se verified):
+  1) SAFE MODE false-positive (MAIN KILLER): freshData() threshold 2xTF=10 min, lekin Yahoo futures feed sirf CLOSED bars deta hai (in-progress bar nahi) — newest candle age normally 5-11 min (live measured: 10.13 min) → SAFE MODE lagbhag hamesha ON → openTrade3C pehle hi gate par return → ZERO entries kabhi.
+  2) Volume filter zero-vol kill: Yahoo overnight bars volume=0 (unknown) → proFilter3C "weak volume" reject → overnight/quiet-hour setups sab dead (default ON).
+  3) Market band (weekend/CME 17-18 ET halt) par SAFE MODE alarm — feed failure nahi hai phir bhi red banner + entries freeze.
+- FIXES (EngineCore.java): freshData() rewritten — setting safe_mode_bars default 3 bars (15 min) + marketClosedET() helper (America/New_York: weekend + Fri>=18:00 + Sun<18:00 + halt h==17) — band market par freshData true (SAFE MODE nahi, entries live-trigger se khud blocked); safe_mode log message dynamic bars; proFilter3C c3.v>0 guard (unknown volume = skip check, reject nahi); status(): version 3.0.1, safe_mode = safeMode && !mktClosed, naye fields market_closed / feed_age_min (MAX(ts) candles) / data_low (threecStates "data kam" count) / no_trade_report (24h logs GROUP BY event: SETUP_DETECTED/SETUP_FILTERED/SETUP_EXPIRED/SETUP_INVALIDATED/BREAKOUT_DETECTED/ORDER_EXECUTED/ENTRY_BLOCKED/COUNCIL_BLOCKED/HEAT/BUCKET/SAFE_MODE_ON).
+- UI (dashboard.html): amber "Market BAND hai" banner (weekend/halt par — normal hai message), SAFE MODE banner text fix, naya "🔍 Why no trades? — 24h engine report" card Home grid me (5 counters + market state + candle age + data-kam + "roz 1-4 setup normal" note); v3.0.1 badges (auth strip, drawer, dfoot).
+- BUILD: versionCode 29→30, versionName 3.0→3.0.1; assembleRelease clean 227KB; zipalign+apksigner (keystore android-app/ me hai — path fix); aapt verify 30/3.0.1; dex strings market_closed/safe_mode_bars/no_trade_report OK; dashboard node Function check OK.
+- DEPLOY: v3.0 files removed; v3.0.1 APK (234853b) + src zip (234267b) + RELEASE-v3.0.1.md → public/downloads/ + .next/standalone + download/; downloads.html v3.0.1 rewrite (green fix-note upar) + standalone sync; bun restarted; 4/4 URLs 200.
+- 3C MASTER rules UNTOUCHED — sirf guard threshold + feed-awareness theek ki; UNLIMITED daily P/L + owner gates + halal universe barkarar.

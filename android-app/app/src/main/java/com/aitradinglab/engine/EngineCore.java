@@ -1835,7 +1835,11 @@ public class EngineCore implements Runnable {
             if (atrPct < atrFloor)
                 why.add(String.format(Locale.US, "dead chop: ATR %.3f%% < %.2f%%", atrPct, atrFloor));
         }
-        if (volSma != null && i >= 19 && volSma[i] > 0 && c3.v <= 1.2 * volSma[i])
+        // v3.0.1 — c3.v > 0 guard: Yahoo futures feed ke overnight bars par volume aksar
+        // 0 hota hai (feed volume nahi bhejta = unknown, zero participation nahi).
+        // Pehle v=0 setups ko "weak volume" reject kar deta tha — overnight setups sab
+        // mar jate the. Ab unknown volume par check SKIP hota hai, reject nahi.
+        if (volSma != null && i >= 19 && volSma[i] > 0 && c3.v > 0 && c3.v <= 1.2 * volSma[i])
             why.add(String.format(Locale.US, "weak volume: %.0f <= 1.2x SMA20 %.0f", c3.v, volSma[i]));
         if (why.isEmpty()) return s;
         log3C(sym, s, "SETUP_FILTERED", "PRO pack ne rok liya — " + String.join("; ", why));
@@ -2812,21 +2816,28 @@ public class EngineCore implements Runnable {
         return eq > 0 ? risk / eq * 100.0 : 0;
     }
 
-    /** STALE-DATA GUARD (audit fix #3): symbol ki aakhri candle 2x TF (10 min) se
-     *  purani ho to SAFE MODE — koi naya entry nahi, SL/TP evaluation freeze (purani
-     *  candle par false trigger nahi chalega). Feed wapas aane par auto-clear. */
+    /** STALE-DATA GUARD (audit fix #3; v3.0.1 CRITICAL FIX — "trades nahi lag rahi"):
+     *  Yahoo futures feed sirf CLOSED bars deta hai (in-progress bar nahi), is liye
+     *  newest candle ki age normally 5-11 min hoti hai. Purana 2x TF (10 min) threshold
+     *  lagbhag HAMESHA fail ho jata tha = SAFE MODE permanent = koi entry nahi.
+     *  Ab: threshold setting safe_mode_bars (default 3 bars = 15 min), aur market band
+     *  (weekend / CME 17-18 ET halt) par SAFE MODE nahi lagta — band market stale nahi
+     *  hota, wahan entries live-trigger ki wajah se khud trigger nahi hoti. */
     private boolean freshData(String sym) {
+        if (marketClosedET()) return true;
+        long bars = 3;
+        try { bars = Math.max(2, Integer.parseInt(db.setting("safe_mode_bars", "3").trim())); } catch (Exception ignored) { }
         Cursor c = db.getReadableDatabase().rawQuery(
                 "SELECT ts FROM candles WHERE symbol=? AND tf=? ORDER BY ts DESC LIMIT 1",
                 new String[]{sym, TF});
         boolean fresh = false;
-        if (c.moveToFirst()) fresh = System.currentTimeMillis() - c.getLong(0) < 2 * TF_MS;
+        if (c.moveToFirst()) fresh = System.currentTimeMillis() - c.getLong(0) < bars * TF_MS;
         c.close();
         if (!fresh && !safeMode) {
             safeMode = true;
             safeModeSince = System.currentTimeMillis();
             db.log("WARN", "FEED", "SAFE_MODE_ON",
-                    sym + " candle stale (>10 min) — SAFE MODE: naye entries band, open trades ka SL/TP freeze (stale prices par false trigger nahi). Feed recover hote hi auto-clear.");
+                    sym + " candle stale (>" + (bars * 5) + " min, market OPEN hai) — SAFE MODE: naye entries band, open trades ka SL/TP freeze (stale prices par false trigger nahi). Feed recover hote hi auto-clear.");
             try { Notifier.post(appContext(), "SAFE MODE", "Feed outage — " + sym + " stale. Naye entries band, khuli trades protected."); } catch (Throwable ignored) { }
         } else if (fresh && safeMode) {
             // sab symbols fresh ho tabhi clear — conservative: is symbol ki freshness se
@@ -2838,6 +2849,26 @@ public class EngineCore implements Runnable {
     }
 
     public boolean isSafeMode() { return safeMode; }
+
+    /** v3.0.1 — CME commodities market abhi BAND hai? (weekend ya daily 17:00-17:59 ET
+     *  maintenance halt, America/New_York timezone). Ye stale-data se mukhtalif cheez
+     *  hai: band market par candle age barhti rehti hai lekin wo feed failure NAHI —
+     *  is liye SAFE MODE alarm nahi, sirf entries naturally trigger nahi hoti (live
+     *  candle hi nahi banti). Dashboard bhi "market closed" dikhata hai. */
+    private boolean marketClosedET() {
+        try {
+            java.util.Calendar cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("America/New_York"));
+            int dow = cal.get(java.util.Calendar.DAY_OF_WEEK);
+            int h = cal.get(java.util.Calendar.HOUR_OF_DAY);
+            if (h == 17) return true;                                     // daily maintenance halt
+            if (dow == java.util.Calendar.SATURDAY) return true;
+            if (dow == java.util.Calendar.SUNDAY && h < 18) return true;   // Sunday reopen 18:00 ET
+            if (dow == java.util.Calendar.FRIDAY && h >= 18) return true;  // Friday close (17x halt upar pakda)
+            return false;
+        } catch (Throwable t) { return false; }
+    }
+
+    public boolean isMarketClosed() { return marketClosedET(); }
 
     /** EVENT GATE: aakhri 60 min mein HIGH-impact news = naye entries pause (opt-in). */
     private boolean eventGateActive() {
@@ -3291,8 +3322,10 @@ public class EngineCore implements Runnable {
         m.put("risk_pct", riskPct());
         m.put("limits", "UNLIMITED daily P/L (owner) — heat/bucket/event/session caps default OFF opt-in");
         // v3.0 QUANT PRO status
-        m.put("version", "3.0");
-        m.put("safe_mode", safeMode);
+        m.put("version", "3.0.1");
+        boolean mktClosed = marketClosedET();
+        m.put("safe_mode", safeMode && !mktClosed);   // v3.0.1 — band market par SAFE MODE jhoota lagta tha
+        m.put("market_closed", mktClosed);            // v3.0.1 — weekend / CME halt indicator
         m.put("slip_bps", slipBps());
         m.put("heat_max_pct", heatMaxPct());
         m.put("bucket_max_pct", bucketMaxPct());
@@ -3315,6 +3348,30 @@ public class EngineCore implements Runnable {
             }
         }
         m.put("threec_armed", armed);
+        // v3.0.1 — WHY-NO-TRADE diagnostics: user ko transparent pata chale ke engine
+        // kya kar raha hai (setups detect hue? filters ne roka? market band hai? feed late hai?)
+        try {
+            Cursor fx = db.getReadableDatabase().rawQuery(
+                    "SELECT MAX(ts) FROM candles WHERE tf=?", new String[]{TF});
+            if (fx.moveToFirst() && fx.getLong(0) > 0)
+                m.put("feed_age_min", Math.round((System.currentTimeMillis() - fx.getLong(0)) / 60000.0 * 10.0) / 10.0);
+            fx.close();
+        } catch (Throwable ignored) { }
+        int lowData = 0;
+        for (Map.Entry<String, String> e : threecStates.entrySet())
+            if (e.getValue() != null && e.getValue().contains("data kam")) lowData++;
+        m.put("data_low", lowData);
+        try {
+            JSONObject nr = new JSONObject();
+            Cursor lc = db.getReadableDatabase().rawQuery(
+                    "SELECT event, COUNT(*) FROM logs WHERE ts>=? AND event IN ('SETUP_DETECTED','SETUP_FILTERED'," +
+                            "'SETUP_EXPIRED','SETUP_INVALIDATED','BREAKOUT_DETECTED','ORDER_EXECUTED','ENTRY_BLOCKED'," +
+                            "'COUNCIL_BLOCKED','HEAT_CAP_BLOCKED','BUCKET_CAP_BLOCKED','SAFE_MODE_ON') GROUP BY event",
+                    new String[]{String.valueOf(System.currentTimeMillis() - 24L * 3600_000)});
+            while (lc.moveToNext()) nr.put(lc.getString(0), lc.getInt(1));
+            lc.close();
+            m.put("no_trade_report", nr);
+        } catch (Throwable ignored) { }
         return m;
     }
 

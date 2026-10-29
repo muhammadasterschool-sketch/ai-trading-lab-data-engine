@@ -144,7 +144,7 @@ select{width:100%;background:var(--card);border:1px solid var(--line);border-rad
   <div class="logo"><img src="logo.png" alt="AI Trading Lab"></div>
   <h1>AI Trading Lab</h1>
   <div class="sub">Full trading engine on this device — paper trading</div>
-  <div class="sub" style="color:var(--gold)">v3.0 · QUANT PRO · HEAT · COUNCIL · ML · HONEST LAB · TRUE DD</div>
+  <div class="sub" style="color:var(--gold)">v3.0.1 · QUANT PRO · HEAT · COUNCIL · ML · HONEST LAB · TRUE DD</div>
   <div id="engStrip" class="eng">checking engine…</div>
   <div class="note"><b>Naya install / update?</b> Accounts is device ki local database mein hote hain — app reinstall ya update ke baad purana account <b>transfer nahi hota</b>. Pehla account = <b>OWNER (ADMIN)</b>. Baaki log <b>Register</b> se apply karein — <b>invite code owner se milega</b> (kahin likha hua nahi hota), aur owner ke <b>APPROVE</b> karne ke baad hi sign in possible hoga. Kisi authenticator app ki zaroorat nahi.</div>
 
@@ -217,12 +217,12 @@ select{width:100%;background:var(--card);border:1px solid var(--line);border-rad
   <aside id="drawer">
     <div class="dhead">
       <img src="logo.png" alt="">
-      <div><div class="dt">AI Trading Lab</div><div class="ds" id="drEngine">engine · v3.0 QUANT PRO</div></div>
+      <div><div class="dt">AI Trading Lab</div><div class="ds" id="drEngine">engine · v3.0.1 QUANT PRO</div></div>
       <button class="dclose" onclick="closeDrawer()">✕</button>
     </div>
     <div class="duser" id="drUser"></div>
     <div class="ditems" id="drItems"></div>
-    <div class="dfoot">v3.0 · QUANT PRO · paper trading only — engine is device par 24/7 chalta hai</div>
+    <div class="dfoot">v3.0.1 · QUANT PRO · paper trading only — engine is device par 24/7 chalta hai</div>
   </aside>
   <main id="main"></main>
   <nav>
@@ -584,11 +584,13 @@ function renderDash(){
        sab se aam wajah hai (OEM battery managers background killers) */
     if(e.battery_ok === false) ban += '<div class="banner red">🔋 <b>24/7 ke liye zaroori:</b> Battery optimization abhi bhi ON hai — Android engine ko sula dega. App kholte waqt aane wale dialog mein <b>Allow</b> dabayen, ya Settings → Battery → AI Trading Lab → <b>Unrestricted</b> karein.</div>';
     if(!e.engine_on) ban += '<div class="banner red">Engine is OFF — enable in Settings</div>';
-    else if(e.safe_mode) ban += '<div class="banner red">🛡 <b>SAFE MODE — feed outage:</b> candle data stale (>10 min). Naye entries band, khuli trades ka SL/TP freeze hai (false trigger se bachne ke liye). Feed wapas aane par auto-resume.</div>';
+    else if(e.safe_mode) ban += '<div class="banner red">🛡 <b>SAFE MODE — feed outage:</b> candle data stale (market OPEN hai lekin candles nahi aa rahi). Naye entries band, khuli trades ka SL/TP freeze hai (false trigger se bachne ke liye). Feed wapas aane par auto-resume.</div>';
+    else if(e.market_closed) ban += '<div class="banner warn" style="border-color:#f59e0b;color:#fbbf24">🕐 <b>Market BAND hai</b> (weekend ya CME daily maintenance 17:00-18:00 ET) — 3C sirf chalte market par trade karta hai. Engine 24/7 chal raha hai, market khulte hi scan resume ho jayega. Ye normal hai — ghabraiye nahi.</div>';
     else if(e.news_pause) ban += '<div class="banner warn">📰 High-impact news — new entries paused 30 min</div>';
     else ban += '<div class="banner green">⏱ 24h scanner LIVE — '+e.active_symbols+' instruments on '+(e.timeframe||'5m')+' chart · QUANT PRO stack: slippage model '+ (e.slip_bps!=null?e.slip_bps:2) +'bps · council '+(e.council_min>0?'GATE ≥'+e.council_min+'%':'tag-only')+' · ML '+(e.ml||'warming up')+'</div>';
     var spark = sparkSvg(d.equity||[]);
     var exp = d.exposure||{};
+    var nr = e.no_trade_report||{};   /* v3.0.1 why-no-trades 24h counters */
     var heatCell = '<div class="card full"><div class="k">Portfolio Heat + Bucket Exposure (LEAN-style)</div>' +
       '<div style="display:flex;gap:6px;margin-top:8px">' +
         '<div style="flex:1"><div class="mut" style="font-size:10px">TOTAL HEAT</div><b style="font-size:16px;color:'+((d.heat||0)>(d.heatCap||0)&&(d.heatCap||0)>0?'#f87171':'#e5e7eb')+'">'+(d.heat||0).toFixed(1)+'%</b>'+(d.heatCap>0?' <span class="mut" style="font-size:10px">/ cap '+d.heatCap+'%</span>':' <span class="mut" style="font-size:10px">/ UNLIMITED</span>')+'</div>' +
@@ -615,6 +617,18 @@ function renderDash(){
       card('Today', (d.dayPnlPct>=0?'+':'')+d.dayPnlPct.toFixed(2)+'%', d.dayPnlPct>=0?'green':'red') +
       card('Drawdown (TRUE HWM)', d.drawdownPct.toFixed(2)+'% <span class="mut" style="font-size:10px">peak-ratcheted</span>', d.drawdownPct>-5?'green':'red') +
       heatCell +
+      '<div class="card full"><div class="k">🔍 Why no trades? — 24h engine report</div>' +
+        '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">' +
+          '<div style="flex:1;min-width:80px"><div class="mut" style="font-size:10px">3C SETUPS BANE</div><b style="font-size:16px;color:#4ade80">'+((nr.SETUP_DETECTED||0))+'</b></div>' +
+          '<div style="flex:1;min-width:80px"><div class="mut" style="font-size:10px">PRO FILTER REJECT</div><b style="font-size:16px;color:'+(nr.SETUP_FILTERED?'#fbbf24':'#71717a')+'">'+(nr.SETUP_FILTERED||0)+'</b></div>' +
+          '<div style="flex:1;min-width:80px"><div class="mut" style="font-size:10px">BREAKOUT NAHI HUA</div><b style="font-size:16px;color:'+(nr.SETUP_EXPIRED?'#fbbf24':'#71717a')+'">'+(nr.SETUP_EXPIRED||0)+'</b></div>' +
+          '<div style="flex:1;min-width:80px"><div class="mut" style="font-size:10px">INVALIDATED</div><b style="font-size:16px;color:'+(nr.SETUP_INVALIDATED?'#fbbf24':'#71717a')+'">'+(nr.SETUP_INVALIDATED||0)+'</b></div>' +
+          '<div style="flex:1;min-width:80px"><div class="mut" style="font-size:10px">ENTRIES EXECUTED</div><b style="font-size:16px;color:'+(nr.ORDER_EXECUTED?'#4ade80':'#71717a')+'">'+(nr.ORDER_EXECUTED||0)+'</b></div>' +
+        '</div>' +
+        '<div class="small" style="margin-top:6px">Market '+(e.market_closed?'<b style="color:#fbbf24">BAND hai</b> (weekend / halt — trade sirf khule market par hota hai)':'<b style="color:#4ade80">OPEN hai</b>')+
+        ' · newest candle '+(e.feed_age_min!=null?('<b>'+e.feed_age_min+'</b> min purani'):'—')+
+        (e.data_low>0?(' · <b style="color:#f87171">'+e.data_low+'</b> symbols par data kam'):' · data theek')+
+        ' · 3C pattern strict hai (C1+C2 green/red 70% body + C3 protected close + 5-candle breakout) — roz 1-4 valid setup normal hai, har candle par trade nahi banti.</div></div>' +
       '<div class="card full"><div class="k">Equity (recent)</div><div id="sparkwrap">'+spark+'</div></div>' +
       '<div class="card full"><div class="k">Engine Status</div>' +
         '<table style="margin-top:6px"><tr><td class="mut">Consensus</td><td>'+esc(e.consensus||'')+'</td></tr>' +
