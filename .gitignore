@@ -1,2 +1,8 @@
 skills/
 node_modules/
+
+# build env downloads (never commit — >100MB)
+/cmdtools.zip
+/jdk17.tar.gz
+/gradle.zip
+/*.tar.gz

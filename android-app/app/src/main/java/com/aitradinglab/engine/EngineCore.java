@@ -15,7 +15,9 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * EngineCore v1.4 — 3C MASTER STRATEGY ENGINE (owner request: "saari strategy delete,
+ * EngineCore v1.5 — 3C MASTER STRATEGY ENGINE + SPEED (owner request: "1 trade per sec"
+ * = jitne setups fire hon utne trades foran; entry breakout ke ~10s ke andar).
+ * Previously v1.4 — 3C MASTER STRATEGY ENGINE (owner request: "saari strategy delete,
  * sirf 3C chalao, daily loss/profit UNLIMITED").
  *
  * THE 3C STRATEGY (M5, mechanical, verbatim from the owner's MASTER TRAINING PROMPT):
@@ -134,7 +136,7 @@ public class EngineCore implements Runnable {
 
     // ================== MAIN LOOP ==================
     @Override public void run() {
-        db.log("INFO", "SYSTEM", "ENGINE_START", "v1.4 3C MASTER engine — 5m timeframe, 24h nonstop scanner, live Binance data | 3C rules: C1+C2 body>=70%, C3 protected close, 5-candle breakout window, close-based invalidation, SL=opposite extreme, breakeven at +1R, close ALL at +3R, no partial TP | risk " + riskPct() + "% (Settings risk_pct) | UNLIMITED daily P/L — no kill switch, no position cap (owner request) | Strategy Lab + auto-evolve every 6h");
+        db.log("INFO", "SYSTEM", "ENGINE_START", "v1.5 3C MASTER engine — SPEED edition: 10s scan loop, LIVE-candle stop-order trigger (entry candle close ka intezaar nahi karti), live SL/TP/breakeven tracking | 3C rules: C1+C2 body>=70%, C3 protected close, 5-candle breakout window, close-based invalidation, SL=opposite extreme, breakeven at +1R, close ALL at +3R, no partial TP | risk " + riskPct() + "% (Settings risk_pct) | UNLIMITED daily P/L — no kill switch, no position cap (owner request) | Strategy Lab + auto-evolve every 6h");
 
 
         // v1.2 ONE-TIME MIGRATION — paper money is now $100 (owner request). Accounts still
@@ -176,7 +178,7 @@ public class EngineCore implements Runnable {
 
             try {
                 long now = System.currentTimeMillis();
-                if (now - lastLoop >= 30_000) { loop(); lastLoop = now; }
+                if (now - lastLoop >= 10_000) { loop(); lastLoop = now; }   // v1.5 — 30s→10s: breakout se entry ~10s ke andar
                 if (now - lastDiscovery >= 30 * 60_000) { discover(); lastDiscovery = now; }
                 if (now - lastNews >= 15 * 60_000) { fetchNews(); lastNews = now; }
                 if (now - lastFng >= 60 * 60_000) { fetchFearGreed(); lastFng = now; }
@@ -1596,6 +1598,38 @@ public class EngineCore implements Runnable {
             }
             Walk3C w = walk3C(sym, k);
             threecStates.put(sym, w.state);
+            // v1.5 — LIVE stop-order trigger: breakout ka intezaar candle close tak NAHI.
+            // Chalti hui (in-progress) M5 candle trigger cross karti hi foran entry —
+            // bilkul real trader ke stop order jaisa. Window discipline same: live candle
+            // sirf tab trigger kar sakti hai jab wo 5-candle window ke andar ho.
+            if (w.fire == null && w.pending != null && !all.isEmpty()) {
+                Candle live = all.get(all.size() - 1);
+                Setup3C p = w.pending;
+                boolean liveFresh = System.currentTimeMillis() - live.ts < TF_MS;
+                int liveWin = (int) ((live.ts - p.c3Ts) / TF_MS);
+                if (liveFresh && liveWin > THREEC_WINDOW) {
+                    log3C(sym, p, "SETUP_EXPIRED", "no breakout by candle " + THREEC_WINDOW + " — window khatam, live trigger band");
+                    w.pending = null;
+                    threecStates.put(sym, "setup expired — " + THREEC_WINDOW + "/" + THREEC_WINDOW + " window complete, breakout nahi hua");
+                } else if (liveFresh && liveWin >= 1) {
+                    boolean buyL = "BUY".equals(p.side);
+                    if (buyL ? live.h > p.trigger : live.l < p.trigger) {
+                        double fill = buyL ? Math.max(p.trigger, live.o) : Math.min(p.trigger, live.o);
+                        lastVotes = new int[]{buyL ? 1 : -1};
+                        lastVoteSym = sym;
+                        for (long uid : users) openTrade3C(uid, sym, p, fill);
+                        log3C(sym, p, "BREAKOUT_DETECTED",
+                                "LIVE candle " + liveWin + "/" + THREEC_WINDOW + " broke " + (buyL ? "above " : "below ")
+                                        + fpx(p.trigger) + " — intrabar stop-order fill (candle close ka intezaar nahi)");
+                        fireText = "ENTRY OPEN — " + sym + " " + p.side + " @ " + fpx(fill)
+                                + " (3C LIVE breakout, SL " + fpx(p.slPrice) + ", TP +3R, risk " + pct(riskPct() / 100)
+                                + "%) — breakeven at +1R";
+                        lastPattern = "BREAKOUT " + sym;
+                        threecStates.put(sym, "ENTRY " + p.side + " — live breakout trigger " + fpx(p.trigger) + " @ " + fpx(fill));
+                        w.pending = null;
+                    }
+                }
+            }
             if (w.fire != null) {
                 lastVotes = new int[]{"BUY".equals(w.fire.side) ? 1 : -1};
                 lastVoteSym = sym;
@@ -1743,32 +1777,44 @@ public class EngineCore implements Runnable {
             long id = (Long) r[0], uid = (Long) r[1];
             String sym = (String) r[2], side = (String) r[3], strategy = (String) r[8];
             double qty = (Double) r[4], entry = (Double) r[5], sl = (Double) r[6], tp = (Double) r[7];
-            // last CLOSED candle high/low — stop-order semantics, close-only se zyada accurate
+            // v1.5 — CLOSED + LIVE (in-progress) candle dono par stop-order semantics:
+            // SL/TP/breakeven ab candle close ka intezaar nahi karte — 10s scan par turant.
+            // Conservative same-candle order: SL pehle, TP baad mein (kabhi optimistic nahi).
+            double[][] candles2 = new double[2][];
             Cursor cc = db.getReadableDatabase().rawQuery(
                     "SELECT h, l FROM candles WHERE symbol=? AND tf=? AND ts<=? ORDER BY ts DESC LIMIT 1",
                     new String[]{sym, TF, String.valueOf(System.currentTimeMillis() - TF_MS)});
-            double hi = Double.NaN, lo = Double.NaN;
-            if (cc.moveToFirst()) { hi = cc.getDouble(0); lo = cc.getDouble(1); }
+            if (cc.moveToFirst()) candles2[0] = new double[]{cc.getDouble(0), cc.getDouble(1)};
             cc.close();
-            if (Double.isNaN(hi)) continue;
+            Cursor lc = db.getReadableDatabase().rawQuery(
+                    "SELECT h, l FROM candles WHERE symbol=? AND tf=? AND ts>? ORDER BY ts DESC LIMIT 1",
+                    new String[]{sym, TF, String.valueOf(System.currentTimeMillis() - TF_MS)});
+            if (lc.moveToFirst()) candles2[1] = new double[]{lc.getDouble(0), lc.getDouble(1)};
+            lc.close();
             boolean buy = "BUY".equals(side);
-            // conservative same-candle order: SL pehle, TP baad mein (kabhi optimistic nahi)
-            boolean hitSl = buy ? lo <= sl : hi >= sl;
-            boolean hitTp = buy ? hi >= tp : lo <= tp;
-            if (hitSl || hitTp) {
-                closeTrade(id, uid, hitSl ? sl : tp, hitSl ? "SL" : "TP", qty, entry, side);
-                continue;
-            }
-            // 3C management: +1R par WHOLE position ka SL breakeven par; +3R TP already set.
             boolean is3C = strategy != null && strategy.startsWith("3C");
-            if (is3C) {
-                double rDist = Math.abs(tp - entry) / THREEC_TP_R;      // 1R (TP 3R door fix hai)
-                boolean beMoved = buy ? sl >= entry : sl <= entry;      // SL pehle se entry par?
-                boolean beHit = buy ? hi >= entry + rDist : lo <= entry - rDist;
-                if (!beMoved && beHit && rDist > 0) {
-                    db.getWritableDatabase().execSQL("UPDATE trades SET sl=? WHERE id=?", new Object[]{entry, id});
-                    db.log("INFO", "3C", "TRADE_MANAGED",
-                            "trade #" + id + " " + sym + " — +1R hit — SL moved to breakeven " + fpx(entry) + " (whole position, no partial TP)");
+            double rDist = Math.abs(tp - entry) / THREEC_TP_R;      // 1R (TP 3R door fix hai)
+            boolean done = false;
+            for (double[] hl : candles2) {
+                if (hl == null || done) continue;
+                double hi = hl[0], lo = hl[1];
+                boolean hitSl = buy ? lo <= sl : hi >= sl;
+                boolean hitTp = buy ? hi >= tp : lo <= tp;
+                if (hitSl || hitTp) {
+                    closeTrade(id, uid, hitSl ? sl : tp, hitSl ? "SL" : "TP", qty, entry, side);
+                    done = true;
+                    continue;
+                }
+                // 3C management: +1R par WHOLE position ka SL breakeven par; +3R TP already set.
+                if (is3C) {
+                    boolean beMoved = buy ? sl >= entry : sl <= entry;      // SL pehle se entry par?
+                    boolean beHit = buy ? hi >= entry + rDist : lo <= entry - rDist;
+                    if (!beMoved && beHit && rDist > 0) {
+                        db.getWritableDatabase().execSQL("UPDATE trades SET sl=? WHERE id=?", new Object[]{entry, id});
+                        sl = entry;   // live-candle pass ko updated SL dikhe (double BE move na ho)
+                        db.log("INFO", "3C", "TRADE_MANAGED",
+                                "trade #" + id + " " + sym + " — +1R hit — SL moved to breakeven " + fpx(entry) + " (whole position, no partial TP)");
+                    }
                 }
             }
         }
