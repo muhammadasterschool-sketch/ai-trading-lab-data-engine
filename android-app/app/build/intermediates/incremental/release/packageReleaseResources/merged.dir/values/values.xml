@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#09090B</color>
+    <color name="border">#27272A</color>
+    <color name="cloud">#60A5FA</color>
+    <color name="error">#F87171</color>
+    <color name="gold">#F59E0B</color>
+    <color name="gold_pressed">#FBBF24</color>
+    <color name="green">#22C55E</color>
+    <color name="surface">#18181B</color>
+    <color name="text_dim">#52525B</color>
+    <color name="text_primary">#FAFAFA</color>
+    <color name="text_secondary">#A1A1AA</color>
+    <string name="app_name">AI Trading Lab</string>
+    <string name="btn_connect">CONNECT</string>
+    <string name="btn_forget">Forget this server</string>
+    <string name="change_server">Change server</string>
+    <string name="connect_subtitle">Data Engine · v5.7 · Invite-only</string>
+    <string name="connect_title">AI Trading Lab</string>
+    <string name="err_invalid">Enter a valid address starting with http:// or https://</string>
+    <string name="err_unreachable">Could not reach the engine. Check the address, make sure the server is running, then try again.</string>
+    <string name="hint_cloud">Cloud URL, e.g. https://your-domain.com</string>
+    <string name="hint_local">Computer address, e.g. 192.168.1.10:81</string>
+    <string name="hint_url">Server address</string>
+    <string name="last_connected">Last connected</string>
+    <string name="mode_btn_cloud">CLOUD</string>
+    <string name="mode_btn_cloud_sub">From anywhere</string>
+    <string name="mode_btn_device">THIS DEVICE</string>
+    <string name="mode_btn_device_sub">Full system on this phone · no PC needed · runs in background</string>
+    <string name="mode_btn_local">LOCAL</string>
+    <string name="mode_btn_local_sub">Same Wi-Fi / USB</string>
+    <string name="mode_cloud">CLOUD MODE — connect from anywhere.\nEnter your cloud server URL, e.g. https://your-server.example.com</string>
+    <string name="mode_device">THIS DEVICE (PHONE SERVER) — the full trading engine runs on this phone: instruments ledger, news engine, paper trading, logs, broker vault. No computer needed.\nFirst start takes ~1 minute to warm up.</string>
+    <string name="mode_local">LOCAL MODE — phone and computer on same Wi-Fi.\nEnter your computer\u2019s address, e.g. http://192.168.1.10:81</string>
+    <string name="offline_title">Cannot reach the engine</string>
+    <string name="retry">Retry</string>
+    <string name="starting_engine">Starting phone engine\u2026</string>
+    <style name="Theme.ATL" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/surface</item>
+        <item name="android:colorAccent">@color/gold</item>
+        <item name="android:colorPrimary">@color/gold</item>
+        <item name="android:colorPrimaryDark">@color/bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

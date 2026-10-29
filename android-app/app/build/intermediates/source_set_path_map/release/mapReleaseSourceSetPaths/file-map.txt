@@ -1,0 +1,7 @@
+com.aitradinglab.monitor.app-pngs-0 /home/z/my-project/android-app/app/build/generated/res/pngs/release
+com.aitradinglab.monitor.app-resValues-1 /home/z/my-project/android-app/app/build/generated/res/resValues/release
+com.aitradinglab.monitor.app-packageReleaseResources-2 /home/z/my-project/android-app/app/build/intermediates/incremental/release/packageReleaseResources/merged.dir
+com.aitradinglab.monitor.app-packageReleaseResources-3 /home/z/my-project/android-app/app/build/intermediates/incremental/release/packageReleaseResources/stripped.dir
+com.aitradinglab.monitor.app-release-4 /home/z/my-project/android-app/app/build/intermediates/merged_res/release/mergeReleaseResources
+com.aitradinglab.monitor.app-main-5 /home/z/my-project/android-app/app/src/main/res
+com.aitradinglab.monitor.app-release-6 /home/z/my-project/android-app/app/src/release/res

@@ -1,0 +1,12 @@
+[trading-engine] Installing dependencies...
+bun install v1.3.14 (0d9b296a)
+No packages! Deleted empty lockfile
+
+[2.00ms] done
+[trading-engine] Running bun run dev...
+$ bun --hot index.ts
+[engine] socket.io listening on :3003
+[engine] booting…
+[engine] no historical bars in DB — starting live-only
+[engine] no admin user yet — will retry
+[engine] live — feed every 1s, bars every 3s, control every 2s

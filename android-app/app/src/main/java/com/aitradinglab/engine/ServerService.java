@@ -31,6 +31,7 @@ public class ServerService extends Service {
     @Override public void onCreate() {
         super.onCreate();
         instance = this;
+        EngineCore.appContext(this); // v1.2 — Strategy Lab notifications need an app context
         // 1) announce foreground BEFORE anything that could fail — an FGS that never
         //    calls startForeground() is itself killed with a crash dialog (Android 12+).
         try {
@@ -65,6 +66,58 @@ public class ServerService extends Service {
             wakeLock.setReferenceCounted(false);
             wakeLock.acquire();
         } catch (Throwable ignored) { }
+        startWatchdog();   // v1.2 — 24/7: engine thread kabhi marr jaye to foran restart
+    }
+
+    /**
+     * v1.2 24/7 WATCHDOG — the engine thread already catches Throwable inside its loop,
+     * but an Error thrown outside the guarded section (or any JVM-level kill of the
+     * thread) would silently stop trading. Every 30s we verify the thread is alive;
+     * if dead, we rebuild the engine and start a fresh thread. The HTTP server keeps
+     * running throughout so the dashboard never loses connection.
+     */
+    private void startWatchdog() {
+        Thread wd = new Thread(() -> {
+            while (true) {
+                try { Thread.sleep(30_000); } catch (InterruptedException ignored) { return; }
+                try {
+                    if (engineThread == null || !engineThread.isAlive()) {
+                        try { db.log("WARN", "SYSTEM", "ENGINE_REVIVED", "engine thread was dead — 24/7 watchdog restarted it"); } catch (Throwable ignored) { }
+                        if (engine == null) engine = new EngineCore(db);
+                        else engine.stop(); // drop old half-dead instance state
+                        engine = new EngineCore(db);
+                        engineThread = new Thread(engine, "engine-core");
+                        engineThread.start();
+                    }
+                } catch (Throwable ignored) { }
+            }
+        }, "engine-watchdog");
+        wd.setDaemon(true);
+        wd.start();
+    }
+
+    /**
+     * v1.2 24/7 — user swipes the app away (task removed). START_STICKY alone can take
+     * minutes to respawn on aggressive OEMs (Samsung One UI etc.). We schedule an
+     * AlarmManager reboot of the service in ~2s AND try an immediate restart, so the
+     * engine (and its notification) never actually stops.
+     */
+    @Override public void onTaskRemoved(Intent rootIntent) {
+        try {
+            android.app.AlarmManager am = (android.app.AlarmManager) getSystemService(ALARM_SERVICE);
+            android.app.PendingIntent pi = android.app.PendingIntent.getService(this, 2001,
+                    new Intent(this, ServerService.class),
+                    android.app.PendingIntent.FLAG_ONE_SHOT | android.app.PendingIntent.FLAG_IMMUTABLE);
+            if (am != null) am.setExactAndAllowWhileIdle(
+                    android.app.AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    android.os.SystemClock.elapsedRealtime() + 2000, pi);
+        } catch (Throwable ignored) { }
+        try {
+            Intent i = new Intent(this, ServerService.class);
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(i);
+            else startService(i);
+        } catch (Throwable ignored) { }
+        super.onTaskRemoved(rootIntent);
     }
 
     /**

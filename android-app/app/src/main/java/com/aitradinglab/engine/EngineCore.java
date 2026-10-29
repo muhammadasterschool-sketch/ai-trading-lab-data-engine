@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -48,6 +49,7 @@ public class EngineCore implements Runnable {
     private static final String[] DATA_HOSTS = {"https://data-api.binance.vision", "https://api.binance.com"};
     private static final String TF = "1m";
     private static final long TF_MS = 60L * 1000;
+    /** public for StrategyLab backtester */ public static final long TF_MS_PUB = TF_MS;
     private static final int ACTIVE_TOP = 30;      // trade the top-N by volume
     private static final int LEDGER_TOP = 150;     // keep in instruments ledger
     private static final double RISK_PER_TRADE = 0.01;
@@ -66,19 +68,58 @@ public class EngineCore implements Runnable {
     private volatile long lastScanAt = 0;
     private volatile int fngValue = -1;     // crypto Fear & Greed (0-100), -1 = no data
     private long lastFng = 0;
+    private long lastYt = 0;                // v1.2 YouTube channel watcher cadence
     private String lastPattern = "";
+
+    // ===== v1.2 STRATEGY LAB =====
+    public StrategyLab lab;                                                        // AI strategy pipeline
+    public volatile int[] lastVotes = new int[35];                                 // per-strategy last vote for the Strategies list
+    public volatile String lastVoteSym = "-";
+    /** v1.2 DYNAMIC RISK — risk % scales with consensus strength (owner request).
+     *  60-64.9% -> 0.5% | 65-74.9% -> 1.0% | 75-84.9% -> 1.5% | >=85% -> 2.0%.
+     *  Same SL 1.5xATR / TP 2.5xATR; daily halt 5% and kill switch 10% unchanged. */
+    public static double riskFor(double consensus) {
+        if (consensus >= 0.85) return 0.020;
+        if (consensus >= 0.75) return 0.015;
+        if (consensus >= 0.65) return 0.010;
+        return 0.005;
+    }
+    /** v1.2 — 35 built-in strategies, SAME ORDER as the votes[] array in scanAndTrade(). */
+    public static final String[][] STRATEGY_META = {
+            {"EMA 9/21 cross", "Trend"}, {"RSI + Bollinger", "Mean reversion"}, {"MACD + Stochastic", "Momentum"},
+            {"VWAP reversion", "Intraday"}, {"20-bar breakout", "Breakout"}, {"Supertrend", "Trend"},
+            {"Ichimoku cloud", "Trend"}, {"ADX + DI", "Trend strength"}, {"CCI + Williams %R", "Oscillator"},
+            {"MFI + OBV", "Volume flow"}, {"PSAR + Aroon", "Trend"}, {"Stochastic RSI", "Oscillator"},
+            {"Candlestick patterns", "Price action"}, {"Donchian channel", "Breakout"}, {"Hull MA", "Trend"},
+            {"KAMA adaptive MA", "Trend"}, {"Vortex", "Trend"}, {"Alligator", "Trend"},
+            {"TSI", "Momentum"}, {"CMO", "Momentum"}, {"Fisher transform", "Oscillator"},
+            {"DeMarker", "Oscillator"}, {"Awesome Oscillator", "Momentum"}, {"Volume flow", "Volume"},
+            {"Chaikin MF", "Volume"}, {"Klinger", "Volume"}, {"PVT + A/D", "Accumulation"},
+            {"Fibonacci bounce", "Support/Res"}, {"Pivot points", "Support/Res"}, {"FVG imbalance", "SMC"},
+            {"BOS structure", "SMC"}, {"Liquidity sweep", "SMC"}, {"Harmonic patterns", "Patterns"},
+            {"Schaff trend cycle", "Oscillator"}, {"Fear & Greed contrarian", "Sentiment"}
+    };
 
     public EngineCore(Db db) {
         this.db = db;
         seedStaticInstruments();
+        try { lab = new StrategyLab(appContext(), db, this); } catch (Throwable t) { lab = null; }
     }
+
+    /** app context for Notifier (set once by ServerService via appContext()). */
+    private static android.content.Context appCtxRef;
+    public static void appContext(android.content.Context c) { appCtxRef = c; }
+    private static android.content.Context appContext() { return appCtxRef; }
+
+    /** Public klines fetch for the Strategy Lab backtester (real Binance data). */
+    public List<Candle> klinesFor(String symbol, int limit) { return fetchKlines(symbol, limit); }
 
     public void stop() { running = false; }
     public boolean isRunning() { return running; }
 
     // ================== MAIN LOOP ==================
     @Override public void run() {
-        db.log("INFO", "SYSTEM", "ENGINE_START", "v1.2 two-tier entry engine — 1m timeframe, 24h nonstop scanner, 35 strategies, live Binance data | TIER-A consensus: >=9 voters & >=60% dominant | TIER-B scout after 20 min silence: >=6 voters & >=65% | risk 1%/trade, SL 1.5xATR, TP 2.5xATR, UNLIMITED positions | paper money $100 default, owner-changeable");
+        db.log("INFO", "SYSTEM", "ENGINE_START", "v1.2 two-tier entry engine — 1m timeframe, 24h nonstop scanner, 35 strategies, live Binance data | TIER-A consensus: >=9 voters & >=60% dominant | TIER-B scout after 20 min silence: >=6 voters & >=65% | DYNAMIC risk 0.5%–2% scaled by consensus strength, SL 1.5xATR, TP 2.5xATR, UNLIMITED positions | paper money $100 default, owner-changeable | Strategy Lab: AI text/YouTube video → backtest → paper → owner approve → live");
 
         // v1.2 ONE-TIME MIGRATION — paper money is now $100 (owner request). Accounts still
         // on the old $100,000 default are reset; open trades are cancelled because they
@@ -106,6 +147,10 @@ public class EngineCore implements Runnable {
                 if (now - lastDiscovery >= 30 * 60_000) { discover(); lastDiscovery = now; }
                 if (now - lastNews >= 15 * 60_000) { fetchNews(); lastNews = now; }
                 if (now - lastFng >= 60 * 60_000) { fetchFearGreed(); lastFng = now; }
+                if (now - lastYt >= 15 * 60_000) {          // v1.2 — watch subscribed YouTube channel
+                    lastYt = now;
+                    if (lab != null) { try { lab.watchYouTube(); } catch (Throwable t) { db.log("ERROR", "LAB", "YT_WATCH_FAIL", String.valueOf(t)); } }
+                }
                 Thread.sleep(2000);
             } catch (Throwable t) {
                 db.log("ERROR", "SYSTEM", "LOOP_ERROR", String.valueOf(t));
@@ -1751,6 +1796,7 @@ public class EngineCore implements Runnable {
                         harmonicVote(k), schaffVote(k), fngVote(k)};
                 int buy = 0, sell = 0;
                 for (int v : votes) { if (v > 0) buy++; else if (v < 0) sell++; }
+                lastVotes = votes; lastVoteSym = sym;   // v1.2 — live snapshot for the Strategies list
                 // Participation-based consensus: abstentions don't dilute the signal.
                 int participated = buy + sell;
                 double consensusBuy = participated > 0 ? buy / (double) participated : 0;
@@ -1788,6 +1834,11 @@ public class EngineCore implements Runnable {
                             + "% (need 60% w/ 9 voters" + (scoutArmed ? ", or 65% w/ 6 as scout" : "") + ") — silent "
                             + silentMin + " min" + (scoutArmed ? " · SCOUT ARMED" : "");
                 }
+
+                // v1.2 STRATEGY LAB — custom AI/YouTube strategies (PAPER + ACTIVE) trade on
+                // symbols the 35-consensus left silent. Owner-approved (ACTIVE) strategies
+                // are their own signal source; PAPER ones are shadow-phasing for review.
+                if (tier == null && lab != null) tryCustomStrategies(uid, sym, k);
             }
         }
     }
@@ -1801,16 +1852,44 @@ public class EngineCore implements Runnable {
 
         Cursor c = db.getReadableDatabase().rawQuery("SELECT balance FROM accounts WHERE user_id=?", new String[]{String.valueOf(uid)});
         double bal = c.moveToFirst() ? c.getDouble(0) : 100; c.close();
-        double riskAmt = bal * RISK_PER_TRADE;
+        // v1.2 DYNAMIC RISK — consensus strength drives position size (0.5%–2% of balance).
+        double risk = riskFor(consensus);
+        double riskAmt = bal * risk;
         double qty = riskAmt / (1.5 * a);
         if (qty * price > bal * 0.95) qty = bal * 0.95 / price;
         if (qty <= 0) return;
 
         db.getWritableDatabase().execSQL(
-                "INSERT INTO trades(user_id, symbol, side, qty, entry, sl, tp, status, strategy, consensus, opened_at) VALUES(?,?,?,?,?,?,?, 'OPEN', ?, ?, ?)",
-                new Object[]{uid, sym, side, qty, price, sl, tp, tier, consensus, System.currentTimeMillis()});
+                "INSERT INTO trades(user_id, symbol, side, qty, entry, sl, tp, status, strategy, consensus, opened_at, risk) VALUES(?,?,?,?,?,?,?, 'OPEN', ?, ?, ?, ?)",
+                new Object[]{uid, sym, side, qty, price, sl, tp, tier, consensus, System.currentTimeMillis(), risk});
         lastEntryAt = System.currentTimeMillis(); // v1.1 — scout timer resets on every real entry
-        db.log("INFO", "EXECUTOR", "PAPER_OPEN", sym + " " + side + " [" + tier + "] qty=" + String.format("%.6f", qty) + " entry=" + String.format("%.6f", price) + " consensus=" + (int)(consensus * 100) + "%");
+        db.log("INFO", "EXECUTOR", "PAPER_OPEN", sym + " " + side + " [" + tier + "] qty=" + String.format("%.6f", qty) + " entry=" + String.format("%.6f", price) + " consensus=" + (int)(consensus * 100) + "% risk=" + String.format(Locale.US, "%.1f", risk * 100) + "% ($" + String.format(Locale.US, "%.2f", riskAmt) + ")");
+    }
+
+    /** v1.2 — evaluate PAPER + ACTIVE custom strategies (Strategy Lab) on one symbol. */
+    private void tryCustomStrategies(long uid, String sym, List<Candle> k) {
+        Cursor c = db.getReadableDatabase().rawQuery(
+                "SELECT name, spec, status FROM strategies WHERE status IN ('PAPER','ACTIVE')", null);
+        List<Object[]> rows = new ArrayList<>();
+        while (c.moveToNext()) rows.add(new Object[]{c.getString(0), c.getString(1), c.getString(2)});
+        c.close();
+        for (Object[] r : rows) {
+            String name = (String) r[0], specRaw = (String) r[1], status = (String) r[2];
+            try {
+                org.json.JSONObject spec = new org.json.JSONObject(specRaw);
+                int dir = StrategyLab.evaluateSpec(spec.optJSONArray("conditions"),
+                        "ANY".equals(spec.optString("logic")) ? 1 : 0, k);
+                if (dir == 0) continue;
+                String specSide = spec.optString("side", "BOTH");
+                if ("BUY".equals(specSide) && dir < 0) continue;
+                if ("SELL".equals(specSide) && dir > 0) continue;
+                String tier = ("ACTIVE".equals(status) ? "AI:LIVE:" : "AI:PAPER:") + name;
+                openTrade(uid, sym, dir > 0 ? "BUY" : "SELL", 0.65, k, tier); // 1% risk bucket — single-signal, prudent
+                lastConsensus = "ENTRY OPEN — " + sym + " " + (dir > 0 ? "BUY" : "SELL") + " (" + tier + ") — Lab strategy signal, managing SL/TP every 30s";
+            } catch (Throwable t) {
+                db.log("ERROR", "LAB", "CUSTOM_EVAL_FAIL", name + " — " + t);
+            }
+        }
     }
 
     private void manageOpenTrades() {

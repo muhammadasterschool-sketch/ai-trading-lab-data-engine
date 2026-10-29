@@ -3,6 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="AI Trading Lab">
 <title>AI Trading Lab</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -171,6 +174,7 @@ select{width:100%;background:#18181b;border:1px solid #27272a;border-radius:9px;
     <button data-t="ind" onclick="go('ind')"><span class="ic">📏</span>Indicators</button>
     <button data-t="news" onclick="go('news')"><span class="ic">📰</span>News</button>
     <button data-t="trades" onclick="go('trades')"><span class="ic">💱</span>Trades</button>
+    <button data-t="lab" onclick="go('lab')"><span class="ic">🧪</span>Lab</button>
     <button data-t="logs" onclick="go('logs')"><span class="ic">📜</span>Logs</button>
     <button data-t="broker" onclick="go('broker')"><span class="ic">🔌</span>Broker</button>
     <button data-t="set" onclick="go('set')"><span class="ic">⚙️</span>Settings</button>
@@ -307,6 +311,7 @@ function refresh(){
   else if(TAB==='ind') renderInd();
   else if(TAB==='news') renderNews();
   else if(TAB==='trades') renderTrades();
+  else if(TAB==='lab') renderLab();
   else if(TAB==='logs') renderLogs();
   else if(TAB==='broker') renderBroker();
   else if(TAB==='set') renderSet();
@@ -341,7 +346,7 @@ function renderDash(){
         '<tr><td class="mut">Market scanner</td><td>'+(e.scanner||'24h')+' nonstop · scan #'+(e.scan_count||0)+(e.fear_greed>=0?' · F&G '+e.fear_greed:'')+'</td></tr>' +
         '<tr><td class="mut">Instruments trading</td><td>'+e.active_symbols+'</td></tr>' +
         '<tr><td class="mut">Data feed</td><td>'+esc((e.data_host||'').replace('https://',''))+' · live Binance market data (real, not simulated)</td></tr>' +
-        '<tr><td class="mut">Risk</td><td>1% / trade · UNLIMITED positions (no cap) · 5% daily halt · 10% kill</td></tr></table></div>' +
+        '<tr><td class="mut">Risk</td><td>Dynamic <b>0.5%–2%</b> by consensus (60%+→0.5% · 65%+→1% · 75%+→1.5% · 85%+→2%) · UNLIMITED positions (no cap) · 5% daily halt · 10% kill</td></tr></table></div>' +
       '</div>';
     document.getElementById('hdrSub').textContent = USER ? (USER.name + (USER.role==='ADMIN'?' · ADMIN':'')) : '';
   });
@@ -478,7 +483,145 @@ function renderTrades(){
     });
     document.getElementById('main').innerHTML =
       '<h2>Open Positions</h2>' + (open? '<table>'+open+'</table>' : '<div class="empty">No open positions — 24h scanner is watching the market on 1m candles</div>') +
-      '<h2>History</h2>' + (closed? '<table>'+closed+'</table>' : '<div class="empty">No closed trades yet</div>');
+      '<h2>History</h2>' + (closed? '<table>'+closed+'</table>' : '<div class="empty">No closed trades yet</div>') +
+      '<div id="histWrap"><div class="empty">Archive load ho raha hai…</div></div>' +
+      '<div class="small" style="margin-top:14px">Archive <b>permanent</b> hai — trades kabhi delete nahi hoti, page refresh par gayab nahi hotin. Year → Month → Day kholein, ya kisi bhi month ki CSV file download karein.</div>';
+    api('/api/history').then(function(h){
+      var el = document.getElementById('histWrap'); if(!el) return;
+      el.innerHTML = histHtml((h.data&&h.data.years)||[]);
+    });
+  });
+}
+/* v1.2 — permanent archive: Year → Month → Day accordion + per-month CSV download */
+function histHtml(years){
+  if(!years.length) return '<h2>Archive — Year → Month → Day</h2><div class="empty">Abhi koi closed trade nahi — archive khud bharta jayega</div>';
+  var out = '<h2>Archive — Year → Month → Day <span class="mut" style="font-size:11px">(permanent)</span></h2>';
+  years.forEach(function(y){
+    out += '<div class="logline" style="cursor:pointer" onclick="histTog(\'hy'+y.y+'\')"><b>📅 '+esc(y.y)+'</b> — '+y.trades+' trades · '+y.wins+' wins · PnL <b style="color:'+(y.pnl>=0?'#4ade80':'#f87171')+'">'+(y.pnl>=0?'+':'')+y.pnl.toFixed(2)+'</b><span class="mut"> (tap kholein)</span></div><div id="hy'+y.y+'" class="hidden" style="padding-left:10px">';
+    (y.months||[]).forEach(function(m){
+      out += '<div class="logline" style="cursor:pointer" onclick="histTog(\'hm'+y.y+m.m+'\')"><b>🗓 '+esc(y.y)+'-'+esc(m.m)+'</b> — '+m.trades+' trades · '+m.wins+' wins · '+(m.pnl>=0?'+':'')+m.pnl.toFixed(2)+' <button class="pill INFO" style="border:0;margin-left:6px" onclick="event.stopPropagation();histCsv('+y.y+','+m.m+')">CSV ⬇</button></div><div id="hm'+y.y+m.m+'" class="hidden" style="padding-left:10px">';
+      (m.days||[]).forEach(function(d){
+        out += '<div class="logline"><span class="mut">Day '+esc(d.d)+'</span> — '+d.trades+' trades · '+d.wins+' wins · '+(d.pnl>=0?'+':'')+d.pnl.toFixed(2)+' · vol $'+d.vol.toFixed(0)+'</div>';
+      });
+      out += '</div>';
+    });
+    out += '</div>';
+  });
+  return out;
+}
+function histTog(id){ var el=document.getElementById(id); if(el) el.classList.toggle('hidden'); }
+function histCsv(y,m){
+  fetch('/api/history/csv?y='+y+'&m='+m, {headers: TOKEN?{'Authorization':'Bearer '+TOKEN}:{}})
+  .then(function(r){ return r.text(); })
+  .then(function(t){
+    var blob = new Blob([t], {type:'text/csv'});
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'atl-trades-'+y+'-'+(m<10?'0'+m:m)+'.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+  });
+}
+/* ================== v1.2 STRATEGY LAB ================== */
+var LAB = null;
+var INP = 'width:100%;padding:11px;border-radius:10px;border:1px solid #27272a;background:#09090b;color:#e4e4e7;font-size:14px;font-family:inherit';
+function renderLab(){
+  api('/api/strategies').then(function(r){
+    if(r.status!==200){ document.getElementById('main').innerHTML='<div class="banner warn">'+esc((r.data&&r.data.error)||'Lab load failed')+'</div>'; return; }
+    LAB = r.data;
+    var d = LAB, rows='';
+    (d.custom||[]).forEach(function(s){ rows += customRow(s); });
+    var ch = d.ytChannel||{};
+    var builtin='';
+    (d.builtin||[]).forEach(function(s){
+      builtin += '<tr><td><b>'+esc(s.name)+'</b><br><span class="mut" style="font-size:10px">'+esc(s.group)+'</span></td>' +
+        '<td style="text-align:right"><span class="pill '+(s.vote>0?'BUY':(s.vote<0?'SELL':'INFO'))+'">'+(s.vote>0?'BUY':(s.vote<0?'SELL':'—'))+'</span></td></tr>';
+    });
+    document.getElementById('main').innerHTML =
+      '<div class="banner green">🧪 Strategy Lab — AI pipeline: <b>likho / YouTube video do → AI banati hai → Backtest (1000 real candles) → Paper chalao → aap LIVE approve karo → engine khud trade karta hai</b></div>' +
+      '<h2>1 · AI se strategy banao (kisi bhi zubaan mein)</h2>' +
+      '<div class="card full"><textarea id="aiText" rows="4" placeholder="e.g. Jab RSI 30 se neeche ho aur price EMA50 ke upar ho to BUY — aur jab RSI 70 se upar ho to SELL karo" style="'+INP+'"></textarea>' +
+      '<div class="row" style="margin-top:8px"><button class="btn" onclick="labAdd()">🤖 AI COMPILE</button><button class="btn sec" onclick="labLoad()">🔄 Refresh</button></div>' +
+      '<div class="small" style="margin-top:6px">AI aapki baat ko machine rules banata hai — phir backtest se prove hota hai. Backtest symbol: <b>'+esc(d.symbol||'BTCUSDT')+'</b> <input id="labSym" placeholder="BTCUSDT" style="'+INP+';width:110px;padding:6px;margin-left:4px"><button class="pill INFO" style="border:0" onclick="labSym()">SET</button></div>' +
+      '<div id="aiMsg"></div></div>' +
+      '<h2>2 · YouTube — video dekho, strategy adopt karo</h2>' +
+      '<div class="card full">' +
+      '<input id="ytUrl" placeholder="Video link: https://youtube.com/watch?v=..." style="'+INP+'">' +
+      '<button class="btn" style="margin-top:8px" onclick="labYt()">🎬 VIDEO WATCH KARO</button>' +
+      '<div class="small" style="margin:10px 0 4px"><b>Channel watcher</b> — YouTuber ki HAR nayi video + live stream khud process hogi (engine har 15 min check karta hai):</div>' +
+      '<input id="ytCh" placeholder="Channel link: https://youtube.com/@name" style="'+INP+'">' +
+      '<div class="row" style="margin-top:8px"><button class="btn sec" onclick="labCh()">📺 SUBSCRIBE</button>' +
+      (ch.id? '<button class="btn sec" onclick="labChStop()">🛑 STOP watcher ('+esc(ch.name||'watching')+')</button>' : '') + '</div>' +
+      '<div id="ytMsg"></div></div>' +
+      '<h2>3 · Meri Lab strategies ('+((d.custom||[]).length)+')</h2>' +
+      (rows || '<div class="empty">Abhi koi custom strategy nahi — upar AI se banao ya YouTube video do</div>') +
+      '<h2>4 · 35 built-in strategies (live votes)</h2>' +
+      '<table>'+builtin+'</table>' +
+      '<div class="small" style="margin-top:10px">Votes last scanned symbol par ('+esc(d.lastVoteSym||'-')+'). TIER-A ko chahiye ≥9 voters & ≥60% dominant; 20 min silence ke baad TIER-B scout: ≥6 voters & ≥65%.</div>';
+  });
+}
+function labMsg(id, txt, ok){ var el=document.getElementById(id); if(el) el.innerHTML = txt? '<div class="banner '+(ok?'green':'red')+'" style="margin-top:8px">'+txt+'</div>' : ''; }
+function customRow(s){
+  var stCls = {ACTIVE:'BUY', PAPER:'INFO', BACKTESTED:'WARN', CANDIDATE:'INFO', REJECTED:'ERROR'}[s.status]||'INFO';
+  var st = s.stats||{};
+  var stats = st.trades>0 ? '<span class="mut" style="font-size:10px">'+st.trades+' trades · win '+st.winrate+'% · PF '+st.pf+' · net '+st.netPct+'% · maxDD '+st.maxDD+'% ('+esc(st.symbol||'')+')</span>' : '';
+  var btns = '';
+  if(s.status==='CANDIDATE') btns += '<button class="pill INFO" style="border:0" onclick="labAct(\'backtest\','+s.id+')">▶ BACKTEST</button> ';
+  if(s.status==='BACKTESTED'){ btns += '<button class="pill INFO" style="border:0" onclick="labAct(\'paper\','+s.id+')">🧪 PAPER</button> <button class="pill BUY" style="border:0" onclick="labAct(\'approve\','+s.id+')">✅ LIVE</button> '; }
+  if(s.status==='PAPER'){ btns += '<button class="pill BUY" style="border:0" onclick="labAct(\'approve\','+s.id+')">✅ LIVE</button> '; }
+  if(s.status!=='REJECTED') btns += '<button class="pill ERROR" style="border:0" onclick="labAct(\'reject\','+s.id+')">✖</button> ';
+  btns += '<button class="pill WARN" style="border:0" onclick="labAct(\'delete\','+s.id+')">🗑</button>';
+  var vid = s.video&&s.video.id? '<a class="mut" style="font-size:10px;color:#8b9cff" href="https://youtube.com/watch?v='+esc(s.video.id)+'">🎬 '+esc((s.video.title||'').slice(0,50))+'</a><br>' : '';
+  return '<tr><td><b>'+esc(s.name)+'</b> <span class="pill '+stCls+'">'+s.status+'</span><br>'+vid+
+    '<span class="mut" style="font-size:10px">'+esc(s.source)+' · '+esc(s.rules||'')+'</span><br>'+stats+'</td>' +
+    '<td style="text-align:right">'+btns+'</td></tr>';
+}
+function labLoad(){ renderLab(); }
+function labAdd(){
+  var t = document.getElementById('aiText').value.trim();
+  if(!t){ labMsg('aiMsg', 'Pehle strategy likhein', false); return; }
+  labMsg('aiMsg', '🤖 AI soch raha hai… (10–30 sec)', true);
+  api('/api/strategies',{method:'POST',body:{action:'add',text:t}}).then(function(r){
+    if(r.status===200){ labMsg('aiMsg', '✅ Bani: <b>'+esc(r.data.strategy.name)+'</b> — ab BACKTEST dabayein', true); renderLab(); }
+    else labMsg('aiMsg', esc((r.data&&r.data.error)||'AI fail — dobara try karein'), false);
+  });
+}
+function labYt(){
+  var u = document.getElementById('ytUrl').value.trim();
+  if(!u){ labMsg('ytMsg', 'Video link dein', false); return; }
+  labMsg('ytMsg', '🎬 Video ka transcript parh kar AI strategy nikal rahi hai… (20–60 sec)', true);
+  api('/api/strategies',{method:'POST',body:{action:'yt_add',url:u}}).then(function(r){
+    if(r.status===200){ labMsg('ytMsg', '✅ Video se strategy bani: <b>'+esc(r.data.strategy.name)+'</b> — ab BACKTEST karein', true); renderLab(); }
+    else labMsg('ytMsg', esc((r.data&&r.data.error)||'Video process fail'), false);
+  });
+}
+function labCh(){
+  var u = document.getElementById('ytCh').value.trim();
+  if(!u){ labMsg('ytMsg', 'Channel link dein', false); return; }
+  labMsg('ytMsg', '📺 Channel resolve ho raha hai…', true);
+  api('/api/strategies',{method:'POST',body:{action:'yt_channel',url:u}}).then(function(r){
+    if(r.status===200){ labMsg('ytMsg', '✅ Subscribe ho gaya — ab har nayi video + live stream khud AI se process hogi', true); renderLab(); }
+    else labMsg('ytMsg', esc((r.data&&r.data.error)||'Channel fail'), false);
+  });
+}
+function labChStop(){
+  api('/api/strategies',{method:'POST',body:{action:'yt_stop'}}).then(function(){ renderLab(); });
+}
+function labSym(){
+  var v = document.getElementById('labSym').value.trim().toUpperCase();
+  if(!v) return;
+  api('/api/strategies',{method:'POST',body:{action:'set_symbol',symbol:v}}).then(function(){ renderLab(); });
+}
+function labAct(action, id){
+  if(action==='delete' && !confirm('Strategy delete?')) return;
+  if(action==='approve' && !confirm('LIVE approve? Ye strategy ab apne aap trades kholégi (paper money).')) return;
+  if(action==='backtest') labMsg('aiMsg', '📊 Backtest chal raha hai — 1000 real candles… (5–15 sec)', true);
+  api('/api/strategies',{method:'POST',body:{action:action,id:id}}).then(function(r){
+    if(r.status===200 && r.data.stats){
+      var s = r.data.stats;
+      labMsg('aiMsg', '📊 Result: '+s.trades+' trades · win '+s.winrate+'% · PF '+s.pf+' · net '+s.netPct+'% · maxDD '+s.maxDD+'% — pasand aaye to PAPER/LIVE dabayein', s.netPct>=0);
+      renderLab();
+    } else if(r.status!==200) labMsg('aiMsg', esc((r.data&&r.data.error)||'Action fail'), false);
+    else renderLab();
   });
 }
 function closeTrade(id){
@@ -538,7 +681,7 @@ function renderSet(){
         '<div class="card full"><div class="k">Apna paper amount — jitna chaho</div>' +
         '<div class="v">$'+Number(bal).toFixed(2)+'</div>' +
         '<div class="row" style="margin-top:8px"><input id="balAmt" type="number" min="10" max="100000000" step="any" inputmode="decimal" placeholder="Naya amount, e.g. 100" style="flex:1;min-width:0;padding:11px;border-radius:10px;border:1px solid #27272a;background:#09090b;color:#e4e4e7;font-size:15px"><button class="btn" onclick="setBalance()">💵 SET</button></div>' +
-        '<div class="small" style="margin-top:10px"><b>$10 se $100,000,000</b> tak koi bhi amount set karo. Default naya account: <b>$100</b>. Amount badalne par open trades cancel hoti hain (naye balance par dobara size hongi) aur PnL%/drawdown naye base se count hota hai. Risk per trade = balance ka <b>1%</b> — $100 par $1, $10,000 par $100.</div></div>' +
+        '<div class="small" style="margin-top:10px"><b>$10 se $100,000,000</b> tak koi bhi amount set karo. Default naya account: <b>$100</b>. Amount badalne par open trades cancel hoti hain (naye balance par dobara size hongi) aur PnL%/drawdown naye base se count hota hai. Risk per trade = <b>dynamic 0.5%–2%</b> — consensus jitna strong utna bada position (60%+ = 0.5%, 65%+ = 1%, 75%+ = 1.5%, 85%+ = 2%).</div></div>' +
         '<h2>Engine</h2>' +
         '<div class="card full"><div class="k">Paper trading engine</div>' +
         '<div class="row"><button class="btn '+(on?'sec':'')+'" onclick="setEngine(true)">▶ START</button>' +

@@ -365,3 +365,20 @@ Stage Summary:
 - ENV RESET (sandbox rebuilt mid-task): gradle 8.9 + Temurin JDK 17 + cmdline-tools/build-tools 34.0.0 reinstalled from scratch; repo1.maven.org 429 → Aliyun mirror added to settings.gradle; .next/standalone wiped → bun run build regenerated; bun restarted
 - versionCode 18→19 / versionName "1.2"; settings version 1.2; health 1.2.0; dashboard badge v1.2; JS node --check OK
 - Deploy: APK (130 KB) + source zip dual-copy (public/ + .next/standalone/public/), bun restarted; ALL 200: /, downloads.html, v1.2 APK, source zip, manifest, apple-touch-icon; v1.1 files removed; download/ synced
+
+## Task 23 — v1.2 Strategy Lab (AI + YouTube) + Dynamic Risk + 24/7 + Permanent History (2026-10-29)
+- Owner requests: 24/7 engine (stop ho raha tha), dynamic risk by consensus, AI strategy pipeline (text/video → backtest → paper → approve → live), YouTube channel watcher, sari strategies ka list, permanent year/month/day trade history
+- STRATEGY LAB (new StrategyLab.java + web AI proxy routes):
+  - Text strategy (kisi bhi zubaan) → /api/ai/strategy (z-ai LLM) → spec JSON (15 supported indicators: rsi, price_vs_ema, ema_cross, sma, macd, bb, atr, supertrend, volume, change, stoch, cci, mfi, adx, candle patterns)
+  - BACKTEST: 1000 real Binance 1m candles, SL 1.5xATR / TP 2.5xATR, 1% baseline; stats trades/winrate/PF/net/maxDD → status BACKTESTED
+  - PAPER shadow (AI:PAPER:name tag) → owner LIVE approve → ACTIVE (own signal source, AI:LIVE:name tag)
+  - YOUTUBE: video link → PHONE fetches captions/transcript (datacenter IP bot-blocked; phone residential IP works) → /api/ai/transcript LLM → spec; Channel subscribe → engine polls RSS via /api/ai/ytlist every 15 min, new videos + live auto-processed (max 3/cycle, 200 seen ids)
+- DYNAMIC RISK: riskFor(consensus) — 60%+→0.5%, 65%+→1%, 75%+→1.5%, 85%+→2%; trades.risk column (Db v3 migration); custom strategies at 1% bucket
+- 24/7: ServerService watchdog (30s engine-thread revival), onTaskRemoved → AlarmManager 2s restart + immediate FGS restart; existing START_STICKY + wakelock + specialUse + boot receiver + battery prompt retained
+- HISTORY: /api/history (year→month→day tree), /api/history/csv?y=&m= (per-month CSV); Trades tab archive accordion + CSV download; trades NEVER deleted
+- STRATEGIES LIST: /api/strategies GET (35 built-ins with live votes + custom rows + yt channel state); Lab tab sections 1-4
+- dashboard.html: 🧪 Lab tab (AI compile, YouTube watch/subscribe, lifecycle buttons, built-ins table), Trades archive, dynamic-risk texts, iOS meta tags
+- Android routes: /api/strategies GET+POST (add/yt_add/yt_channel/yt_stop/backtest/paper/approve/reject/delete/set_symbol), /api/history, /api/history/csv
+- BUILD (env reset — toolchain rebuilt): gradle 8.9 + Temurin JDK 17 + cmdline-tools/build-tools 34.0.0 fresh installs; keystore recovered from /tmp/my-project; jlink fix via JDK17 (system JDK21 is JRE-only); minSdk 24 → java.time.Instant replaced with SimpleDateFormat
+- versionCode 19 / versionName 1.2; APK 153 KB signed (atl-v4-release) + source zip; triple-deploy public/ + .next/standalone/public/ + download/; bun restarted
+- Verified 200: downloads.html, v1.2 APK, source zip; AI routes live-tested: /api/ai/strategy (Roman Urdu → spec ✅), /api/ai/ytlist (channel RSS ✅), /api/ai/transcript (transcript → spec ✅)

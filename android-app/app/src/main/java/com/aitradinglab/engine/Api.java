@@ -51,10 +51,12 @@ public class Api {
     }
 
     // ================== ROUTER ==================
+    private String query = ""; // v1.2 — raw query string for /api/history/csv?y=...&m=...
+
     public Res route(String method, String rawPath, String authHeader, String body) {
         String path = rawPath;
         int q = path.indexOf('?');
-        if (q >= 0) path = path.substring(0, q);
+        if (q >= 0) { query = path.substring(q + 1); path = path.substring(0, q); } else query = "";
         String m = method.toUpperCase();
 
         if ("OPTIONS".equals(m)) return Res.json(200, "{}");
@@ -99,6 +101,12 @@ public class Api {
         if (path.startsWith("/api/indicators")) return indicators(path);
         if ("/api/news".equals(path)) return news();
         if ("/api/trades".equals(path)) return trades(uid);
+        if ("/api/strategies".equals(path)) {   // v1.2 Strategy Lab listing
+            if (engine == null || engine.lab == null) return Res.error(503, "Lab shuru ho raha hai — refresh karein");
+            return Res.json(200, engine.lab.listStrategies());
+        }
+        if ("/api/history".equals(path)) return history(uid);            // v1.2 year→month→day archive
+        if ("/api/history/csv".equals(path)) return historyCsv(uid);     // v1.2 month CSV export
         if ("/api/logs".equals(path)) return logs();
         if ("/api/brokers".equals(path)) return brokers();
         if ("/api/settings".equals(path)) return settings();
@@ -132,6 +140,11 @@ public class Api {
         if ("/api/settings".equals(path)) return saveSettings(body);
         // v1.2 — owner ka apna paper amount: set ANY paper balance
         if ("/api/balance".equals(path)) return setBalance(uid, body);
+        // v1.2 Strategy Lab — add/compile/watch/backtest/paper/approve
+        if ("/api/strategies".equals(path)) {
+            if (engine == null || engine.lab == null) return Res.error(503, "Lab shuru ho raha hai — refresh karein");
+            return strategyAction(engine.lab, body);
+        }
         // v5.7 FULL MOBILE CONTROL — owner admin actions
         if ("/api/admin/users".equals(path)) return adminUserAction(uid, body);
         if ("/api/admin/invites".equals(path)) return adminInviteAction(uid, body);
@@ -589,7 +602,151 @@ public class Api {
                 + String.format(Locale.US, "%.2f", amt) + " (open trades cancelled, risk counters reset)");
         return Res.json(200, new JSONObject().put("ok", true).put("balance", round2(amt))
                 .put("message", "Paper balance set: $" + String.format(Locale.US, "%.0f", amt)
-                        + " — ab har trade is balance ka 1% risk karegi"));
+                        + " — ab har trade dynamic risk le gi: consensus 60%+ = 0.5%, 65%+ = 1%, 75%+ = 1.5%, 85%+ = 2%"));
+    }
+
+    // ================== v1.2 STRATEGY LAB + PERMANENT HISTORY ==================
+
+    /** URL-decoded query param for the current request (api/history/csv uses it). */
+    private String qParam(String key) {
+        if (query == null || query.isEmpty()) return "";
+        for (String p : query.split("&")) {
+            int eq = p.indexOf('=');
+            if (eq <= 0) continue;
+            if (p.substring(0, eq).equals(key)) {
+                try { return java.net.URLDecoder.decode(p.substring(eq + 1), "UTF-8"); }
+                catch (Exception e) { return p.substring(eq + 1); }
+            }
+        }
+        return "";
+    }
+
+    /** Strategy Lab actions — the whole AI/backtest/paper/live pipeline is driven from here. */
+    private Res strategyAction(StrategyLab lab, String body) throws Exception {
+        JSONObject o = HttpServer.jObj(body);
+        String action = HttpServer.jStr(o, "action");
+        String text = HttpServer.jStr(o, "text");
+        String url = HttpServer.jStr(o, "url");
+        long id = o.optLong("id", -1);
+        JSONObject out;
+        switch (action) {
+            case "add":
+                if (text.isEmpty()) return Res.error(400, "Strategy likhein — kisi bhi zubaan mein");
+                out = lab.addManual(text);
+                break;
+            case "yt_add":
+                if (url.isEmpty()) return Res.error(400, "YouTube video ka link dein");
+                out = lab.addYouTube(url);
+                break;
+            case "yt_channel":
+                if (url.isEmpty()) return Res.error(400, "Channel ka link dein (@handle ya /channel/UC...)");
+                out = lab.subscribeChannel(url);
+                break;
+            case "yt_stop":
+                lab.stopChannel();
+                out = new JSONObject().put("ok", true).put("message", "Channel watcher band ho gaya");
+                break;
+            case "backtest": out = lab.backtest(id); break;
+            case "paper":    out = lab.startPaper(id); break;
+            case "approve":  out = lab.approve(id); break;
+            case "reject":   out = lab.reject(id); break;
+            case "delete":   out = lab.remove(id); break;
+            case "set_symbol": {
+                String sym = HttpServer.jStr(o, "symbol").toUpperCase(Locale.US);
+                if (!sym.matches("[A-Z0-9]{5,20}")) return Res.error(400, "Symbol format galat hai (e.g. BTCUSDT)");
+                db.setSetting("lab_symbol", sym);
+                out = new JSONObject().put("ok", true).put("message", "Backtest symbol: " + sym);
+                break;
+            }
+            default: return Res.error(400, "Unknown action: " + action);
+        }
+        if (out == null) return Res.error(502, "AI service fail — thori dair baad dobara try karein");
+        if (!out.optBoolean("ok", true)) return Res.json(502, out);
+        return Res.json(200, out);
+    }
+
+    /**
+     * v1.2 PERMANENT HISTORY — trades kabhi delete nahi hote; ye endpoint poora
+     * archive year → month → day tree mein return karta hai (wins/losses/PnL/volume).
+     */
+    private Res history(long uid) throws Exception {
+        Cursor c = db.getReadableDatabase().rawQuery(
+                "SELECT CAST(strftime('%Y', opened_at/1000, 'unixepoch') AS TEXT) y, " +
+                "CAST(strftime('%m', opened_at/1000, 'unixepoch') AS TEXT) m, " +
+                "CAST(strftime('%d', opened_at/1000, 'unixepoch') AS TEXT) d, " +
+                "COUNT(*), IFNULL(SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END),0), IFNULL(ROUND(SUM(pnl),2),0), IFNULL(ROUND(SUM(qty*entry),2),0) " +
+                "FROM trades WHERE user_id=? AND status='CLOSED' AND opened_at IS NOT NULL " +
+                "GROUP BY y, m, d ORDER BY y DESC, m DESC, d DESC", new String[]{String.valueOf(uid)});
+        java.util.Map<String, JSONObject> years = new java.util.LinkedHashMap<>();
+        java.util.Map<String, JSONObject> months = new java.util.LinkedHashMap<>();
+        JSONArray dayArr = new JSONArray();
+        while (c.moveToNext()) {
+            String y = c.getString(0), m = c.getString(1), d = c.getString(2);
+            long n = c.getLong(3), w = c.getLong(4);
+            double pnl = c.getDouble(5), vol = c.getDouble(6);
+            JSONObject yo = years.get(y);
+            if (yo == null) {
+                yo = new JSONObject().put("y", y).put("trades", 0).put("wins", 0).put("pnl", 0).put("months", new JSONArray());
+                years.put(y, yo);
+            }
+            JSONObject mo = months.get(y + "-" + m);
+            if (mo == null) {
+                mo = new JSONObject().put("m", m).put("y", y).put("trades", 0).put("wins", 0).put("pnl", 0).put("days", new JSONArray());
+                months.put(y + "-" + m, mo);
+                ((JSONArray) yo.get("months")).put(mo);
+            }
+            JSONObject day = new JSONObject().put("d", d).put("trades", n).put("wins", w).put("pnl", pnl).put("vol", vol);
+            ((JSONArray) mo.get("days")).put(day);
+            mo.put("trades", mo.optLong("trades") + n).put("wins", mo.optLong("wins") + w)
+                    .put("pnl", Math.round((mo.optDouble("pnl") + pnl) * 100) / 100.0);
+            yo.put("trades", yo.optLong("trades") + n).put("wins", yo.optLong("wins") + w)
+                    .put("pnl", Math.round((yo.optDouble("pnl") + pnl) * 100) / 100.0);
+            dayArr.put(day);
+        }
+        c.close();
+        JSONArray yArr = new JSONArray();
+        for (JSONObject yo : years.values()) yArr.put(yo);
+        return Res.json(200, new JSONObject().put("ok", true).put("years", yArr));
+    }
+
+    /** v1.2 — one month's closed trades as CSV (dashboard JS se file download hoti hai). */
+    private Res historyCsv(long uid) throws Exception {
+        int y, m;
+        try { y = Integer.parseInt(qParam("y")); m = Integer.parseInt(qParam("m")); }
+        catch (Exception e) { return Res.error(400, "y aur m chahiye (e.g. ?y=2026&m=01)"); }
+        if (m < 1 || m > 12 || y < 2020 || y > 2100) return Res.error(400, "Month/year range galat hai");
+        java.util.Calendar cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"));
+        cal.set(y, m - 1, 1, 0, 0, 0); cal.set(java.util.Calendar.MILLISECOND, 0);
+        long from = cal.getTimeInMillis();
+        cal.add(java.util.Calendar.MONTH, 1);
+        long to = cal.getTimeInMillis() - 1;
+        Cursor c = db.getReadableDatabase().rawQuery(
+                "SELECT symbol, side, qty, entry, sl, tp, exit, pnl, strategy, consensus, risk, opened_at, closed_at FROM trades " +
+                "WHERE user_id=? AND status='CLOSED' AND opened_at BETWEEN ? AND ? ORDER BY opened_at ASC",
+                new String[]{String.valueOf(uid), String.valueOf(from), String.valueOf(to)});
+        StringBuilder sb = new StringBuilder(
+                "date,symbol,side,qty,entry,sl,tp,exit,pnl,risk_pct,strategy,consensus_pct,opened_at_ms,closed_at_ms\n");
+        java.text.SimpleDateFormat iso = new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US);
+        iso.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+        int n = 0;
+        while (c.moveToNext()) {
+            sb.append(iso.format(new java.util.Date(c.getLong(11)))).append(',')
+                    .append(c.getString(0)).append(',').append(c.getString(1)).append(',')
+                    .append(c.getDouble(2)).append(',').append(c.getDouble(3)).append(',')
+                    .append(c.getDouble(4)).append(',').append(c.getDouble(5)).append(',')
+                    .append(c.getDouble(6)).append(',').append(c.getDouble(7)).append(',')
+                    .append(c.isNull(10) ? "" : String.format(Locale.US, "%.1f", c.getDouble(10) * 100)).append(',')
+                    .append('"').append(c.getString(8).replace("\"", "'")).append("\",")
+                    .append(c.isNull(9) ? "" : String.format(Locale.US, "%.0f", c.getDouble(9) * 100)).append(',')
+                    .append(c.getLong(11)).append(',').append(c.getLong(12)).append('\n');
+            n++;
+        }
+        c.close();
+        Res r = new Res();
+        r.contentType = "text/csv; charset=utf-8";
+        r.body = sb.toString();
+        db.log("INFO", "HISTORY", "CSV_EXPORT", "user #" + uid + " — " + y + "-" + String.format(Locale.US, "%02d", m) + ": " + n + " trades exported");
+        return r;
     }
 
     private Res saveSettings(String body) throws Exception {

@@ -1,0 +1,9 @@
+{
+  "/_not-found/page": "app/_not-found/page.js",
+  "/api/ai/strategy/route": "app/api/ai/strategy/route.js",
+  "/api/ai/transcript/route": "app/api/ai/transcript/route.js",
+  "/api/ai/youtube/route": "app/api/ai/youtube/route.js",
+  "/api/ai/ytlist/route": "app/api/ai/ytlist/route.js",
+  "/api/auth/login/route": "app/api/auth/login/route.js",
+  "/page": "app/page.js"
+}

@@ -5,12 +5,13 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
 
-/** SQLite ledger store — instruments, logs, trades, news, brokers, users. */
+/** SQLite ledger store — instruments, logs, trades, news, brokers, users, strategies. */
 public class Db extends SQLiteOpenHelper {
     private static final String NAME = "atl-engine.db";
-    // v5.7: VERSION 2 — adds the notifications table (in-app alert feed for the
-    // owner's Control tab). Existing v5.x installs upgrade in place via onUpgrade.
-    private static final int VERSION = 2;
+    // v1.2: VERSION 3 — adds the Strategy Lab table (AI/YouTube/custom strategies:
+    // spec JSON, backtest stats, CANDIDATE→BACKTESTED→PAPER→ACTIVE lifecycle) and
+    // the trades.risk column (per-trade risk fraction, dynamic by consensus).
+    private static final int VERSION = 3;
 
     public Db(Context ctx) { super(ctx, NAME, null, VERSION); }
 
@@ -58,6 +59,11 @@ public class Db extends SQLiteOpenHelper {
         // sees the full history in the Control tab (system notification + this row)
         exec(d, "CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT DEFAULT 'REGISTER', title TEXT, body TEXT, meta TEXT DEFAULT '{}', read INTEGER DEFAULT 0, created_at INTEGER)");
         exec(d, "CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read, created_at)");
+        // v1.2 Strategy Lab — user ki strategies (AI text / YouTube video / manual).
+        // status lifecycle: CANDIDATE -> BACKTESTED -> PAPER -> ACTIVE (ya REJECTED).
+        // video = source video meta JSON; stats = backtest results JSON.
+        exec(d, "CREATE TABLE IF NOT EXISTS strategies(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, source TEXT DEFAULT 'MANUAL', video TEXT DEFAULT '{}', spec TEXT, status TEXT DEFAULT 'CANDIDATE', stats TEXT DEFAULT '{}', created_at INTEGER, updated_at INTEGER)");
+        exec(d, "CREATE INDEX IF NOT EXISTS idx_strategies_status ON strategies(status, created_at)");
         exec(d, "CREATE INDEX IF NOT EXISTS idx_logs_ts ON logs(ts)");
         exec(d, "CREATE INDEX IF NOT EXISTS idx_trades_uid ON trades(user_id, status)");
         exec(d, "CREATE INDEX IF NOT EXISTS idx_candles ON candles(symbol, ts)");
@@ -70,6 +76,12 @@ public class Db extends SQLiteOpenHelper {
         if (a < 2) {
             exec(d, "CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT DEFAULT 'REGISTER', title TEXT, body TEXT, meta TEXT DEFAULT '{}', read INTEGER DEFAULT 0, created_at INTEGER)");
             exec(d, "CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(read, created_at)");
+        }
+        // v1.2 (db v2→v3): Strategy Lab + per-trade dynamic risk column
+        if (a < 3) {
+            exec(d, "CREATE TABLE IF NOT EXISTS strategies(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, source TEXT DEFAULT 'MANUAL', video TEXT DEFAULT '{}', spec TEXT, status TEXT DEFAULT 'CANDIDATE', stats TEXT DEFAULT '{}', created_at INTEGER, updated_at INTEGER)");
+            exec(d, "CREATE INDEX IF NOT EXISTS idx_strategies_status ON strategies(status, created_at)");
+            try { exec(d, "ALTER TABLE trades ADD COLUMN risk REAL"); } catch (Throwable ignored) { } // column may already exist
         }
     }
 

@@ -1,10 +1,14 @@
-# AI Trading Lab — v1.2 Release (Android) — PAPER $100 + CUSTOM AMOUNT + UNLIMITED POSITIONS
+# AI Trading Lab — v1.2 Release (Android) — STRATEGY LAB (AI) + DYNAMIC RISK + 24/7 + $100
 
 Release date: 2026-10-29
 APK: `AI-Trading-Lab-v1.2-Android.apk` (versionCode 19)
 
 Owner requests: "ios ka link de do" + "paper money 100 dollar kardo" +
-"mai kitna paper amount change kar sako" + "position trade kholni ke koi limit na ho".
+"mai kitna paper amount change kar sako" + "position trade kholni ke koi limit na ho" +
+"engine stop ho jara hai, 24/7 chalne chahiye" + "risk percent har trade par consensus par vary kare" +
+"AI jisko strategy do, backtest kare, phir paper, phir mere allow karne par live kare" +
+"YouTube video dekh kar strategy adopt kare / channel ki sari videos + live watch kare" +
+"sari strategies ka option" + "trades history permanent — year/month/day".
 
 ## WHAT CHANGED
 
@@ -24,9 +28,45 @@ Owner requests: "ios ka link de do" + "paper money 100 dollar kardo" +
    and standalone display meta: Safari → Share → Add to Home Screen installs it
    as a full-screen app. Note: the trading engine itself is the Android app
    (foreground service + local SQLite); the iPhone PWA gives the web dashboard.
+6. **NEW: 🧪 Strategy Lab tab (full AI pipeline)** — type a strategy in ANY
+   language (Roman Urdu OK) → the web AI proxy (z-ai LLM) compiles it into a
+   machine spec → **BACKTEST on 1000 real Binance 1m candles** (same SL 1.5xATR /
+   TP 2.5xATR, 1% baseline risk; stats: trades, winrate, profit factor, net%,
+   max drawdown) → **PAPER** shadow phase (strategy trades the live paper
+   account tagged `AI:PAPER:name`) → owner taps **LIVE** → status ACTIVE, the
+   strategy becomes its own signal source (`AI:LIVE:name`). Lifecycle:
+   CANDIDATE → BACKTESTED → PAPER → ACTIVE / REJECTED, all in the strategies
+   table (DB v3).
+7. **NEW: YouTube watcher** — paste a video link → the PHONE fetches the
+   captions/transcript with its own IP (datacenter IPs get bot-blocked by
+   YouTube; mobile/WiFi IPs don't), sends only the TEXT to the AI proxy, and the
+   LLM extracts the taught strategy into a spec. **Channel subscribe**: engine
+   polls the channel's RSS every 15 min — every NEW video AND live stream is
+   auto-processed into a candidate strategy + status-bar notification
+   (max 3 per cycle, last 200 video ids tracked).
+8. **DYNAMIC RISK by consensus (was fixed 1%)** — position size now scales
+   with signal strength: consensus 60–64.9% → **0.5%**, 65–74.9% → **1%**,
+   75–84.9% → **1.5%**, ≥85% → **2%** of balance. Stored per-trade in the new
+   `trades.risk` column; execution log shows risk% and $ at open. Daily halt
+   −5% and kill switch −10% unchanged. Custom Lab strategies trade at the 1%
+   bucket (single-signal = prudent).
+9. **24/7 HARDENING** — (a) engine-thread watchdog revives a dead core within
+   30s and logs ENGINE_REVIVED; (b) swiping the app away triggers an
+   AlarmManager restart (~2s) + immediate foreground-service restart, so the
+   notification and trading never stop; (c) START_STICKY + PARTIAL_WAKE_LOCK +
+   specialUse FGS (no 6h dataSync limit) + boot receiver + battery-optimization
+   exemption prompt — all already in place, now belt-and-suspenders.
+10. **PERMANENT TRADE HISTORY — Year → Month → Day** — trades are NEVER
+   deleted (only logs/equity are pruned). New GET /api/history returns the full
+   archive grouped year → month → day (trades, wins, PnL, volume per bucket);
+   Trades tab shows a tappable archive tree + **CSV export per month**
+   (GET /api/history/csv?y=…&m=…, downloaded as atl-trades-YYYY-MM.csv).
+11. **Strategies list** — Lab tab section 4 lists all 35 built-in strategies
+    (name, group) with their LIVE last vote (BUY/SELL/—) from the most recent
+    scan, plus every custom Lab strategy with status and backtest stats.
 
-Risk model otherwise unchanged: 1%/trade | SL 1.5xATR | TP 2.5xATR | daily
-halt -5% | kill switch -10%.
+Risk model otherwise unchanged: dynamic 0.5%–2% by consensus | SL 1.5xATR |
+TP 2.5xATR | daily halt -5% | kill switch -10%.
 
 ---
 
