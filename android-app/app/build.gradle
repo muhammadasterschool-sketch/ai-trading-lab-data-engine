@@ -9,6 +9,8 @@ plugins {
 // apksigner, or restore the local keystore.properties). Debug builds are unaffected.
 // Owner action recommended: generate a NEW keystore, because the old keystore and
 // its passwords were historically committed to the public repository.
+// v3.0.3 P1: settings + strategy governance gates (owner-only), allowBackup=false,
+// request-size cap. Version identity stays single-sourced from defaultConfig.
 def ksProps = new Properties()
 def ksPropsFile = rootProject.file("keystore.properties")
 if (ksPropsFile.exists()) {
@@ -23,8 +25,8 @@ android {
         applicationId "com.aitradinglab.monitor"
         minSdk 24
         targetSdk 34
-        versionCode 31
-        versionName "3.0.2"
+        versionCode 32
+        versionName "3.0.3"
     }
 
     signingConfigs {

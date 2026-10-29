@@ -16,6 +16,12 @@ import org.json.JSONObject;
 /** Minimal HTTP/1.1 server (no deps) hosting the dashboard + JSON API on 127.0.0.1:8788. */
 public class HttpServer {
     public static final int PORT = 8788;
+    /** v3.0.3 P1: maximum accepted request-body size. Dashboard/API JSON bodies are
+     *  far below this; the cap prevents a local app from sending a huge
+     *  Content-Length and forcing a giant buffer allocation (OOM -> engine-process
+     *  death = local DoS). The loopback-only binding already limits WHO can send;
+     *  this limits WHAT a sender can make the engine allocate. */
+    static final int MAX_BODY_BYTES = 1_000_000;
     private final Api api;
     private ServerSocket server;
     private volatile boolean running;
@@ -88,8 +94,31 @@ public class HttpServer {
                     String key = h.substring(0, c).trim().toLowerCase();
                     String val = h.substring(c + 1).trim();
                     headers.put(key, val);
-                    if ("content-length".equals(key)) contentLength = Integer.parseInt(val);
+                    if ("content-length".equals(key)) {
+                        // v3.0.3 P1: malformed Content-Length must not crash the handler
+                        try { contentLength = Integer.parseInt(val); }
+                        catch (NumberFormatException e) { contentLength = -1; }
+                    }
                 }
+            }
+            if (contentLength < 0 || contentLength > MAX_BODY_BYTES) {
+                // v3.0.3 P1: reject WITHOUT allocating the declared buffer. Drain a
+                // bounded amount of an in-flight body first (an abrupt close with
+                // unread request bytes can RST before the client reads the 413); if
+                // no body bytes are pending, respond immediately.
+                try {
+                    s.setSoTimeout(2000);
+                    java.io.InputStream is = s.getInputStream();
+                    byte[] sink = new byte[8192];
+                    int drained = 0;
+                    while (drained < 65536 && is.available() > 0) {
+                        int n = is.read(sink, 0, Math.min(sink.length, 65536 - drained));
+                        if (n < 0) break;
+                        drained += n;
+                    }
+                } catch (IOException ignored) { }
+                respond(s, Api.Res.json(413, "{\"ok\":false,\"error\":\"request body too large or malformed Content-Length\"}"));
+                return;
             }
             StringBuilder body = new StringBuilder();
             if (contentLength > 0) {

@@ -80,4 +80,61 @@ public class HttpServerLoopbackTest {
         srv.stop();
         assertTrue("listener socket must be closed after stop()", ss.isClosed());
     }
+
+    // ---- v3.0.3 P1: request-size cap (local OOM-DoS guard) ----
+
+    private String readHead(Socket s) throws Exception {
+        byte[] buf = new byte[4096];
+        int n = s.getInputStream().read(buf);
+        return n < 0 ? "" : new String(buf, 0, n, "UTF-8");
+    }
+
+    private Socket openLoopback() throws Exception {
+        Socket s = new Socket();
+        s.setSoTimeout(5000);
+        s.connect(new java.net.InetSocketAddress(InetAddress.getByName("127.0.0.1"), HttpServer.PORT), 3000);
+        return s;
+    }
+
+    @Test public void oversized_content_length_rejected_413_without_allocation() throws Exception {
+        srv = new HttpServer(null);
+        srv.start();
+        Socket s = openLoopback();
+        // Declares ~2 GB. The pre-cap handler would have tried `new char[2000000000]`
+        // -> OutOfMemoryError -> engine process death (local DoS). Must be 413 instead.
+        s.getOutputStream().write("POST /api/settings HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 2000000000\r\n\r\n".getBytes("UTF-8"));
+        s.getOutputStream().flush();
+        String head = readHead(s);
+        assertTrue("expected 413 for oversized Content-Length, got: " + head,
+                head.startsWith("HTTP/1.1 413"));
+        s.close();
+    }
+
+    @Test public void malformed_content_length_rejected_413() throws Exception {
+        srv = new HttpServer(null);
+        srv.start();
+        Socket s = openLoopback();
+        // Non-numeric Content-Length used to throw NumberFormatException inside the
+        // header loop -> unhandled in the parser -> connection dropped with no reply.
+        s.getOutputStream().write("POST /api/settings HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: abc\r\n\r\n".getBytes("UTF-8"));
+        s.getOutputStream().flush();
+        String head = readHead(s);
+        assertTrue("expected 413 for malformed Content-Length, got: " + head,
+                head.startsWith("HTTP/1.1 413"));
+        s.close();
+    }
+
+    @Test public void normal_small_body_still_accepted_pipeline() throws Exception {
+        srv = new HttpServer(null);
+        srv.start();
+        Socket s = openLoopback();
+        // Small well-formed body: the cap must NOT interfere. With Api==null the
+        // route() call fails internally and the socket closes (EOF) — reaching that
+        // EOF proves the body was accepted and dispatched past the size gate.
+        s.getOutputStream().write("POST /api/health HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 2\r\n\r\n{}".getBytes("UTF-8"));
+        s.getOutputStream().flush();
+        int r = s.getInputStream().read();
+        assertEquals("small body must pass the size gate (EOF after dispatch)", -1, r);
+        s.close();
+    }
 }

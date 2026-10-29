@@ -42,7 +42,7 @@ public class Api {
         this.db = db;
         this.engine = engine;
         this.appCtx = ctx.getApplicationContext();
-        String ver = "3.0.2";
+        String ver = "3.0.3";
         try {
             ver = ctx.getPackageManager().getPackageInfo(ctx.getPackageName(), 0).versionName;
         } catch (Throwable ignored) { }
@@ -157,7 +157,7 @@ public class Api {
         // v1.2 Strategy Lab — add/compile/watch/backtest/paper/approve
         if ("/api/strategies".equals(path)) {
             if (engine == null || engine.lab == null) return Res.error(503, "Lab shuru ho raha hai — refresh karein");
-            return strategyAction(engine.lab, body);
+            return strategyAction(uid, engine.lab, body);
         }
         // v5.7 FULL MOBILE CONTROL — owner admin actions
         if ("/api/admin/users".equals(path)) return adminUserAction(uid, body);
@@ -904,9 +904,26 @@ public class Api {
     }
 
     /** Strategy Lab actions — the whole AI/backtest/paper/live pipeline is driven from here. */
-    private Res strategyAction(StrategyLab lab, String body) throws Exception {
+    private Res strategyAction(long uid, StrategyLab lab, String body) throws Exception {
         JSONObject o = HttpServer.jObj(body);
         String action = HttpServer.jStr(o, "action");
+        // v3.0.3 P1 GOVERNANCE: approve is THE human-approval gate for AI/YouTube
+        // strategies — it flips a strategy to ACTIVE so the engine follows it as its
+        // own signal source. reject/delete/restore/trash rewrite the owner's strategy
+        // library and set_symbol changes a global engine input. All of these are now
+        // OWNER(ADMIN)-only; unauthorized attempts are rejected AND audit-logged.
+        // Research actions (add/yt_add/backtest/paper) stay open to every signed-in
+        // operator — they are paper-only and cannot move the risk gates.
+        switch (action) {
+            case "approve": case "reject": case "delete": case "restore": case "trash": case "set_symbol":
+                if (!isAdmin(uid)) {
+                    db.log("WARN", "GUARD", "STRATEGY_ADMIN_BLOCKED",
+                            "user #" + uid + " (non-admin) ne strategy action '" + action + "' ki koshish — REJECT (strategy governance owner-only hai)");
+                    return Res.error(403, "Strategy " + action + " sirf owner (ADMIN) kar sakta hai");
+                }
+                break;
+            default: break;
+        }
         String text = HttpServer.jStr(o, "text");
         String url = HttpServer.jStr(o, "url");
         long id = o.optLong("id", -1);
@@ -1035,18 +1052,23 @@ public class Api {
 
     private Res saveSettings(long uid, String body) throws Exception {
         JSONObject o = HttpServer.jObj(body);
-        // v3.0.2 GOVERNANCE: the MT5 bridge is the ONLY live-order surface in the app
-        // (EngineCore.bridgeOrder/bridgeClose POST real orders to the bridge when
-        // bridge_live=1). Until v3.0.2 ANY authenticated TRADER could enable it here.
-        // All three bridge settings are now OWNER(ADMIN)-only; unauthorized attempts
-        // are rejected AND logged to the audit ledger.
-        boolean admin = isAdmin(uid);
-        if (o.has("mt5Bridge") || o.has("bridgeLive") || o.has("bridgeLots")) {
-            if (!admin) {
-                db.log("WARN", "GUARD", "SETTINGS_ADMIN_BLOCKED",
-                        "user #" + uid + " (non-admin) ne MT5 bridge setting change ki koshish — REJECT (live-order surface owner-only hai)");
-                return Res.error(403, "MT5 bridge settings sirf owner (ADMIN) change kar sakta hai");
-            }
+        // v3.0.3 P1 GOVERNANCE (extends the v3.0.2 bridge-only gate to ALL settings):
+        // /api/settings is not a preferences panel — it is the engine + risk control
+        // surface: engine_on (start/stop the engine), risk_pct (position size),
+        // threec_* strategy filters, cooldown/consec_loss guards, daily_kill_pct
+        // (the daily kill-switch threshold), slip/heat caps, safe-mode bars and the
+        // MT5 bridge trio (mt5Bridge/bridgeLive/bridgeLots — the ONLY live-order
+        // surface: EngineCore.bridgeOrder/bridgeClose POST real orders when
+        // bridge_live=1). Until this patch ANY authenticated TRADER could change
+        // all of these — including weakening or disabling safety guards. Every
+        // settings MUTATION is now OWNER(ADMIN)-only; unauthorized attempts are
+        // rejected AND logged to the audit ledger. The read-only GET /api/settings
+        // is unchanged so every signed-in operator can still SEE the governance
+        // state; changing it requires the owner account.
+        if (!isAdmin(uid)) {
+            db.log("WARN", "GUARD", "SETTINGS_ADMIN_BLOCKED",
+                    "user #" + uid + " (non-admin) ne " + o.length() + " setting(s) change ki koshish — REJECT (engine/risk/kill-switch settings owner-only hain)");
+            return Res.error(403, "Settings sirf owner (ADMIN) change kar sakta hai");
         }
         if (o.has("engineOn")) {
             boolean on = o.optBoolean("engineOn");

@@ -11,9 +11,15 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- v3.0.3 P1: allowBackup=false — the engine SQLite DB holds PBKDF2 password
+         hashes, TOTP seeds, session tokens and owner-optional broker records;
+         none of it may silently leave the device via Android Auto Backup or adb
+         backup. Backup/restore stays the owner's explicit manual procedure. -->
     <application
         android:name=".AtlApp"
-        android:allowBackup="true"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/full_backup_content"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:usesCleartextTraffic="true"
