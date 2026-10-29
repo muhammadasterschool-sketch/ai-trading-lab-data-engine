@@ -8,6 +8,10 @@ import android.database.sqlite.SQLiteOpenHelper;
 /** SQLite ledger store — instruments, logs, trades, news, brokers, users, strategies. */
 public class Db extends SQLiteOpenHelper {
     private static final String NAME = "atl-engine.db";
+    // v3.0: VERSION 7 — QUANT PRO: trade journal columns (r_mult, mfe, mae, risk_amt,
+    // decision, tca_bps, council, win_prob, features — professional journaling: R-multiple
+    // distribution + MFE/MAE + TCA slippage + Signal Council score + ML prediction) +
+    // orders table (order lifecycle audit trail)
     // v2.1: VERSION 6 — users.trade_ok (OWNER TRADING GATE: registration approve hone
     // ke baad bhi trading tabhi chalegi jab owner Control > Users me ENABLE TRADING
     // dabaye) + brokers.server (MT5 login ke liye) + HALAL MODE universe purge
@@ -18,7 +22,7 @@ public class Db extends SQLiteOpenHelper {
     // v1.2: VERSION 3 — adds the Strategy Lab table (AI/YouTube/custom strategies:
     // spec JSON, backtest stats, CANDIDATE→BACKTESTED→PAPER→ACTIVE lifecycle) and
     // the trades.risk column (per-trade risk fraction, dynamic by consensus).
-    private static final int VERSION = 6;
+    private static final int VERSION = 7;
 
     public Db(Context ctx) { super(ctx, NAME, null, VERSION); }
 
@@ -56,7 +60,10 @@ public class Db extends SQLiteOpenHelper {
         exec(d, "CREATE TABLE IF NOT EXISTS instruments(symbol TEXT PRIMARY KEY, base TEXT, quote TEXT, exchange TEXT, asset_class TEXT, status TEXT, priority INTEGER DEFAULT 0, discovered_at INTEGER, last_data_at INTEGER, note TEXT)");
         exec(d, "CREATE TABLE IF NOT EXISTS candles(symbol TEXT, tf TEXT, ts INTEGER, o REAL, h REAL, l REAL, c REAL, v REAL, PRIMARY KEY(symbol, tf, ts))");
         exec(d, "CREATE TABLE IF NOT EXISTS accounts(user_id INTEGER PRIMARY KEY, balance REAL DEFAULT 100, start_balance REAL DEFAULT 100, peak REAL DEFAULT 100, day_start REAL DEFAULT 100, day_ts INTEGER DEFAULT 0)");
-        exec(d, "CREATE TABLE IF NOT EXISTS trades(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, symbol TEXT, side TEXT, qty REAL, entry REAL, sl REAL, tp REAL, exit REAL, pnl REAL, status TEXT, strategy TEXT, consensus REAL, opened_at INTEGER, closed_at INTEGER)");
+        exec(d, "CREATE TABLE IF NOT EXISTS trades(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, symbol TEXT, side TEXT, qty REAL, entry REAL, sl REAL, tp REAL, exit REAL, pnl REAL, status TEXT, strategy TEXT, consensus REAL, opened_at INTEGER, closed_at INTEGER, risk REAL, r_mult REAL DEFAULT 0, mfe REAL DEFAULT 0, mae REAL DEFAULT 0, risk_amt REAL DEFAULT 0, decision REAL DEFAULT 0, tca_bps REAL DEFAULT 0, council INTEGER DEFAULT 0, win_prob REAL DEFAULT 0, features TEXT DEFAULT '{}')");
+        // v3.0 — order lifecycle audit trail (PAPER: har paper trade ka order record;
+        // LIVE MIRROR: bridge se aane wale real orders bhi yahan)
+        exec(d, "CREATE TABLE IF NOT EXISTS orders(id INTEGER PRIMARY KEY AUTOINCREMENT, trade_id INTEGER, user_id INTEGER, symbol TEXT, side TEXT, type TEXT DEFAULT 'STOP', price REAL, qty REAL, status TEXT DEFAULT 'FILLED', source TEXT DEFAULT 'PAPER', ts INTEGER)");
         exec(d, "CREATE TABLE IF NOT EXISTS logs(id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, level TEXT, component TEXT, event TEXT, details TEXT)");
         exec(d, "CREATE TABLE IF NOT EXISTS news(id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, source TEXT, headline TEXT, sentiment TEXT, impact TEXT)");
         exec(d, "CREATE TABLE IF NOT EXISTS brokers(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, kind TEXT, api_key TEXT, api_secret TEXT, login TEXT, password TEXT, server TEXT, status TEXT, added_at INTEGER)");
@@ -127,6 +134,26 @@ public class Db extends SQLiteOpenHelper {
             // v2.1 — pre-written master code retired (v1.9 gate continuity): owner
             // ab bhi Control > Invitation Codes se fresh codes bana sakta hai.
             try { exec(d, "UPDATE invites SET active=0 WHERE code='M2991474'"); } catch (Throwable ignored) { }
+        }
+        // v3.0 (db v6→v7): QUANT PRO journal + order lifecycle. Sab DEFAULT 0/'{}' —
+        // purani trades untouched rehti hain, sirf nayi trades in columns ko bharange.
+        if (a < 7) {
+            String[] cols = {
+                    "ALTER TABLE trades ADD COLUMN risk REAL",
+                    "ALTER TABLE trades ADD COLUMN r_mult REAL DEFAULT 0",
+                    "ALTER TABLE trades ADD COLUMN mfe REAL DEFAULT 0",
+                    "ALTER TABLE trades ADD COLUMN mae REAL DEFAULT 0",
+                    "ALTER TABLE trades ADD COLUMN risk_amt REAL DEFAULT 0",
+                    "ALTER TABLE trades ADD COLUMN decision REAL DEFAULT 0",
+                    "ALTER TABLE trades ADD COLUMN tca_bps REAL DEFAULT 0",
+                    "ALTER TABLE trades ADD COLUMN council INTEGER DEFAULT 0",
+                    "ALTER TABLE trades ADD COLUMN win_prob REAL DEFAULT 0",
+                    "ALTER TABLE trades ADD COLUMN features TEXT DEFAULT '{}'"
+            };
+            for (String sql : cols) { try { exec(d, sql); } catch (Throwable ignored) { } }
+            try {
+                exec(d, "CREATE TABLE IF NOT EXISTS orders(id INTEGER PRIMARY KEY AUTOINCREMENT, trade_id INTEGER, user_id INTEGER, symbol TEXT, side TEXT, type TEXT DEFAULT 'STOP', price REAL, qty REAL, status TEXT DEFAULT 'FILLED', source TEXT DEFAULT 'PAPER', ts INTEGER)");
+            } catch (Throwable ignored) { }
         }
     }
 

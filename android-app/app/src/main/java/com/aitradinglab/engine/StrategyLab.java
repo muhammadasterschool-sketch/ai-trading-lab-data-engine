@@ -318,12 +318,30 @@ public class StrategyLab {
                     "SELECT name FROM strategies WHERE deleted_at=0 ORDER BY id DESC LIMIT 25", null);
             while (c.moveToNext()) { if (names.length() > 0) names.append("; "); names.append(c.getString(0)); }
             c.close();
+            // v3.0 FEEDBACK LOOP — auto-evolve ab degradation + rolling PF data bhi dekhta hai
+            StringBuilder deg = new StringBuilder();
+            Cursor dc = db.getReadableDatabase().rawQuery(
+                    "SELECT strategy, COUNT(*) FROM trades WHERE status='CLOSED' GROUP BY strategy HAVING COUNT(*)>=20", null);
+            List<String[]> dtags = new ArrayList<>();
+            while (dc.moveToNext()) dtags.add(new String[]{dc.getString(0), dc.getString(1)});
+            dc.close();
+            for (String[] tg : dtags) {
+                Cursor rc = db.getReadableDatabase().rawQuery(
+                        "SELECT pnl FROM trades WHERE strategy=? AND status='CLOSED' ORDER BY closed_at DESC LIMIT 20",
+                        new String[]{tg[0]});
+                double gw = 0, gl = 0;
+                while (rc.moveToNext()) { double p = rc.getDouble(0); if (p > 0) gw += p; else gl += -p; }
+                rc.close();
+                if (gl > 0) deg.append(tg[0]).append(" rolling20 PF=").append(Math.round(gw / gl * 100.0) / 100.0).append("; ");
+            }
             String prompt = "Hamara AI Trading Lab abhi 3C Breakout (M5) MASTER strategy paper-trade kar raha hai "
                     + "(3 candles: C1+C2 strong body>=70% same direction, C3 opposite protected candle, "
                     + "5-candle breakout window, SL opposite extreme, breakeven at +1R, close whole position at +3R). "
                     + "Existing lab strategies: " + (names.length() == 0 ? "(none)" : names) + ". "
+                    + "Live rolling performance (last 20 trades each): " + (deg.length() == 0 ? "(data nahi)" : deg) + ". "
+                    + "Ye dekh kar aisi strategy suggest karo jo current WEAKNESS cover kare. "
                     + "Suggest ONE new complementary strategy that is DIFFERENT from all existing ones "
-                    + "and can be evaluated on 5m crypto candles with these indicators only: rsi, price_vs_ema, "
+                    + "and can be evaluated on 5m commodity candles with these indicators only: rsi, price_vs_ema, "
                     + "ema_cross, sma, macd, bb, atr, supertrend, volume, change, stoch, cci, mfi, adx, candle. "
                     + "Sirf strategy spec do, koi lambi explanation nahi.";
             JSONObject spec = compileText(prompt);
@@ -354,98 +372,194 @@ public class StrategyLab {
 
     // ================== LIFECYCLE ==================
 
-    /** Backtest on real 5m klines. Symbol: settings lab_symbol (default XAUUSD — HALAL MT5). */
+    /** v3.0 HONEST LAB backtest — research discipline (freqtrade/Jesse parity):
+     *  deep data (~1 mahina), FEES included, IS 70% / OOS 30% walk-forward split,
+     *  full metrics (expectancy/avgR/Sharpe/Sortino/Calmar/exit breakdown),
+     *  Monte Carlo shuffle + side-flip bootstrap → EDGE/MARGINAL/NOISE verdict.
+     *  Purana 1000-bar in-sample-only backtest statistically meaningless tha. */
     public JSONObject backtest(long id) {
         JSONObject spec = rowSpec(id);
         if (spec == null) return fail("Strategy nahi mili");
         String sym = db.setting("lab_symbol", "XAUUSD");
-        List<EngineCore.Candle> k = engine.klinesFor(sym, 1000);
+        // v3.0 DEEP DATA — bridge ho to 8000 bars, warna Yahoo range=1mo (~4000 5m bars)
+        List<EngineCore.Candle> k = engine.deepCandles(sym, 30);
         if (k == null || k.size() < 120) return fail(sym + " ke real candles fetch nahi hue — dobara try karein");
         // drop unclosed last candle (v5.9.2 rule)
         if (!k.isEmpty() && System.currentTimeMillis() - k.get(k.size() - 1).ts < EngineCore.TF_MS_PUB) {
             k = k.subList(0, k.size() - 1);
         }
         if (k.size() < 120) return fail("Candle data bohat chhota hai");
+        int bars = k.size();
 
+        // v3.0 WALK-FORWARD: IS 70% / OOS 30% — dono segments same spec, same sim
+        int isEnd = Math.max(120, (int) (bars * 0.7));
+        double[] is = runSim(k, 60, isEnd, spec);
+        double[] oos = runSim(k, Math.max(60, isEnd - 60), bars, spec);
+
+        List<Double> rList = simR;   // last runSim ke R-multiples (OOS — honest sample)
+        List<Double> pnlList = simPnl;
+
+        // ===== v3.0 METRICS SUITE (OOS par — honest sample; IS comparison ke liye bhi) =====
+        double pf = oos[2] > 0 ? Math.round(100.0 * oos[1] / oos[2]) / 100.0 : (oos[1] > 0 ? 99 : 0);
+        double isPf = is[2] > 0 ? Math.round(100.0 * is[1] / is[2]) / 100.0 : (is[1] > 0 ? 99 : 0);
+        double netPct = oos[0];
+        double maxDD = oos[11];
+        int nT = (int) oos[3];
+        int wins = (int) oos[4];
+        double fees = oos[6];
+
+        // R-based stats (Jesse-standard)
+        double avgR = 0, expectancy = 0, sharpe = 0, sortino = 0, calmar = 0;
+        if (!rList.isEmpty()) {
+            double sum = 0;
+            for (double r : rList) sum += r;
+            avgR = sum / rList.size();
+            expectancy = Math.round(avgR * 1000.0) / 1000.0;
+            double mean = avgR, var = 0, dvar = 0;
+            for (double r : rList) { var += (r - mean) * (r - mean); if (r < 0) dvar += r * r; }
+            var /= Math.max(1, rList.size() - 1);
+            double sd = Math.sqrt(var);
+            double dsd = Math.sqrt(dvar / Math.max(1, rList.size()));
+            // trade-level Sharpe annualized (web engine parity, capped 50k)
+            double years = bars * EngineCore.TF_MS_PUB / (365.25 * 24 * 3600 * 1000.0);
+            double tpy = years > 0 ? rList.size() / years : 0;
+            if (sd > 0) sharpe = Math.round(mean / sd * Math.sqrt(Math.min(tpy, 50000)) * 100.0) / 100.0;
+            if (dsd > 0) sortino = Math.round(mean / dsd * Math.sqrt(Math.min(tpy, 50000)) * 100.0) / 100.0;
+            if (maxDD > 0) calmar = Math.round(netPct / maxDD * 100.0) / 100.0;
+        }
+
+        // ===== v3.0 MONTE CARLO (Jesse pattern): trade-order shuffle → DD distribution
+        //      + side-flip bootstrap → p-value (luck vs edge)
+        double p5DD = 0, p50DD = 0, p95DD = 0, pValue = 1;
+        String tag = "NOISE";
+        if (pnlList.size() >= 10) {
+            List<Double> dds = new ArrayList<>();
+            int beat = 0;
+            java.util.Random rnd = new java.util.Random(42);
+            double actualPf = pf;
+            for (int it = 0; it < 1000; it++) {
+                List<Double> sh = new ArrayList<>(pnlList);
+                java.util.Collections.shuffle(sh, rnd);
+                double eq = 100, peak = 100, dd = 0;
+                for (double p : sh) { eq += p; peak = Math.max(peak, eq); if (peak > 0) dd = Math.max(dd, (peak - eq) / peak); }
+                dds.add(dd * 100);
+                // side-flip test: random sign flip = luck distribution
+                double gw = 0, gl = 0;
+                for (double p : sh) { double v = rnd.nextBoolean() ? p : -p; if (v > 0) gw += v; else gl += -v; }
+                double rpf = gl > 0 ? gw / gl : (gw > 0 ? 99 : 0);
+                if (rpf >= actualPf) beat++;
+            }
+            java.util.Collections.sort(dds);
+            p5DD = Math.round(dds.get(50) * 10.0) / 10.0;
+            p50DD = Math.round(dds.get(500) * 10.0) / 10.0;
+            p95DD = Math.round(dds.get(950) * 10.0) / 10.0;
+            pValue = Math.round(beat / 1000.0 * 1000.0) / 1000.0;
+            tag = pValue < 0.05 ? "EDGE" : pValue < 0.2 ? "MARGINAL" : "NOISE";
+        }
+
+        // v3.0 VERDICT — ab OOS + MC dono ke bina STRONG namumkin
+        String verdict = (isPf >= 1.15 && pf >= 1.0 && nT >= 30 && !"NOISE".equals(tag)) ? "STRONG"
+                : (isPf >= 1.0 && pf >= 0.9 && nT >= 15 && !"NOISE".equals(tag)) ? "OK" : "WEAK";
+
+        JSONObject stats = new JSONObject();
+        try {
+            stats.put("symbol", sym).put("bars", bars)
+                    .put("trades", nT).put("wins", wins).put("losses", nT - wins)
+                    .put("winrate", nT > 0 ? Math.round(1000.0 * wins / nT) / 10.0 : 0)
+                    .put("pf", pf).put("net", Math.round(oos[0] * 100.0) / 100.0).put("netPct", netPct)
+                    .put("maxDD", Math.round(maxDD * 100.0) / 10.0)
+                    .put("isPf", isPf).put("oosPf", pf).put("isNet", Math.round(is[0] * 100.0) / 100.0)
+                    .put("expectancy", expectancy).put("avgR", Math.round(avgR * 1000.0) / 1000.0)
+                    .put("sharpe", sharpe).put("sortino", sortino).put("calmar", calmar)
+                    .put("fees", Math.round(fees * 100.0) / 100.0)
+                    .put("avgBars", nT > 0 ? Math.round(oos[5] / nT) : 0)
+                    .put("exits", new JSONObject().put("SL", (int) oos[7]).put("TP", (int) oos[8]).put("TIME", (int) oos[9]))
+                    .put("mc", new JSONObject().put("p5DD", p5DD).put("p50DD", p50DD).put("p95DD", p95DD)
+                            .put("pValue", pValue).put("tag", tag))
+                    .put("verdict", verdict)
+                    .put("riskModel", "1% baseline, SL 1.5xATR, TP 2.5xATR, fees 0.05%/side, IS70/OOS30 walk-forward + Monte Carlo (v3.0 HONEST LAB)");
+        } catch (Exception ignored) { }
+
+        db.getWritableDatabase().execSQL(
+                "UPDATE strategies SET status=?, stats=?, updated_at=? WHERE id=?",
+                new Object[]{"BACKTESTED", stats.toString(), System.currentTimeMillis(), id});
+        db.log("INFO", "LAB", "BACKTEST_DONE", "strategy #" + id + " on " + sym + " — " + nT + " trades, WR "
+                + stats.optDouble("winrate", 0) + "%, IS PF " + isPf + ", OOS PF " + pf + ", net " + netPct
+                + "%, avgR " + avgR + ", MC " + tag + " (p=" + pValue + "), verdict " + verdict);
+        JSONObject out = new JSONObject();
+        try { out.put("ok", true).put("stats", stats); } catch (Exception ignored) { }
+        return out;
+    }
+
+    /** Sim scratch state (runSim ke beech transfer). */
+    private List<Double> simR = new ArrayList<>();
+    private List<Double> simPnl = new ArrayList<>();
+
+    /** v3.0 — one simulation pass over k[start..end). Returns:
+     *  [0]netPct [1]grossWin [2]grossLoss [3]n [4]wins [5]sumBars [6]fees
+     *  [7]SL exits [8]TP exits [9]TIME exits [10]sumR [11]maxDD% */
+    private double[] runSim(List<EngineCore.Candle> k, int start, int end, JSONObject spec) {
         double equity = 100, peak = 100, maxDD = 0;
-        int wins = 0, losses = 0, bars = k.size();
-        double grossWin = 0, grossLoss = 0;
+        int wins = 0, nT = 0, sumBars = 0, slC = 0, tpC = 0, timeC = 0;
+        double grossWin = 0, grossLoss = 0, fees = 0, sumR = 0;
         int side = spec.optString("side", "BOTH").equals("BUY") ? 1 : spec.optString("side", "BOTH").equals("SELL") ? -1 : 0;
         int logicAny = "ANY".equals(spec.optString("logic", "ALL")) ? 1 : 0;
-        JSONArray conds = spec.optJSONArray("conditions");
+        org.json.JSONArray conds = spec.optJSONArray("conditions");
+        simR = new ArrayList<>();
+        simPnl = new ArrayList<>();
 
-        // sim position
-        boolean open = false; int oSide = 0; double oEntry = 0, oSl = 0, oTp = 0, oQty = 0; int oBar = 0;
-        List<double[]> trades = new ArrayList<>(); // [pnl, side(1/-1), bars]
-
-        for (int i = 60; i < bars; i++) {
-            List<EngineCore.Candle> hist = k.subList(0, i + 1);
+        boolean open = false; int oSide = 0; double oEntry = 0, oSl = 0, oTp = 0, oQty = 0, oRisk = 0; int oBar = 0;
+        for (int i = start; i < end; i++) {
             EngineCore.Candle c = k.get(i);
             if (open) {
                 boolean hitSl = oSide == 1 ? c.l <= oSl : c.h >= oSl;
                 boolean hitTp = oSide == 1 ? c.h >= oTp : c.l <= oTp;
-                if (hitSl || hitTp) { // conservative: SL wins the tie
-                    double exit = hitSl ? oSl : oTp;
-                    double pnl = (oSide == 1 ? exit - oEntry : oEntry - exit) * oQty;
+                boolean timeOut = (i - oBar) >= 288;   // v3.0 — 24h time stop (Jesse parity)
+                if (hitSl || hitTp || timeOut) {
+                    double exit = hitSl ? oSl : hitTp ? oTp : c.c;
+                    double f = (oQty * oEntry + oQty * exit) * EngineCore.TAKER_FEE;
+                    fees += f;
+                    double pnl = (oSide == 1 ? exit - oEntry : oEntry - exit) * oQty - f;
                     equity += pnl; peak = Math.max(peak, equity);
-                    maxDD = Math.max(maxDD, peak > 0 ? (peak - equity) / peak : 0);
-                    if (pnl >= 0) { wins++; grossWin += pnl; } else { losses++; grossLoss += -pnl; }
-                    trades.add(new double[]{pnl, oSide, i - oBar});
+                    maxDD = Math.max(maxDD, peak > 0 ? (peak - equity) / peak * 100.0 : 0);
+                    double rMult = oRisk > 0 ? pnl / oRisk : 0;
+                    simR.add(rMult); simPnl.add(pnl); sumR += rMult;
+                    nT++; sumBars += (i - oBar);
+                    if (pnl >= 0) { wins++; grossWin += pnl; } else grossLoss += -pnl;
+                    if (hitSl) slC++; else if (hitTp) tpC++; else timeC++;
                     open = false;
                 }
-                continue; // one sim position at a time
+                continue;
             }
-            int dir = evaluateSpec(conds, logicAny, hist);
+            int dir = evaluateSpec(conds, logicAny, k.subList(Math.max(0, i - 499), i + 1));
             if (dir == 0) continue;
-            if (side != 0) dir = side;           // explicit side overrides inference
-            double a = atr(hist, 14);
+            if (side != 0) dir = side;
+            double a = atr(k.subList(Math.max(0, i - 199), i + 1), 14);
             if (Double.isNaN(a) || a <= 0) continue;
-            double riskAmt = equity * 0.01;      // 1% baseline risk — comparable stats
+            double riskAmt = equity * 0.01;
             double qty = riskAmt / (1.5 * a);
             if (qty * c.c > equity * 0.95) qty = equity * 0.95 / c.c;
             if (qty <= 0) continue;
             oSide = dir; oEntry = c.c;
             oSl = dir == 1 ? c.c - 1.5 * a : c.c + 1.5 * a;
             oTp = dir == 1 ? c.c + 2.5 * a : c.c - 2.5 * a;
+            oRisk = Math.abs(c.c - oSl) * qty;
             oQty = qty; oBar = i; open = true;
         }
-        // force-close any sim position at last close
         if (open) {
-            EngineCore.Candle last = k.get(bars - 1);
-            double pnl = (oSide == 1 ? last.c - oEntry : oEntry - last.c) * oQty;
+            EngineCore.Candle last = k.get(end - 1);
+            double f = (oQty * oEntry + oQty * last.c) * EngineCore.TAKER_FEE;
+            fees += f;
+            double pnl = (oSide == 1 ? last.c - oEntry : oEntry - last.c) * oQty - f;
             equity += pnl; peak = Math.max(peak, equity);
-            maxDD = Math.max(maxDD, peak > 0 ? (peak - equity) / peak : 0);
-            if (pnl >= 0) { wins++; grossWin += pnl; } else { losses++; grossLoss += -pnl; }
-            trades.add(new double[]{pnl, oSide, bars - oBar});
+            maxDD = Math.max(maxDD, peak > 0 ? (peak - equity) / peak * 100.0 : 0);
+            double rMult = oRisk > 0 ? pnl / oRisk : 0;
+            simR.add(rMult); simPnl.add(pnl); sumR += rMult;
+            nT++; sumBars += (end - oBar);
+            if (pnl >= 0) { wins++; grossWin += pnl; } else grossLoss += -pnl;
+            timeC++;
         }
-
-        int nT = wins + losses;
-        JSONObject stats = new JSONObject();
-        try {
-            double pf = grossLoss > 0 ? Math.round(100.0 * grossWin / grossLoss) / 100.0 : (grossWin > 0 ? 99 : 0);
-            double netPct = Math.round((equity - 100) * 100.0) / 100.0;
-            // v1.8 QUALITY GATE — verdict: STRONG (PF>=1.15 & >=30 trades) / OK (PF>=1.0) / WEAK
-            String verdict = (pf >= 1.15 && nT >= 30) ? "STRONG" : (pf >= 1.0 && nT >= 15) ? "OK" : "WEAK";
-            stats.put("symbol", sym).put("bars", bars)
-                    .put("trades", nT).put("wins", wins).put("losses", losses)
-                    .put("winrate", nT > 0 ? Math.round(1000.0 * wins / nT) / 10.0 : 0)
-                    .put("pf", pf)
-                    .put("net", Math.round(equity - 100) * 100.0 / 100.0)
-                    .put("netPct", netPct)
-                    .put("maxDD", Math.round(maxDD * 1000.0) / 10.0)
-                    .put("verdict", verdict)
-                    .put("riskModel", "1% baseline, SL 1.5xATR, TP 2.5xATR (Lab strategies — 3C MASTER apne rules se chalta hai)");
-        } catch (Exception ignored) { }
-
-        db.getWritableDatabase().execSQL(
-                "UPDATE strategies SET status=?, stats=?, updated_at=? WHERE id=?",
-                new Object[]{"BACKTESTED", stats.toString(), System.currentTimeMillis(), id});
-        db.log("INFO", "LAB", "BACKTEST_DONE", "strategy #" + id + " on " + sym + " — " + nT + " trades, winrate "
-                + stats.optDouble("winrate", 0) + "%, PF " + stats.optDouble("pf", 0) + ", net "
-                + stats.optDouble("netPct", 0) + "%, maxDD " + stats.optDouble("maxDD", 0) + "%");
-        JSONObject out = new JSONObject();
-        try { out.put("ok", true).put("stats", stats); } catch (Exception ignored) { }
-        return out;
+        return new double[]{equity - 100, grossWin, grossLoss, nT, wins, sumBars, fees, slC, tpC, timeC, sumR, maxDD};
     }
 
     /** PAPER shadow phase — strategy trades the live paper account (tagged AI: name). */

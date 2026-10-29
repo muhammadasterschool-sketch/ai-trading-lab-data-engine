@@ -108,6 +108,22 @@ public class EngineCore implements Runnable {
     /** Daily kill-switch notification dedup (per UTC day). */
     private final java.util.Set<String> killLogged = new java.util.HashSet<>();
 
+    // ===== v3.0 QUANT PRO state =====
+    /** Per-symbol fetch backoff — fail hone par exponential (60s → max 15 min).
+     *  Yahoo 429/storm par request storm nahi karenge (audit fix #4). */
+    private final java.util.Map<String, Long> backoffUntil = new HashMap<>();
+    /** SAFE MODE — feed outage: stale data par koi entry bhi nahi, SL/TP freeze
+     *  (false trigger se bachne ke liye), owner ko ek hi baar notification. */
+    private volatile boolean safeMode = false;
+    private volatile long safeModeSince = 0;
+    /** Degradation monitor cadence (30 min) + last check. */
+    private long lastDegCheck = 0;
+    /** Seasonality cache: sym -> {avg[12], hit[12], years} JSON (24h refresh). */
+    private final java.util.Map<String, JSONObject> seasonCache = new HashMap<>();
+    /** ML-lite (FreqAI-inspired) weights cache — logistic regression on closed trades. */
+    private JSONObject mlWeights = null;
+    private boolean mlLoaded = false;
+
     /** v1.4 — owner-controlled risk % of equity per trade (settings risk_pct, 0.1-20). */
     public double riskPct() {
         try {
@@ -159,6 +175,77 @@ public class EngineCore implements Runnable {
             if (v > 90) v = 90;
             return v;
         } catch (Exception e) { return 0; }
+    }
+
+    // ===== v3.0 QUANT PRO settings (P0-P4 roadmap — sab owner-controlled) =====
+
+    /** Slippage/spread model (bps per side): fills ab realistic — BUY entry thoda upar,
+     *  exits thoda neeche. Default 2 bps (0.02%) — futures spread+slip ka modest model.
+     *  0 = off (purane exact-fill behavior). NautilusTrader fill-model parity. */
+    public double slipBps() {
+        try {
+            double v = Double.parseDouble(db.setting("slip_bps", "2"));
+            if (v < 0) v = 0; if (v > 50) v = 50;
+            return v;
+        } catch (Exception e) { return 2; }
+    }
+
+    /** Portfolio HEAT CAP — total open risk (|entry-sl|*qty) equity ka max %.
+     *  Default 0 = OFF (owner UNLIMITED). Freqtrade max_open_trades + LEAN risk parity.
+     *  27 syms x 2% = 54% simultaneous risk hota tha — owner chahe to 6-12% cap laga de. */
+    public double heatMaxPct() {
+        try {
+            double v = Double.parseDouble(db.setting("heat_max_pct", "0"));
+            if (v < 0) v = 0; if (v > 100) v = 100;
+            return v;
+        } catch (Exception e) { return 0; }
+    }
+
+    /** Bucket cap (METAL/ENERGY/AGRI correlated group) — ek bucket ka total open risk
+     *  is % se zyada nahi. Default 0 = OFF. USOIL/UKOIL/NGAS ek hi direction mein
+     *  3 positions = 6% risk ek hi macro bet par — bucket cap isse rokta hai. */
+    public double bucketMaxPct() {
+        try {
+            double v = Double.parseDouble(db.setting("bucket_max_pct", "0"));
+            if (v < 0) v = 0; if (v > 100) v = 100;
+            return v;
+        } catch (Exception e) { return 0; }
+    }
+
+    /** Signal Council minimum confidence (0-100). 0 = OFF (3C har valid setup par
+     *  entry karega). >0 ho to council score kam wale entries block — 3C RULES KHUD
+     *  NAHI BADLTE, ye sirf owner ka opt-in quality gate hai. */
+    public int councilMin() {
+        try {
+            int v = (int) Double.parseDouble(db.setting("council_min", "0"));
+            if (v < 0) v = 0; if (v > 95) v = 95;
+            return v;
+        } catch (Exception e) { return 0; }
+    }
+
+    /** EVENT GATE (FinRL turbulence pattern): HIGH-impact news (OPEC/CPI/FOMC) aakhri
+     *  60 min mein aayi ho to naye entries pause (default OFF). Stop orders gap events
+     *  par blind fill hote hain — ye unhe bachata hai. Opt-in. */
+    public boolean eventGateOn() { return "1".equals(db.setting("event_gate", "0")); }
+
+    /** Degraded AI strategy auto-pause (default OFF — sirf alert bhejta hai). */
+    public boolean autoPauseDegraded() { return "1".equals(db.setting("auto_pause", "0")); }
+
+    /** MT5 bridge LIVE MIRROR — paper trade ke saath bridge par real order bhejo
+     *  (owner-only, default OFF). Sirf tab jab bridge healthy ho. */
+    public boolean bridgeLive() { return "1".equals(db.setting("bridge_live", "0")); }
+
+    /** CME maintenance halt (17:00-18:00 ET) mein naye entries band (default OFF).
+     *  Mechanical session hygiene — halt mein spreads phantom wide hote hain. */
+    public boolean sessionFilterOn() { return "1".equals(db.setting("session_filter", "0")); }
+
+    /** Bridge mirror lot size (real MT5 lots per paper trade, default 0.01). */
+    public double bridgeLots() {
+        try {
+            double v = Double.parseDouble(db.setting("bridge_lots", "0.01"));
+            if (v < 0.01) v = 0.01; if (v > 100) v = 100;
+            return v;
+        } catch (Exception e) { return 0.01; }
     }
 
     // ===== v1.8 PRO FILTER PACK (92-din futures-data backtest se proved — owner: "losses kyu") =====
@@ -230,7 +317,7 @@ public class EngineCore implements Runnable {
 
     // ================== MAIN LOOP ==================
     @Override public void run() {
-        db.log("INFO", "SYSTEM", "ENGINE_START", "v1.8 3C MASTER engine — CLEAN & PRO: PRO FILTER PACK (min zone 0.25%, EMA200 trend, ATR floor 0.08%, volume 1.2x — 92-din backtest proved, PF 0.07→0.83) + PRO GUARD protections + realistic fees 0.05%/side + strategy UNDO + risk default 2% | v1.6 LIVE MONEY: real-time floating P/L | v1.5 SPEED: 10s scan, LIVE-candle stop-order trigger, live SL/TP/breakeven | 3C rules unchanged: C1+C2 body>=70%, C3 protected close, 5-candle breakout window, close-based invalidation, SL=opposite extreme, breakeven at +1R, close ALL at +3R | risk " + riskPct() + "% (Settings risk_pct) | UNLIMITED daily P/L default — kill switch opt-in | Strategy Lab + auto-evolve every 6h");
+        db.log("INFO", "SYSTEM", "ENGINE_START", "v3.0 QUANT PRO — all 5 upgrades: [P1 PRO RISK] portfolio heat + bucket caps (opt-in), slippage/spread model, SAFE MODE stale guard, feed backoff+retry, TRUE drawdown (peak ratchet), index-window session-gap fix, persistent guards | [P2 HONEST LAB] fees+IS/OOS walk-forward+Monte Carlo in Lab backtest, EMA200 SMA-seed fix | [P3 EDGE ANALYTICS] journal R/MFE/MAE/TCA, daily P&L, per-symbol, monthly heatmap, seasonality | [P4 AI QUANT] Signal Council (4 analysts, tag+opt-in gate), ML-lite (FreqAI-inspired logistic retrain), degradation monitor, event gate | [P5 LIVE READY] order lifecycle (orders table), MT5 bridge LIVE MIRROR (owner opt-in) | 3C MASTER rules UNTOUCHED | risk " + riskPct() + "% | UNLIMITED daily P/L default — kill/heat/event sab opt-in");
 
 
         // v1.2 ONE-TIME MIGRATION — paper money is now $100 (owner request). Accounts still
@@ -268,6 +355,8 @@ public class EngineCore implements Runnable {
                 db.log("ERROR", "SYSTEM", "MIGRATION_3C_FAIL", String.valueOf(t));
             }
         }
+        // v3.0 — persistent PRO GUARD state restore (watchdog restart cooldowns wipe fix)
+        loadGuardState();
         while (running) {
 
             try {
@@ -295,6 +384,11 @@ public class EngineCore implements Runnable {
     }
 
     private void loop() {
+        long nowL = System.currentTimeMillis();
+        if (nowL - lastDegCheck >= 30 * 60_000) {              // v3.0 — degradation + drift monitor (30 min)
+            lastDegCheck = nowL;
+            degradationCheck();
+        }
         String engineOn = db.setting("engine_on", "1");
         if (!"1".equals(engineOn)) { lastConsensus = "engine off"; return; }
         rollDay();
@@ -386,9 +480,30 @@ public class EngineCore implements Runnable {
             long minGap = 60_000L;
             try { minGap = Math.max(20, Integer.parseInt(db.setting("feed_interval_sec", "60").trim())) * 1000L; } catch (Exception ignored) { }
             if (last != null && System.currentTimeMillis() - last < minGap) return new ArrayList<>();
+            // v3.0 EXPONENTIAL BACKOFF (audit fix #4): fail hue symbol par 60s → 2x → max
+            // 15 min tak request nahi — Yahoo 429 storm nahi karenge.
+            Long bo = backoffUntil.get(symbol);
+            if (bo != null && System.currentTimeMillis() < bo) return new ArrayList<>();
         }
         List<Candle> out = fetchFromBridge(symbol, limit);
-        if (out == null) out = fetchFromYahoo(symbol, limit);
+        if (out == null || out.isEmpty()) {
+            List<Candle> y = fetchFromYahoo(symbol, limit);
+            if (y != null && !y.isEmpty()) out = y;
+        }
+        // v3.0 — one immediate retry (bridge ↔ yahoo cross-fallback), phir backoff
+        if (out == null || out.isEmpty()) {
+            List<Candle> retry = fetchFromYahoo(symbol, limit);
+            if (retry == null || retry.isEmpty()) retry = fetchFromBridge(symbol, limit);
+            if (retry != null && !retry.isEmpty()) {
+                out = retry;
+                backoffUntil.remove(symbol);
+            } else {
+                Long prev = backoffUntil.get(symbol);
+                long now = System.currentTimeMillis();
+                long next = (prev != null && prev > now) ? Math.min((prev - now) * 2, 15L * 60_000) : 60_000L;
+                backoffUntil.put(symbol, now + next);
+            }
+        } else backoffUntil.remove(symbol);
         lastFetchAt.put(symbol, System.currentTimeMillis());
         return out;
     }
@@ -1636,6 +1751,12 @@ public class EngineCore implements Runnable {
         double boundary;    // protected level: BUY -> zoneLow, SELL -> zoneHigh
         double trigger;     // breakout level: BUY -> zoneHigh+buf, SELL -> zoneLow-buf
         double slPrice;     // opposite extreme +/- SL buffer
+        // v3.0 — INDEX-based window (session-gap fix): Yahoo CME maintenance breaks /
+        // weekends ki candles DB mein hoti hi nahi, to time-diff window counting galat
+        // ginti karti thi. Ab window = candle INDEX difference — gap-proof.
+        int c3Idx = -1;
+        // v3.0 — ML features (entry waqt ka setup DNA, trade row me save hota hai)
+        double c3Body = 0, c3VolRatio = 0, c3AtrPct = 0, c3EmaDist = 0, c3RdPct = 0;
     }
 
     private static class Walk3C {
@@ -1666,6 +1787,7 @@ public class EngineCore implements Runnable {
             s.boundary = s.zoneLow;
             s.trigger = s.zoneHigh * (1 + entryBuf);
             s.slPrice = s.zoneLow * (1 - slBuf);
+            s.c3Idx = i;
             return s;
         }
         if (!g1 && !g2 && g3 && c3.c <= Math.max(c1.h, c2.h)) {         // SELL setup
@@ -1673,6 +1795,7 @@ public class EngineCore implements Runnable {
             s.boundary = s.zoneHigh;
             s.trigger = s.zoneLow * (1 - entryBuf);
             s.slPrice = s.zoneHigh * (1 + slBuf);
+            s.c3Idx = i;
             return s;
         }
         return null;
@@ -1701,7 +1824,7 @@ public class EngineCore implements Runnable {
         double rdPct = Math.abs(s.trigger - s.slPrice) / s.trigger * 100.0;
         if (rdMin > 0 && rdPct < rdMin)
             why.add(String.format(Locale.US, "zone chhota: risk-dist %.3f%% < %.2f%% (fees risk se bari)", rdPct, rdMin));
-        if (emaArr != null && i >= 199) {
+        if (emaArr != null && i >= 200) {   // v3.0: >=200 (pehle 199) — SMA-seeded EMA valid index
             boolean buy = "BUY".equals(s.side);
             boolean against = buy ? c3.c < emaArr[i] : c3.c > emaArr[i];
             if (against)
@@ -1741,9 +1864,20 @@ public class EngineCore implements Runnable {
         double[] emaArr = useEma ? new double[n] : null;
         double[] atrArr = atrFloor > 0 ? new double[n] : null;
         double[] volSma = useVol ? new double[n] : null;
-        if (useEma) { // EMA200 over all loaded history (graceful agar <200 hon — warmup se converge)
-            double mult = 2.0 / 201.0, e = k.get(0).c;
-            for (int i = 0; i < n; i++) { e = (k.get(i).c - e) * mult + e; emaArr[i] = e; }
+        if (useEma) {
+            double mult = 2.0 / 201.0;
+            if (n >= 200) {
+                // v3.0 WARMUP FIX (audit): pehli close se EMA seed karna level ko materially
+                // galat banata tha. Ab index 199 par SMA200 seed — standard EMA practice.
+                double sma = 0;
+                for (int j = 0; j < 200; j++) sma += k.get(j).c;
+                double e = sma / 200.0;
+                for (int i = 0; i < 200; i++) emaArr[i] = e;   // pre-seed flat (filter index>=200 par hi lagta hai)
+                for (int i = 200; i < n; i++) { e = (k.get(i).c - e) * mult + e; emaArr[i] = e; }
+            } else {  // <200 candles — graceful warmup converge (purana behavior)
+                double e = k.get(0).c;
+                for (int i = 0; i < n; i++) { e = (k.get(i).c - e) * mult + e; emaArr[i] = e; }
+            }
         }
         if (atrFloor > 0) {
             double trSum = 0;
@@ -1770,7 +1904,7 @@ public class EngineCore implements Runnable {
         for (int i = 2; i <= last; i++) {
             Candle c = k.get(i);
             if (pending != null) {
-                int winIdx = (int) ((c.ts - pending.c3Ts) / TF_MS);   // 1..5 inside the window
+                int winIdx = i - pending.c3Idx;                        // v3.0: INDEX window — CME gap/weekend proof
                 if (winIdx > THREEC_WINDOW) {
                     log3C(sym, pending, "SETUP_EXPIRED", "no breakout by candle " + THREEC_WINDOW + " — setup expired");
                     pending = null;                                    // fall through: candle i may start a new setup
@@ -1818,6 +1952,16 @@ public class EngineCore implements Runnable {
                 if (s != null) s = proFilter3C(sym, k, i, s, emaArr, atrArr, volSma, rdMin, atrFloor);
                 if (s != null) {
                     pending = s;
+                    // v3.0 — setup DNA (ML features) capture: entry par trade row me save
+                    Candle c3f = k.get(i);
+                    s.c3Body = bodyPct(c3f);
+                    double vSum = 0; int vN = 0;
+                    for (int j = Math.max(0, i - 19); j <= i; j++) { vSum += k.get(j).v; vN++; }
+                    s.c3VolRatio = vN > 0 && vSum > 0 ? c3f.v / (vSum / vN) : 0;
+                    double aF = atrArr != null && atrArr[i] > 0 ? atrArr[i] : atr(k, 14);
+                    s.c3AtrPct = (Double.isNaN(aF) || aF <= 0) ? 0 : aF / c3f.c * 100.0;
+                    if (emaArr != null && i >= 200) s.c3EmaDist = (c3f.c - emaArr[i]) / emaArr[i] * 100.0;
+                    s.c3RdPct = Math.abs(s.trigger - s.slPrice) / s.trigger * 100.0;
                     log3C(sym, s, "SETUP_DETECTED",
                             s.side + " — C1/C2 body " + pct(bodyPct(k.get(i - 2))) + "% / " + pct(bodyPct(k.get(i - 1)))
                                     + "%, zone " + fpx(s.zoneLow) + " - " + fpx(s.zoneHigh) + ", C3 protected close OK");
@@ -1857,18 +2001,28 @@ public class EngineCore implements Runnable {
                 Candle live = all.get(all.size() - 1);
                 Setup3C p = w.pending;
                 boolean liveFresh = System.currentTimeMillis() - live.ts < TF_MS;
-                int liveWin = (int) ((live.ts - p.c3Ts) / TF_MS);
+                int liveWin = k.size() - p.c3Idx;                  // v3.0: INDEX window (k = closed candles; live uska next index hota)
                 if (liveFresh && liveWin > THREEC_WINDOW) {
                     log3C(sym, p, "SETUP_EXPIRED", "no breakout by candle " + THREEC_WINDOW + " — window khatam, live trigger band");
                     w.pending = null;
                     threecStates.put(sym, "setup expired — " + THREEC_WINDOW + "/" + THREEC_WINDOW + " window complete, breakout nahi hua");
                 } else if (liveFresh && liveWin >= 1) {
                     boolean buyL = "BUY".equals(p.side);
-                    if (buyL ? live.h > p.trigger : live.l < p.trigger) {
+                    // v3.0 INVALIDATION SYMMETRY (audit fix #9): live candle ka current close
+                    // boundary ke paar ja chuka ho to setup dead hai — intrabar trigger us
+                    // setup par entry nahi karega jo closed-candle walk UNKNOWN kehta.
+                    boolean liveInvalid = buyL ? live.c < p.boundary : live.c > p.boundary;
+                    if (liveInvalid) {
+                        log3C(sym, p, "SETUP_INVALIDATED",
+                                "LIVE candle close " + fpx(live.c) + " protected boundary " + fpx(p.boundary)
+                                        + " ke paar — symmetric invalidation, intrabar entry cancel");
+                        w.pending = null;
+                        threecStates.put(sym, "setup invalidated — live close beyond boundary (symmetry check)");
+                    } else if (buyL ? live.h > p.trigger : live.l < p.trigger) {
                         double fill = buyL ? Math.max(p.trigger, live.o) : Math.min(p.trigger, live.o);
                         lastVotes = new int[]{buyL ? 1 : -1};
                         lastVoteSym = sym;
-                        for (long uid : users) openTrade3C(uid, sym, p, fill);
+                        for (long uid : users) openTrade3C(uid, sym, p, fill, k, p.c3Idx);
                         log3C(sym, p, "BREAKOUT_DETECTED",
                                 "LIVE candle " + liveWin + "/" + THREEC_WINDOW + " broke " + (buyL ? "above " : "below ")
                                         + fpx(p.trigger) + " — intrabar stop-order fill (candle close ka intezaar nahi)");
@@ -1884,7 +2038,7 @@ public class EngineCore implements Runnable {
             if (w.fire != null) {
                 lastVotes = new int[]{"BUY".equals(w.fire.side) ? 1 : -1};
                 lastVoteSym = sym;
-                for (long uid : users) openTrade3C(uid, sym, w.fire, w.fill);
+                for (long uid : users) openTrade3C(uid, sym, w.fire, w.fill, k, w.fire.c3Idx);
                 fireText = "ENTRY OPEN — " + sym + " " + w.fire.side + " @ " + fpx(w.fill)
                         + " (3C breakout, SL " + fpx(w.fire.slPrice) + ", TP +3R, risk " + pct(riskPct() / 100)
                         + "%) — breakeven at +1R";
@@ -1953,10 +2107,22 @@ public class EngineCore implements Runnable {
         } catch (Throwable ignored) { }
     }
 
-    /** 3C entry — one trade per setup per account, one open position per symbol. */
-    private void openTrade3C(long uid, String sym, Setup3C s, double fill) {
-        if (entryBlocked(uid, sym)) return;                 // v1.7 PRO GUARD
+    /** 3C entry — one trade per setup per account, one open position per symbol.
+     *  v3.0 QUANT PRO entry pipeline (order): SAFE MODE → trading gate → dedup →
+     *  session/event/heat/bucket/council gates → slippage fill → journal (features,
+     *  council, win_prob, risk_amt, decision) → order row → bridge mirror. */
+    private void openTrade3C(long uid, String sym, Setup3C s, double fill, List<Candle> k, int idx) {
+        if (!freshData(sym)) return;                        // v3.0 SAFE MODE — stale feed par entry nahi
+        if (entryBlocked(uid, sym)) return;                 // v1.7 PRO GUARD (cooldown + daily kill)
         if (!tradingAllowed(uid)) { askOwnerToEnableTrading(uid); return; }   // v2.1 OWNER TRADING GATE
+        if (inCmeHalt()) {                                  // v3.0 session filter (opt-in)
+            log3C(sym, s, "ENTRY_BLOCKED", "CME maintenance halt (17:00-18:00 ET) — session filter ON hai");
+            return;
+        }
+        if (eventGateActive()) {                            // v3.0 event gate (opt-in)
+            log3C(sym, s, "ENTRY_BLOCKED", "HIGH-impact news <60 min — event gate ON hai (OPEC/CPI/FOMC gap protection)");
+            return;
+        }
         Cursor ex = db.getReadableDatabase().rawQuery(
                 "SELECT COUNT(*) FROM trades WHERE user_id=? AND symbol=? AND status='OPEN'",
                 new String[]{String.valueOf(uid), sym});
@@ -1969,22 +2135,75 @@ public class EngineCore implements Runnable {
         boolean dup = du.moveToFirst() && du.getInt(0) > 0;
         du.close();
         if (dup) return;                                    // ye setup pehle hi fire ho chuka
-        double riskDist = "BUY".equals(s.side) ? fill - s.slPrice : s.slPrice - fill;
+        // v3.0 — SIGNAL COUNCIL (3C rules unchanged; confidence tag + opt-in gate)
+        int council = councilScore(sym, s.side, k, Math.max(0, idx));
+        int cMin = councilMin();
+        if (cMin > 0 && council < cMin) {
+            log3C(sym, s, "COUNCIL_BLOCKED", "council " + council + "% < min " + cMin + "% — weak confluence, owner gate active");
+            return;
+        }
+        // v3.0 — slippage/spread model: decision = trigger, fill = adverse slip
+        double decision = fill;
+        double fillSlip = slipEntry(fill, s.side);
+        double riskDist = "BUY".equals(s.side) ? fillSlip - s.slPrice : s.slPrice - fillSlip;
         if (riskDist <= 0) return;
         double bal = balanceOf(uid);
         if (bal <= 0) return;
+        // v3.0 — PORTFOLIO HEAT + BUCKET CAPS (opt-in, default OFF — owner UNLIMITED)
+        double heatCap = heatMaxPct(), bucketCap = bucketMaxPct();
+        if (heatCap > 0) {
+            double newHeat = heatRiskPct(uid) + riskPct();
+            if (newHeat > heatCap) {
+                db.log("INFO", "GUARD", "HEAT_CAP_BLOCKED", sym + " — heat " + String.format(Locale.US, "%.1f", newHeat)
+                        + "% > cap " + String.format(Locale.US, "%.1f", heatCap) + "% (total open risk limit)");
+                return;
+            }
+        }
+        if (bucketCap > 0) {
+            double newBucket = bucketRiskPct(uid, bucketOf(sym)) + riskPct();
+            if (newBucket > bucketCap) {
+                db.log("INFO", "GUARD", "BUCKET_CAP_BLOCKED", sym + " (" + bucketOf(sym) + ") — bucket heat "
+                        + String.format(Locale.US, "%.1f", newBucket) + "% > cap " + String.format(Locale.US, "%.1f", bucketCap)
+                        + "% (correlated exposure limit)");
+                return;
+            }
+        }
         double risk = bal * riskPct() / 100.0;
         double qty = risk / riskDist;
-        if (qty * fill > bal * 0.95) qty = bal * 0.95 / fill;
+        if (qty * fillSlip > bal * 0.95) qty = bal * 0.95 / fillSlip;
         if (qty <= 0) return;
-        double tp = "BUY".equals(s.side) ? fill + THREEC_TP_R * riskDist : fill - THREEC_TP_R * riskDist;
+        double tp = "BUY".equals(s.side) ? fillSlip + THREEC_TP_R * riskDist : fillSlip - THREEC_TP_R * riskDist;
+        double riskAmt = Math.abs(fillSlip - s.slPrice) * qty;
+        // v3.0 — setup DNA features + ML win probability (FreqAI-lite, experimental)
+        java.util.Calendar cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"));
+        JSONObject features = new JSONObject();
+        try {
+            features.put("bd", Math.round(s.c3Body * 1000.0) / 1000.0)
+                    .put("vr", Math.round(s.c3VolRatio * 1000.0) / 1000.0)
+                    .put("ap", Math.round(s.c3AtrPct * 1000.0) / 1000.0)
+                    .put("ed", Math.round(s.c3EmaDist * 1000.0) / 1000.0)
+                    .put("rd", Math.round(s.c3RdPct * 1000.0) / 1000.0)
+                    .put("hr", cal.get(java.util.Calendar.HOUR_OF_DAY))
+                    .put("cs", council);
+        } catch (Throwable ignored) { }
+        double winProb = mlWinProb(features);
         db.getWritableDatabase().execSQL(
-                "INSERT INTO trades(user_id, symbol, side, qty, entry, sl, tp, status, strategy, consensus, opened_at, risk) VALUES(?,?,?,?,?,?,?,'OPEN',?,?,?,?)",
-                new Object[]{uid, sym, s.side, qty, fill, s.slPrice, tp, "3C_MASTER", 0, System.currentTimeMillis(), riskPct() / 100.0});
+                "INSERT INTO trades(user_id, symbol, side, qty, entry, sl, tp, status, strategy, consensus, opened_at, risk, risk_amt, decision, council, win_prob, features) VALUES(?,?,?,?,?,?,?,'OPEN',?,?,?,?,?,?,?,?,?)",
+                new Object[]{uid, sym, s.side, qty, fillSlip, s.slPrice, tp, "3C_MASTER", 0, System.currentTimeMillis(),
+                        riskPct() / 100.0, riskAmt, decision, council, winProb, features.toString()});
+        // order lifecycle row + bridge mirror
+        long tradeId = 0;
+        Cursor ti = db.getReadableDatabase().rawQuery("SELECT MAX(id) FROM trades", null);
+        if (ti.moveToFirst()) tradeId = ti.getLong(0);
+        ti.close();
+        recordOrder(tradeId, uid, sym, s.side, "STOP", decision, qty, "PAPER", "FILLED");
+        bridgeOrder(sym, s.side, tradeId, uid, fillSlip, qty);
         db.log("INFO", "3C", "ORDER_EXECUTED",
-                sym + " " + s.side + " qty=" + String.format(Locale.US, "%.6f", qty) + " entry=" + fpx(fill)
+                sym + " " + s.side + " qty=" + String.format(Locale.US, "%.6f", qty) + " entry=" + fpx(fillSlip)
+                        + " (decision " + fpx(decision) + ", slip " + String.format(Locale.US, "%.1f", slipBps()) + "bps)"
                         + " SL=" + fpx(s.slPrice) + " TP=" + fpx(tp) + " (3R) risk=$"
-                        + String.format(Locale.US, "%.2f", risk) + " (" + riskPct() + "% of $" + String.format(Locale.US, "%.2f", bal) + ")");
+                        + String.format(Locale.US, "%.2f", risk) + " (" + riskPct() + "% of $" + String.format(Locale.US, "%.2f", bal) + ")"
+                        + " | council " + council + "%, ML winProb " + String.format(Locale.US, "%.0f%%", winProb * 100));
     }
 
     private double balanceOf(long uid) {
@@ -2028,10 +2247,17 @@ public class EngineCore implements Runnable {
         }
     }
 
-    /** Lab strategy entry — ATR SL/TP model (1.5x / 2.5x), 1% risk, same guards as 3C. */
+    /** Lab strategy entry — ATR SL/TP model (1.5x / 2.5x), 1% risk, same guards as 3C.
+     *  v3.0: SAFE MODE + session/event/heat/bucket gates + slippage + journal + orders. */
     private void openTradeLab(long uid, String sym, String side, List<Candle> k, String tier) {
+        if (!freshData(sym)) return;                        // v3.0 SAFE MODE
+        if (strategyPaused(tier)) {                         // v3.0 degradation auto-pause
+            db.log("INFO", "GUARD", "STRATEGY_PAUSE_BLOCK", tier + " degraded-paused — entry blocked (Control me re-enable karein)");
+            return;
+        }
         if (entryBlocked(uid, sym)) return;                 // v1.7 PRO GUARD
         if (!tradingAllowed(uid)) { askOwnerToEnableTrading(uid); return; }   // v2.1 OWNER TRADING GATE
+        if (inCmeHalt() || eventGateActive()) return;       // v3.0 session + event gates (opt-in)
         Cursor ex = db.getReadableDatabase().rawQuery(
                 "SELECT COUNT(*) FROM trades WHERE user_id=? AND symbol=? AND status='OPEN'",
                 new String[]{String.valueOf(uid), sym});
@@ -2039,8 +2265,17 @@ public class EngineCore implements Runnable {
         ex.close();
         if (have) return;
         double price = k.get(k.size() - 1).c;
+        // v3.0 — council + heat/bucket caps (Lab strategies bhi discipline ke daayre mein)
+        int council = councilScore(sym, side, k, k.size() - 1);
+        int cMin = councilMin();
+        if (cMin > 0 && council < cMin) return;
+        double heatCap = heatMaxPct(), bucketCap = bucketMaxPct();
+        if (heatCap > 0 && heatRiskPct(uid) + 1.0 > heatCap) return;      // Lab 1% risk model
+        if (bucketCap > 0 && bucketRiskPct(uid, bucketOf(sym)) + 1.0 > bucketCap) return;
         double a = atr(k, 14);
         if (Double.isNaN(a) || a <= 0) return;
+        double decision = price;
+        price = slipEntry(price, side);                     // v3.0 slippage
         double sl = "BUY".equals(side) ? price - 1.5 * a : price + 1.5 * a;
         double tp = "BUY".equals(side) ? price + 2.5 * a : price - 2.5 * a;
         double bal = balanceOf(uid);
@@ -2049,12 +2284,28 @@ public class EngineCore implements Runnable {
         double qty = risk / (1.5 * a);
         if (qty * price > bal * 0.95) qty = bal * 0.95 / price;
         if (qty <= 0) return;
+        double riskAmt = Math.abs(price - sl) * qty;
+        java.util.Calendar cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"));
+        JSONObject features = new JSONObject();
+        try {
+            features.put("bd", Math.round(bodyPct(k.get(k.size() - 1)) * 1000.0) / 1000.0)
+                    .put("ap", Math.round(a / price * 100000.0) / 1000.0)
+                    .put("rd", Math.round(Math.abs(price - sl) / price * 100000.0) / 1000.0)
+                    .put("hr", cal.get(java.util.Calendar.HOUR_OF_DAY)).put("cs", council);
+        } catch (Throwable ignored) { }
+        double winProb = mlWinProb(features);
         db.getWritableDatabase().execSQL(
-                "INSERT INTO trades(user_id, symbol, side, qty, entry, sl, tp, status, strategy, consensus, opened_at, risk) VALUES(?,?,?,?,?,?,?,'OPEN',?,?,?,?)",
-                new Object[]{uid, sym, side, qty, price, sl, tp, tier, 0.65, System.currentTimeMillis(), 0.01});
+                "INSERT INTO trades(user_id, symbol, side, qty, entry, sl, tp, status, strategy, consensus, opened_at, risk, risk_amt, decision, council, win_prob, features) VALUES(?,?,?,?,?,?,?,'OPEN',?,?,?,?,?,?,?,?,?)",
+                new Object[]{uid, sym, side, qty, price, sl, tp, tier, 0.65, System.currentTimeMillis(), 0.01, riskAmt, decision, council, winProb, features.toString()});
+        long tradeId = 0;
+        Cursor ti = db.getReadableDatabase().rawQuery("SELECT MAX(id) FROM trades", null);
+        if (ti.moveToFirst()) tradeId = ti.getLong(0);
+        ti.close();
+        recordOrder(tradeId, uid, sym, side, "MARKET", decision, qty, "PAPER", "FILLED");
+        bridgeOrder(sym, side, tradeId, uid, price, qty);
         db.log("INFO", "LAB", "ORDER_EXECUTED", sym + " " + side + " [" + tier + "] qty="
                 + String.format(Locale.US, "%.6f", qty) + " entry=" + fpx(price)
-                + " (Lab strategy signal — ATR SL/TP, 1% risk)");
+                + " (Lab strategy signal — ATR SL/TP, 1% risk, council " + council + "%)");
     }
 
     private void manageOpenTrades() {
@@ -2070,6 +2321,9 @@ public class EngineCore implements Runnable {
             long id = (Long) r[0], uid = (Long) r[1];
             String sym = (String) r[2], side = (String) r[3], strategy = (String) r[8];
             double qty = (Double) r[4], entry = (Double) r[5], sl = (Double) r[6], tp = (Double) r[7];
+            // v3.0 SAFE MODE — stale feed par SL/TP evaluation FREEZE (purani candle par
+            // false trigger se bachne ke liye). freshData() safeMode flag bhi set karta hai.
+            if (!freshData(sym)) continue;
             // v1.5 — CLOSED + LIVE (in-progress) candle dono par stop-order semantics:
             // SL/TP/breakeven ab candle close ka intezaar nahi karte — 10s scan par turant.
             // Conservative same-candle order: SL pehle, TP baad mein (kabhi optimistic nahi).
@@ -2091,6 +2345,13 @@ public class EngineCore implements Runnable {
             for (double[] hl : candles2) {
                 if (hl == null || done) continue;
                 double hi = hl[0], lo = hl[1];
+                // v3.0 — MFE/MAE journal (professional trade analytics: trade ne apni
+                // zindagi mein kitna favor/adverse move diya — SL/TP tuning ka data)
+                double mfe = buy ? (hi - entry) * qty : (entry - lo) * qty;
+                double mae = buy ? (entry - lo) * qty : (hi - entry) * qty;
+                db.getWritableDatabase().execSQL(
+                        "UPDATE trades SET mfe=MAX(IFNULL(mfe,0),?), mae=MAX(IFNULL(mae,0),?) WHERE id=?",
+                        new Object[]{Math.max(0, mfe), Math.max(0, mae), id});
                 boolean hitSl = buy ? lo <= sl : hi >= sl;
                 boolean hitTp = buy ? hi >= tp : lo <= tp;
                 if (hitSl || hitTp) {
@@ -2114,18 +2375,40 @@ public class EngineCore implements Runnable {
     }
 
     private void closeTrade(long id, long uid, double price, String reason, double qty, double entry, String side) {
+        // v3.0 — slippage on EXIT (single application point: SL/TP/manual sab yahan se guzarte)
+        double exitFill = slipExit(price, side);
         // v1.7 PRO GUARD — fee modeling (freqtrade-style): entry + exit dono sides par
         // Taker fee 0.05% per side. Paper results ab real trading jaise realistic.
-        double fees = (qty * entry + qty * price) * TAKER_FEE;
-        double pnl = ("BUY".equals(side) ? price - entry : entry - price) * qty - fees;
+        double fees = (qty * entry + qty * exitFill) * TAKER_FEE;
+        double pnl = ("BUY".equals(side) ? exitFill - entry : entry - exitFill) * qty - fees;
+        // v3.0 — journal: R-multiple + TCA (decision vs fill, professional slippage tracking)
+        Cursor jc = db.getReadableDatabase().rawQuery(
+                "SELECT risk_amt, decision, features FROM trades WHERE id=?", new String[]{String.valueOf(id)});
+        double riskAmt = 0, decisionP = 0; String feats = "{}";
+        if (jc.moveToFirst()) { riskAmt = jc.getDouble(0); decisionP = jc.getDouble(1); feats = jc.getString(2); }
+        jc.close();
+        boolean buy = "BUY".equals(side);
+        double rMult = riskAmt > 0 ? pnl / riskAmt : 0;
+        double tcaBps = decisionP > 0 ? ((buy ? exitFill - decisionP : decisionP - exitFill) / decisionP) * 10000.0 : 0;
         db.getWritableDatabase().execSQL(
-                "UPDATE trades SET exit=?, pnl=?, status='CLOSED', closed_at=? WHERE id=?",
-                new Object[]{price, pnl, System.currentTimeMillis(), id});
+                "UPDATE trades SET exit=?, pnl=?, status='CLOSED', closed_at=?, r_mult=?, tca_bps=? WHERE id=?",
+                new Object[]{exitFill, pnl, System.currentTimeMillis(), Math.round(rMult * 1000.0) / 1000.0, Math.round(tcaBps * 100.0) / 100.0, id});
         db.getWritableDatabase().execSQL(
                 "UPDATE accounts SET balance = balance + ? WHERE user_id=?", new Object[]{pnl, uid});
+        recordOrder(id, uid, "", "EXIT_" + reason, "MARKET", exitFill, qty, "PAPER", "FILLED");
+        bridgeClose("", id, uid);
         db.log(reason.equals("SL") ? "WARN" : "INFO", "EXECUTOR", "TRADE_CLOSED_" + reason,
-                "trade #" + id + " pnl=" + String.format("%.2f", pnl)
-                        + " (fees $" + String.format("%.4f", fees) + " @ " + pct(TAKER_FEE) + "%/side)");
+                "trade #" + id + " exit=" + fpx(exitFill) + " (level " + fpx(price) + ", slip " + String.format(Locale.US, "%.1f", slipBps()) + "bps) pnl=" + String.format("%.2f", pnl)
+                        + " = " + String.format(Locale.US, "%.2f", rMult) + "R, fees $" + String.format("%.4f", fees)
+                        + " @ " + pct(TAKER_FEE) + "%/side, TCA " + String.format(Locale.US, "%.1f", tcaBps) + "bps");
+        // v3.0 — ML retrain cadence: har 20 feature-tagged closed trades par
+        try {
+            if (feats != null && !"{}".equals(feats)) {
+                long n = Long.parseLong(db.setting("ml_n", "0")) + 1;
+                db.setSetting("ml_n", String.valueOf(n));
+                if (n % 20 == 0) mlTrain();
+            }
+        } catch (Throwable ignored) { }
         // v1.7 — SL loss par protections trigger: cooldown + consecutive-loss guard
         if ("SL".equals(reason) && pnl < 0) {
             String sym = tradeSymbol(id);
@@ -2135,6 +2418,7 @@ public class EngineCore implements Runnable {
                     long until = System.currentTimeMillis() + cm * 60_000L;
                     cooldownUntil.put(uid + ":" + sym, until);
                     cooldownLogged.remove(uid + ":" + sym); // naya cooldown = fresh log
+                    saveGuardState();                        // v3.0 — persistent guards
                     db.log("WARN", "GUARD", "COOLDOWN_SET", sym + " — SL loss ke baad "
                             + cm + " min tak naya entry band (freqtrade CooldownPeriod)");
                 }
@@ -2240,6 +2524,34 @@ public class EngineCore implements Runnable {
         double eq = c.moveToFirst() ? c.getDouble(0) : 100; c.close();
         db.getWritableDatabase().execSQL("INSERT OR REPLACE INTO equity(ts, value) VALUES(?,?)",
                 new Object[]{System.currentTimeMillis(), eq});
+        // v3.0 TRUE DRAWDOWN (audit fix #10): accounts.peak ab har loop par equity-highs
+        // par RATCHET hota hai (balance + floating P/L) — dashboard ka Drawdown ab
+        // actual peak-to-now drawdown hai, (balance-start)/start ka jhoota number nahi.
+        try {
+            Cursor ac = db.getReadableDatabase().rawQuery(
+                    "SELECT a.user_id, a.balance, a.peak FROM accounts a", null);
+            List<Object[]> accs = new ArrayList<>();
+            while (ac.moveToNext()) accs.add(new Object[]{ac.getLong(0), ac.getDouble(1), ac.getDouble(2)});
+            ac.close();
+            for (Object[] a : accs) {
+                long uid = (Long) a[0];
+                double bal = (Double) a[1], peak = (Double) a[2];
+                double floating = 0;
+                Cursor fc = db.getReadableDatabase().rawQuery(
+                        "SELECT symbol, side, qty, entry FROM trades WHERE user_id=? AND status='OPEN'",
+                        new String[]{String.valueOf(uid)});
+                while (fc.moveToNext()) {
+                    double p = livePrice(fc.getString(0));
+                    if (!Double.isNaN(p))
+                        floating += ("BUY".equals(fc.getString(1)) ? p - fc.getDouble(3) : fc.getDouble(3) - p) * fc.getDouble(2);
+                }
+                fc.close();
+                double eqNow = bal + floating;
+                if (eqNow > peak)
+                    db.getWritableDatabase().execSQL("UPDATE accounts SET peak=? WHERE user_id=?",
+                            new Object[]{eqNow, uid});
+            }
+        } catch (Throwable ignored) { }
         // v1.0 BUGFIX: the equity table grew forever (a row every 30s scan). Keep the
         // most recent 2000 points (~16h of scans); the dashboard reads the last 48.
         try {
@@ -2429,6 +2741,539 @@ public class EngineCore implements Runnable {
         } catch (Exception ignored) { }
     }
 
+    // ================== v3.0 QUANT PRO CORE ==================
+    // Roadmap: v2.2 PRO RISK + v2.3 HONEST LAB support + v2.5 AI QUANT CORE + v3.0 LIVE READY.
+    // 3C MASTER rules untouched — ye sab strategy ke AAS PAAS ki discipline hai.
+
+    /** symbol -> correlated bucket (METAL/ENERGY/AGRI) — LEAN sector-exposure parity. */
+    private static final java.util.Map<String, String> BUCKET = new HashMap<>();
+    static { for (String[] s : HALAL_COMMODITIES) BUCKET.put(s[0], s[1]); }
+
+    /** Latest price for a symbol (most recent candle close incl. live candle) — heat/DD ke liye. */
+    private double livePrice(String sym) {
+        Cursor c = db.getReadableDatabase().rawQuery(
+                "SELECT c FROM candles WHERE symbol=? AND tf=? ORDER BY ts DESC LIMIT 1", new String[]{sym, TF});
+        double p = Double.NaN;
+        if (c.moveToFirst()) p = c.getDouble(0);
+        c.close();
+        return p;
+    }
+
+    static String bucketOf(String sym) { return BUCKET.getOrDefault(sym, "AGRI"); }
+
+    /** Adverse slippage on ENTRY: BUY thoda zyada par khareedta hai, SELL thoda kam par. */
+    private double slipEntry(double p, String side) {
+        double s = slipBps() / 10000.0;
+        return "BUY".equals(side) ? p * (1 + s) : p * (1 - s);
+    }
+
+    /** Adverse slippage on EXIT: BUY thoda kam par bechta hai, SELL thoda zyada par. */
+    private double slipExit(double p, String side) {
+        double s = slipBps() / 10000.0;
+        return "BUY".equals(side) ? p * (1 - s) : p * (1 + s);
+    }
+
+    /** Portfolio HEAT = total open risk (|entry-sl|*qty) / equity * 100 (per user).
+     *  Professional prop desks 6-10% heat par cap lagate hain — hum default OFF. */
+    public double heatRiskPct(long uid) {
+        double floating = 0;
+        Cursor c = db.getReadableDatabase().rawQuery(
+                "SELECT symbol, side, qty, entry, sl, status FROM trades WHERE user_id=? AND status='OPEN'",
+                new String[]{String.valueOf(uid)});
+        double risk = 0;
+        while (c.moveToNext()) {
+            String sym = c.getString(0), side = c.getString(1);
+            double qty = c.getDouble(2), entry = c.getDouble(3), sl = c.getDouble(4);
+            risk += Math.abs(entry - sl) * qty;
+            double p = livePrice(sym);
+            if (!Double.isNaN(p)) floating += ("BUY".equals(side) ? p - entry : entry - p) * qty;
+        }
+        c.close();
+        double eq = balanceOf(uid) + floating;
+        return eq > 0 ? risk / eq * 100.0 : 0;
+    }
+
+    /** Ek bucket (METAL/ENERGY/AGRI) ka total open risk % — correlated exposure. */
+    public double bucketRiskPct(long uid, String bucket) {
+        double floating = 0;
+        Cursor c = db.getReadableDatabase().rawQuery(
+                "SELECT symbol, side, qty, entry, sl, status FROM trades WHERE user_id=? AND status='OPEN'",
+                new String[]{String.valueOf(uid)});
+        double risk = 0;
+        while (c.moveToNext()) {
+            if (!bucket.equals(bucketOf(c.getString(0)))) continue;
+            double qty = c.getDouble(2), entry = c.getDouble(3), sl = c.getDouble(4);
+            risk += Math.abs(entry - sl) * qty;
+            double p = livePrice(c.getString(0));
+            if (!Double.isNaN(p)) floating += ("BUY".equals(c.getString(1)) ? p - entry : entry - p) * qty;
+        }
+        c.close();
+        double eq = balanceOf(uid) + floating;
+        return eq > 0 ? risk / eq * 100.0 : 0;
+    }
+
+    /** STALE-DATA GUARD (audit fix #3): symbol ki aakhri candle 2x TF (10 min) se
+     *  purani ho to SAFE MODE — koi naya entry nahi, SL/TP evaluation freeze (purani
+     *  candle par false trigger nahi chalega). Feed wapas aane par auto-clear. */
+    private boolean freshData(String sym) {
+        Cursor c = db.getReadableDatabase().rawQuery(
+                "SELECT ts FROM candles WHERE symbol=? AND tf=? ORDER BY ts DESC LIMIT 1",
+                new String[]{sym, TF});
+        boolean fresh = false;
+        if (c.moveToFirst()) fresh = System.currentTimeMillis() - c.getLong(0) < 2 * TF_MS;
+        c.close();
+        if (!fresh && !safeMode) {
+            safeMode = true;
+            safeModeSince = System.currentTimeMillis();
+            db.log("WARN", "FEED", "SAFE_MODE_ON",
+                    sym + " candle stale (>10 min) — SAFE MODE: naye entries band, open trades ka SL/TP freeze (stale prices par false trigger nahi). Feed recover hote hi auto-clear.");
+            try { Notifier.post(appContext(), "SAFE MODE", "Feed outage — " + sym + " stale. Naye entries band, khuli trades protected."); } catch (Throwable ignored) { }
+        } else if (fresh && safeMode) {
+            // sab symbols fresh ho tabhi clear — conservative: is symbol ki freshness se
+            // global flag clear karna theek hai (feed recover hua)
+            safeMode = false;
+            db.log("INFO", "FEED", "SAFE_MODE_OFF", "feed recovered — normal trading resumed (" + (System.currentTimeMillis() - safeModeSince) / 60000 + " min outage)");
+        }
+        return fresh;
+    }
+
+    public boolean isSafeMode() { return safeMode; }
+
+    /** EVENT GATE: aakhri 60 min mein HIGH-impact news = naye entries pause (opt-in). */
+    private boolean eventGateActive() {
+        if (!eventGateOn()) return false;
+        Cursor c = db.getReadableDatabase().rawQuery(
+                "SELECT COUNT(*) FROM news WHERE impact='HIGH' AND ts > ?",
+                new String[]{String.valueOf(System.currentTimeMillis() - 60L * 60 * 1000)});
+        boolean hot = c.moveToFirst() && c.getInt(0) > 0;
+        c.close();
+        return hot;
+    }
+
+    /** CME maintenance halt 17:00-18:00 ET (New York time) — opt-in session filter. */
+    private boolean inCmeHalt() {
+        if (!sessionFilterOn()) return false;
+        try {
+            java.util.Calendar cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("America/New_York"));
+            int h = cal.get(java.util.Calendar.HOUR_OF_DAY);
+            int m = cal.get(java.util.Calendar.MINUTE);
+            return (h == 17 && m >= 0) && (h < 18 || (h == 17 && m < 60)); // 17:00-17:59 ET
+        } catch (Throwable t) { return false; }
+    }
+
+    /** 24h news sentiment bias: BULL count - BEAR count (clamp ±10) — council input. */
+    private int newsBias() {
+        try {
+            Cursor c = db.getReadableDatabase().rawQuery(
+                    "SELECT sentiment, COUNT(*) FROM news WHERE ts > ? GROUP BY sentiment",
+                    new String[]{String.valueOf(System.currentTimeMillis() - 24L * 3600_000)});
+            int bull = 0, bear = 0;
+            while (c.moveToNext()) {
+                String s = c.getString(0) == null ? "" : c.getString(0);
+                if (s.contains("BULL")) bull += c.getInt(1);
+                else if (s.contains("BEAR")) bear += c.getInt(1);
+            }
+            c.close();
+            int b = bull - bear;
+            return Math.max(-10, Math.min(10, b));
+        } catch (Throwable t) { return 0; }
+    }
+
+    /** SIGNAL COUNCIL (TradingAgents-pattern, 4 analysts, 0-100 confidence):
+     *  Technical (trend+momentum) + Volatility regime + News bias + Seasonality.
+     *  3C rules NAHI badalta — sirf entry par confidence tag + opt-in min-gate. */
+    public int councilScore(String sym, String side, List<Candle> k, int i) {
+        int score = 50;
+        boolean buy = "BUY".equals(side);
+        try {
+            // 1) TECHNICAL — trend alignment + RSI regime
+            double e = ema(k, 200);
+            double c3 = k.get(i).c;
+            boolean trendAligned = !Double.isNaN(e) && (buy ? c3 > e : c3 < e);
+            if (trendAligned) score += 15; else score -= 15;
+            double r = rsi(k, 14);
+            if (!Double.isNaN(r)) {
+                if (r >= 45 && r <= 65) score += 10;          // room to move
+                if (buy && r > 78) score -= 12;                // overextended
+                if (!buy && r < 22) score -= 12;
+            }
+            // 2) VOLATILITY REGIME — healthy ATR vs dead chop
+            double a = atr(k, 14);
+            if (!Double.isNaN(a) && a > 0) {
+                double atrPct = a / c3 * 100.0;
+                if (atrPct >= proAtrFloor() * 2) score += 10;
+                else if (atrPct < proAtrFloor()) score -= 20;
+            }
+            // 3) NEWS BIAS — 24h RSS sentiment (aligned bonus, opposite penalty)
+            int nb = newsBias();
+            score += buy ? nb : -nb;
+            // 4) SEASONALITY — current month ka historical bias (commodities ka asal edge)
+            JSONObject se = seasonality(sym, false);
+            if (se != null) {
+                org.json.JSONArray avg = se.optJSONArray("avg");
+                if (avg != null) {
+                    java.util.Calendar cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"));
+                    int mon = cal.get(java.util.Calendar.MONTH);
+                    double mAvg = avg.optDouble(mon, 0);
+                    if (buy ? mAvg > 0 : mAvg < 0) score += 10; else if (mAvg != 0) score -= 8;
+                }
+            }
+        } catch (Throwable t) { /* council kabhi entry nahi todta — fallback 50 */ }
+        return Math.max(0, Math.min(100, score));
+    }
+
+    /** SEASONALITY (seasonality.ai pattern): 5y daily data → avg % by month + hit rate.
+     *  Cache 24h. force=true API refresh ke liye. Commodities (coffee/frost, oil/heating
+     *  season, wheat/harvest) mein ye professional traders ka core edge hai. */
+    public JSONObject seasonality(String sym, boolean force) {
+        JSONObject cached = seasonCache.get(sym);
+        long now = System.currentTimeMillis();
+        if (!force && cached != null && now - cached.optLong("fetched", 0) < 24L * 3600_000) return cached;
+        String y = MT5_FEED.get(sym);
+        if (y == null) return cached;
+        try {
+            String body = httpGetUrl(YAHOO_HOST + "/v8/finance/chart/" + y + "?interval=1d&range=5y", 15000);
+            if (body == null) return cached;
+            JSONObject res = new JSONObject(body).getJSONObject("chart").getJSONArray("result").getJSONObject(0);
+            org.json.JSONArray ts = res.getJSONArray("timestamp");
+            JSONObject q = res.getJSONObject("indicators").getJSONArray("quote").getJSONObject(0);
+            org.json.JSONArray cA = q.getJSONArray("close");
+            java.util.Calendar cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"));
+            double[] sum = new double[12]; int[] n = new int[12]; int[] up = new int[12];
+            double prev = 0; long prevMon = -1, prevYear = -1;
+            for (int i = 0; i < ts.length(); i++) {
+                if (cA.isNull(i)) continue;
+                double c = cA.getDouble(i);
+                if (c <= 0) continue;
+                cal.setTimeInMillis(ts.getLong(i) * 1000L);
+                long mon = cal.get(java.util.Calendar.MONTH), yr = cal.get(java.util.Calendar.YEAR);
+                if (prev > 0 && (mon != prevMon || yr != prevYear)) {   // month-close-to-month-close % change
+                    double chg = (c - prev) / prev * 100.0;
+                    sum[(int) prevMon] += chg; n[(int) prevMon]++;
+                    if (chg > 0) up[(int) prevMon]++;
+                }
+                prev = c; prevMon = mon; prevYear = yr;
+            }
+            org.json.JSONArray avg = new org.json.JSONArray(), hit = new org.json.JSONArray();
+            for (int m = 0; m < 12; m++) {
+                avg.put(n[m] > 0 ? Math.round(sum[m] / n[m] * 100.0) / 100.0 : 0);
+                hit.put(n[m] > 0 ? Math.round(up[m] * 100.0 / n[m]) : 0);
+            }
+            JSONObject out = new JSONObject().put("symbol", sym).put("avg", avg).put("hit", hit)
+                    .put("n", new org.json.JSONArray(n)).put("years", 5).put("fetched", now);
+            seasonCache.put(sym, out);
+            return out;
+        } catch (Throwable t) { return cached; }
+    }
+
+    // ===== ML-LITE (FreqAI-inspired) — logistic regression on closed-trade features =====
+    // Har closed trade se features (body%, vol ratio, atr%, ema dist, hour, council)
+    // + outcome (win) → SGD logistic. Har 20 closed trades par retrain. Drift check.
+
+    private synchronized JSONObject mlWeights() {
+        if (mlLoaded) return mlWeights;
+        try {
+            String raw = db.setting("ml_weights", "");
+            if (raw != null && !raw.isEmpty()) mlWeights = new JSONObject(raw);
+        } catch (Throwable ignored) { }
+        mlLoaded = true;
+        return mlWeights;
+    }
+
+    /** Nayi entry par win probability (0-1). Model na ho to 0 (unknown). */
+    public double mlWinProb(JSONObject features) {
+        JSONObject w = mlWeights();
+        if (w == null || features == null) return 0;
+        try {
+            JSONObject wm = w.getJSONObject("w");
+            double z = w.optDouble("b", 0);
+            java.util.Iterator<String> it = wm.keys();
+            while (it.hasNext()) {
+                String key = it.next();
+                z += wm.optDouble(key, 0) * features.optDouble(key, 0);
+            }
+            return 1.0 / (1.0 + Math.exp(-z));
+        } catch (Throwable t) { return 0; }
+    }
+
+    /** Har 20 closed trades par rolling retrain (pure Java SGD — koi external ML lib nahi). */
+    public void mlTrain() {
+        try {
+            Cursor c = db.getReadableDatabase().rawQuery(
+                    "SELECT features, pnl, risk_amt FROM trades WHERE status='CLOSED' AND features!='{}' AND features IS NOT NULL "
+                            + "ORDER BY closed_at DESC LIMIT 300", null);
+            List<double[]> X = new ArrayList<>();
+            List<Double> Y = new ArrayList<>();
+            List<String> keys = java.util.Arrays.asList("bd", "vr", "ap", "ed", "rd", "hr", "cs");
+            while (c.moveToNext() && X.size() < 300) {
+                try {
+                    JSONObject f = new JSONObject(c.getString(0));
+                    double[] x = new double[keys.size()];
+                    for (int j = 0; j < keys.size(); j++) x[j] = f.optDouble(keys.get(j), 0);
+                    X.add(x);
+                    Y.add(c.getDouble(1) > 0 ? 1.0 : 0.0);
+                } catch (Throwable ignored) { }
+            }
+            c.close();
+            if (X.size() < 40) return;   // kam data — model abhi nahi
+            double[] w = new double[keys.size()]; double b = 0;
+            double lr = 0.05;
+            for (int ep = 0; ep < 300; ep++) {
+                for (int i = 0; i < X.size(); i++) {
+                    double z = b;
+                    for (int j = 0; j < w.length; j++) z += w[j] * X.get(i)[j];
+                    double p = 1.0 / (1.0 + Math.exp(-z));
+                    double err = p - Y.get(i);
+                    for (int j = 0; j < w.length; j++) w[j] -= lr * err * X.get(i)[j];
+                    b -= lr * err;
+                }
+            }
+            // train accuracy (honesty metric)
+            int correct = 0;
+            for (int i = 0; i < X.size(); i++) {
+                double z = b;
+                for (int j = 0; j < w.length; j++) z += w[j] * X.get(i)[j];
+                if ((z > 0) == (Y.get(i) > 0.5)) correct++;
+            }
+            JSONObject wm = new JSONObject();
+            for (int j = 0; j < keys.size(); j++) wm.put(keys.get(j), Math.round(w[j] * 10000.0) / 10000.0);
+            JSONObject out = new JSONObject().put("w", wm).put("b", Math.round(b * 10000.0) / 10000.0)
+                    .put("n", X.size()).put("acc", Math.round(correct * 100.0 / X.size())).put("ts", System.currentTimeMillis());
+            db.setSetting("ml_weights", out.toString());
+            mlWeights = out;
+            db.log("INFO", "ML", "ML_TRAINED", "logistic retrained on " + X.size() + " trades — train acc " + out.optInt("acc") + "% (experimental FreqAI-lite)");
+        } catch (Throwable t) { db.log("ERROR", "ML", "ML_TRAIN_FAIL", String.valueOf(t)); }
+    }
+
+    /** ML DRIFT check: model prediction vs actual — bada gap = drift warning. */
+    private void mlDriftCheck() {
+        try {
+            JSONObject w = mlWeights();
+            if (w == null) return;
+            Cursor c = db.getReadableDatabase().rawQuery(
+                    "SELECT win_prob, pnl FROM trades WHERE status='CLOSED' AND win_prob>0 ORDER BY closed_at DESC LIMIT 30", null);
+            double predSum = 0; int n = 0, wins = 0;
+            while (c.moveToNext()) { predSum += c.getDouble(0); n++; if (c.getDouble(1) > 0) wins++; }
+            c.close();
+            if (n >= 20) {
+                double pred = predSum / n, act = (double) wins / n;
+                if (Math.abs(pred - act) > 0.25)
+                    db.log("WARN", "ML", "ML_DRIFT", "model avg winProb " + String.format(Locale.US, "%.2f", pred)
+                            + " vs actual winrate " + String.format(Locale.US, "%.2f", act) + " — regime drift, agla retrain important");
+            }
+        } catch (Throwable ignored) { }
+    }
+
+    /** DEGRADATION MONITOR (audit fix #13): har strategy tag ki rolling 20-trade PF.
+     *  PF < 0.7 → owner alert (+opt-in auto-pause AI strategies). Har 30 min. */
+    public void degradationCheck() {
+        try {
+            Cursor c = db.getReadableDatabase().rawQuery(
+                    "SELECT strategy, COUNT(*) FROM trades WHERE status='CLOSED' GROUP BY strategy HAVING COUNT(*)>=20", null);
+            List<String[]> tags = new ArrayList<>();
+            while (c.moveToNext()) tags.add(new String[]{c.getString(0), c.getString(1)});
+            c.close();
+            for (String[] tag : tags) {
+                String name = tag[0];
+                if (name == null) continue;
+                boolean is3C = name.startsWith("3C");
+                if (name.startsWith("AI:PAPER")) continue;      // paper shadow degrade check nahi
+                Cursor rc = db.getReadableDatabase().rawQuery(
+                        "SELECT pnl FROM trades WHERE strategy=? AND status='CLOSED' ORDER BY closed_at DESC LIMIT 20",
+                        new String[]{name});
+                double gw = 0, gl = 0;
+                while (rc.moveToNext()) {
+                    double p = rc.getDouble(0);
+                    if (p > 0) gw += p; else gl += -p;
+                }
+                rc.close();
+                if (gl <= 0) continue;
+                double pf = gw / gl;
+                String dedupKey = "deg_" + name;
+                long last = 0;
+                try { last = Long.parseLong(db.setting(dedupKey, "0")); } catch (Exception ignored) { }
+                if (pf < 0.7 && System.currentTimeMillis() - last > 12L * 3600_000) {
+                    db.setSetting(dedupKey, String.valueOf(System.currentTimeMillis()));
+                    db.log("WARN", "GUARD", "STRATEGY_DEGRADED",
+                            name + " rolling 20-trade PF " + String.format(Locale.US, "%.2f", pf) + " (<0.7) — strategy kharab chal rahi hai, owner dekhein");
+                    try {
+                        db.getWritableDatabase().execSQL(
+                                "INSERT INTO notifications(kind, title, body, meta, read, created_at) VALUES('DEGRADED',?,?,?,0,?)",
+                                new Object[]{"Strategy degraded — " + name,
+                                        name + " ki aakhri 20 trades ka Profit Factor " + String.format(Locale.US, "%.2f", pf) + " hai (<0.7 threshold). Strategy Lab me review karein" + (is3C ? " — 3C MASTER hai, PRO filters/settings check karein." : " — is strategy ko trash/restore kar sakte hain."),
+                                        "{}", System.currentTimeMillis()});
+                    } catch (Throwable ignored) { }
+                    try { Notifier.post(appContext(), "STRATEGY DEGRADED", name + " rolling PF " + String.format(Locale.US, "%.2f", pf)); } catch (Throwable ignored) { }
+                    if (!is3C && autoPauseDegraded()) {
+                        db.setSetting("paused_" + name, "1");
+                        db.log("WARN", "GUARD", "STRATEGY_PAUSED", name + " auto-paused (auto_pause ON) — Control me re-enable karein");
+                    }
+                }
+            }
+            mlDriftCheck();
+        } catch (Throwable t) { db.log("ERROR", "GUARD", "DEG_CHECK_FAIL", String.valueOf(t)); }
+    }
+
+    /** Lab/AI strategy paused hai? (degradation auto-pause). */
+    private boolean strategyPaused(String tag) { return "1".equals(db.setting("paused_" + tag, "0")); }
+
+    // ===== GUARD STATE PERSISTENCE (audit fix #7 — watchdog restart par cooldowns survive) =====
+
+    private void saveGuardState() {
+        try {
+            JSONObject o = new JSONObject();
+            JSONObject cu = new JSONObject();
+            for (Map.Entry<String, Long> e : cooldownUntil.entrySet()) cu.put(e.getKey(), e.getValue());
+            o.put("cooldown", cu).put("ts", System.currentTimeMillis());
+            db.setSetting("guard_state_v1", o.toString());
+        } catch (Throwable ignored) { }
+    }
+
+    private void loadGuardState() {
+        try {
+            String raw = db.setting("guard_state_v1", "");
+            if (raw == null || raw.isEmpty()) return;
+            JSONObject o = new JSONObject(raw);
+            JSONObject cu = o.optJSONObject("cooldown");
+            if (cu != null) {
+                java.util.Iterator<String> it = cu.keys();
+                long now = System.currentTimeMillis();
+                while (it.hasNext()) {
+                    String k = it.next();
+                    long until = cu.optLong(k, 0);
+                    if (until > now) cooldownUntil.put(k, until);   // expired cooldowns skip
+                }
+            }
+            if (!cooldownUntil.isEmpty())
+                db.log("INFO", "GUARD", "GUARD_RESTORED", cooldownUntil.size() + " active cooldown(s) restart ke baad restore — PRO GUARD ab persistent hai");
+        } catch (Throwable ignored) { }
+    }
+
+    // ===== ORDER LIFECYCLE (v3.0) — har paper/bridge order ka audit trail =====
+
+    private void recordOrder(long tradeId, long uid, String sym, String side, String type, double price, double qty, String source, String status) {
+        try {
+            db.getWritableDatabase().execSQL(
+                    "INSERT INTO orders(trade_id, user_id, symbol, side, type, price, qty, status, source, ts) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                    new Object[]{tradeId, uid, sym, side, type, price, qty, status, source, System.currentTimeMillis()});
+        } catch (Throwable ignored) { }
+    }
+
+    // ===== MT5 BRIDGE LIVE MIRROR (v3.0 LIVE READY — owner opt-in, default OFF) =====
+
+    private String httpPostUrl(String url, String json, int timeoutMs) {
+        try {
+            HttpURLConnection cn = (HttpURLConnection) new URL(url).openConnection();
+            cn.setConnectTimeout(timeoutMs); cn.setReadTimeout(timeoutMs + 5000);
+            cn.setRequestMethod("POST");
+            cn.setRequestProperty("Content-Type", "application/json");
+            cn.setRequestProperty("User-Agent", "Mozilla/5.0 (Android) AI-Trading-Lab/3.0");
+            cn.setDoOutput(true);
+            java.io.OutputStream os = cn.getOutputStream();
+            os.write(json.getBytes("UTF-8"));
+            os.flush(); os.close();
+            int code = cn.getResponseCode();
+            if (code != 200) return null;
+            BufferedReader r = new BufferedReader(new InputStreamReader(cn.getInputStream()));
+            StringBuilder sb = new StringBuilder(); String line;
+            while ((line = r.readLine()) != null) sb.append(line);
+            r.close();
+            return sb.toString();
+        } catch (Exception e) { return null; }
+    }
+
+    /** Bridge par REAL order bhejo (fire-and-forget thread — paper engine kabhi block nahi hota). */
+    private void bridgeOrder(String sym, String side, long tradeId, long uid, double price, double qty) {
+        if (!bridgeLive()) return;
+        final String base = mt5Bridge();
+        if (base.isEmpty()) return;
+        String body = "{}";
+        try {
+            body = new JSONObject()
+                    .put("symbol", sym).put("side", side).put("volume", bridgeLots())
+                    .put("trade_id", tradeId).toString();
+        } catch (Throwable ignored) { }
+        final String fBody = body;
+        final long tid = tradeId, u = uid; final double p = price, q = qty;
+        Thread t = new Thread(() -> {
+            try {
+                String resp = httpPostUrl(base + (base.endsWith("/") ? "" : "/") + "order", fBody, 8000);
+                boolean ok = resp != null;
+                recordOrder(tid, u, sym, side, "MARKET", p, q, "BRIDGE", ok ? "SENT" : "REJECTED");
+                db.log(ok ? "INFO" : "WARN", "BRIDGE", ok ? "BRIDGE_ORDER_SENT" : "BRIDGE_ORDER_FAIL",
+                        sym + " " + side + " " + bridgeLots() + " lots — " + (ok ? "bridge ne accept kiya" : "bridge down/reject"));
+            } catch (Throwable ignored) { }
+        }, "bridge-order");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** Bridge par position close (fire-and-forget). */
+    private void bridgeClose(String sym, long tradeId, long uid) {
+        if (!bridgeLive()) return;
+        final String base = mt5Bridge();
+        if (base.isEmpty()) return;
+        final long tid = tradeId, u = uid;
+        Thread t = new Thread(() -> {
+            try {
+                String resp = httpPostUrl(base + (base.endsWith("/") ? "" : "/") + "close",
+                        new JSONObject().put("symbol", sym).put("trade_id", tid).toString(), 8000);
+                recordOrder(tid, u, sym, "CLOSE", "MARKET", 0, 0, "BRIDGE", resp != null ? "SENT" : "REJECTED");
+            } catch (Throwable ignored) { }
+        }, "bridge-close");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** Deep backtest candles (HONEST LAB): bridge limit=8000 ya Yahoo range=1mo (5m).
+     *  DB me upsert NAHI hota (4-day rolling window clean rehta hai) — in-memory only. */
+    public List<Candle> deepCandles(String sym, int days) {
+        String base = mt5Bridge();
+        if (!base.isEmpty()) {
+            try {
+                String body = httpGetUrl(base + (base.endsWith("/") ? "" : "/")
+                        + "candles?symbol=" + sym + "&tf=5m&limit=8000", 15000);
+                if (body != null) {
+                    org.json.JSONArray arr = new org.json.JSONArray(body);
+                    List<Candle> out = new ArrayList<>();
+                    for (int i = 0; i < arr.length(); i++) {
+                        org.json.JSONArray k = arr.getJSONArray(i);
+                        Candle cd = new Candle();
+                        cd.ts = k.getLong(0); cd.o = k.getDouble(1); cd.h = k.getDouble(2);
+                        cd.l = k.getDouble(3); cd.c = k.getDouble(4); cd.v = k.getDouble(5);
+                        out.add(cd);
+                    }
+                    if (out.size() >= 500) return out;
+                }
+            } catch (Throwable ignored) { }
+        }
+        String y = MT5_FEED.get(sym);
+        if (y == null) return loadCandles(sym);
+        try {
+            String body = httpGetUrl(YAHOO_HOST + "/v8/finance/chart/" + y + "?interval=5m&range=1mo", 20000);
+            if (body != null) {
+                JSONObject res = new JSONObject(body).getJSONObject("chart").getJSONArray("result").getJSONObject(0);
+                org.json.JSONArray ts = res.getJSONArray("timestamp");
+                JSONObject q = res.getJSONObject("indicators").getJSONArray("quote").getJSONObject(0);
+                org.json.JSONArray oA = q.getJSONArray("open"), hA = q.getJSONArray("high"), lA = q.getJSONArray("low");
+                org.json.JSONArray cA = q.getJSONArray("close"), vA = q.getJSONArray("volume");
+                List<Candle> out = new ArrayList<>();
+                for (int i = 0; i < ts.length(); i++) {
+                    if (oA.isNull(i) || hA.isNull(i) || lA.isNull(i) || cA.isNull(i)) continue;
+                    double o = oA.getDouble(i), h = hA.getDouble(i), l = lA.getDouble(i), c = cA.getDouble(i);
+                    if (o <= 0 || h <= 0 || l <= 0 || c <= 0) continue;
+                    Candle cd = new Candle();
+                    cd.ts = ts.getLong(i) * 1000L;
+                    cd.o = o; cd.h = h; cd.l = l; cd.c = c;
+                    cd.v = vA.isNull(i) ? 0 : vA.getDouble(i);
+                    out.add(cd);
+                }
+                if (out.size() >= 500) return out;
+            }
+        } catch (Throwable ignored) { }
+        return loadCandles(sym);   // fallback: 4-day DB window
+    }
+
     // ================== STATUS for API ==================
     public Map<String, Object> status() {
         Map<String, Object> m = new HashMap<>();
@@ -2442,9 +3287,22 @@ public class EngineCore implements Runnable {
         m.put("scan_count", scanCount);
         m.put("last_scan_at", lastScanAt);
         m.put("strategy_count", 1);
-        m.put("strategy_name", "3C Breakout (M5) — MASTER");
+        m.put("strategy_name", "3C Breakout (M5) — MASTER + QUANT PRO stack");
         m.put("risk_pct", riskPct());
-        m.put("limits", "UNLIMITED — daily loss/profit cap nahi, kill switch nahi, position cap nahi (owner request)");
+        m.put("limits", "UNLIMITED daily P/L (owner) — heat/bucket/event/session caps default OFF opt-in");
+        // v3.0 QUANT PRO status
+        m.put("version", "3.0");
+        m.put("safe_mode", safeMode);
+        m.put("slip_bps", slipBps());
+        m.put("heat_max_pct", heatMaxPct());
+        m.put("bucket_max_pct", bucketMaxPct());
+        m.put("council_min", councilMin());
+        m.put("event_gate", eventGateOn());
+        m.put("session_filter", sessionFilterOn());
+        m.put("bridge_live", bridgeLive());
+        JSONObject mw = mlWeights();
+        m.put("ml", mw != null ? "trained n=" + mw.optInt("n") + " acc=" + mw.optInt("acc") + "% (experimental)" : "warming up (40+ feature-tagged trades chahiye)");
+        m.put("degraded_check", "30-min rolling PF monitor + ML drift check");
         m.put("indicator_count", INDICATOR_LIBRARY.length);
         m.put("fear_greed", fngValue);
         m.put("last_pattern", lastPattern);

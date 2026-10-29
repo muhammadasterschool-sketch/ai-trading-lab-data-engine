@@ -144,7 +144,7 @@ select{width:100%;background:var(--card);border:1px solid var(--line);border-rad
   <div class="logo"><img src="logo.png" alt="AI Trading Lab"></div>
   <h1>AI Trading Lab</h1>
   <div class="sub">Full trading engine on this device — paper trading</div>
-  <div class="sub" style="color:var(--gold)">v2.1 · HALAL MT5 · OWNER GATE · PRO FILTER PACK · Candlestick</div>
+  <div class="sub" style="color:var(--gold)">v3.0 · QUANT PRO · HEAT · COUNCIL · ML · HONEST LAB · TRUE DD</div>
   <div id="engStrip" class="eng">checking engine…</div>
   <div class="note"><b>Naya install / update?</b> Accounts is device ki local database mein hote hain — app reinstall ya update ke baad purana account <b>transfer nahi hota</b>. Pehla account = <b>OWNER (ADMIN)</b>. Baaki log <b>Register</b> se apply karein — <b>invite code owner se milega</b> (kahin likha hua nahi hota), aur owner ke <b>APPROVE</b> karne ke baad hi sign in possible hoga. Kisi authenticator app ki zaroorat nahi.</div>
 
@@ -217,12 +217,12 @@ select{width:100%;background:var(--card);border:1px solid var(--line);border-rad
   <aside id="drawer">
     <div class="dhead">
       <img src="logo.png" alt="">
-      <div><div class="dt">AI Trading Lab</div><div class="ds" id="drEngine">engine · v2.1</div></div>
+      <div><div class="dt">AI Trading Lab</div><div class="ds" id="drEngine">engine · v3.0 QUANT PRO</div></div>
       <button class="dclose" onclick="closeDrawer()">✕</button>
     </div>
     <div class="duser" id="drUser"></div>
     <div class="ditems" id="drItems"></div>
-    <div class="dfoot">v2.1 · HALAL MT5 · paper trading only — engine is device par 24/7 chalta hai</div>
+    <div class="dfoot">v3.0 · QUANT PRO · paper trading only — engine is device par 24/7 chalta hai</div>
   </aside>
   <main id="main"></main>
   <nav>
@@ -433,15 +433,125 @@ function tgt(){ return document.getElementById(RENDER_TARGET); }
 var INS_TAB = 'ind';
 function renderInsights(){
   var t = tgt();
-  var chips = [['ind','📏 Indicators'],['news','📰 News'],['inst','🗂 Instruments'],['logs','📜 Logs']]
+  var chips = [['edge','📊 Edge Analytics'],['seas','🗓 Seasonality'],['ind','📏 Indicators'],['news','📰 News'],['inst','🗂 Instruments'],['logs','📜 Logs']]
     .map(function(c){ return '<button class="chip '+(INS_TAB===c[0]?'on':'')+'" onclick="INS_TAB=\''+c[0]+'\';renderInsights()">'+c[1]+'</button>'; }).join('');
   t.innerHTML = '<div class="sechead"><h2 style="margin:0">📡 Insights</h2></div><div class="chips">'+chips+'</div><div id="insBody"></div>';
   RENDER_TARGET = 'insBody';
   if(INS_TAB==='ind') renderInd();
   else if(INS_TAB==='news') renderNews();
   else if(INS_TAB==='inst') renderInst();
+  else if(INS_TAB==='edge') renderEdge();
+  else if(INS_TAB==='seas') renderSeason();
   else renderLogs();
   RENDER_TARGET = 'main';
+}
+/* ============ v3.0 EDGE ANALYTICS (FreqUI + Jesse + LEAN extraction) ============ */
+function renderEdge(){
+  api('/api/analytics').then(function(r){
+    var t = document.getElementById('insBody'); if(!t) return;
+    if(r.status!==200){ t.innerHTML = '<div class="banner warn">Analytics abhi load nahi hua</div>'; return; }
+    var a = r.data;
+    // 1) Daily P&L bar chart (30d, canvas — FreqUI Profit page pattern)
+    var daily = a.daily||[];
+    var dHtml = daily.length ? '<canvas id="dailyChart" style="width:100%;height:150px"></canvas>' : '<div class="empty">Abhi koi closed trade nahi — daily P&L khud bharega</div>';
+    // 2) Monthly heatmap (Jesse pattern)
+    var mon = a.monthly||[];
+    var mHtml = mon.length ? mon.map(function(m){
+        var pos = m.pnl>=0;
+        return '<div style="display:inline-block;margin:2px;padding:5px 7px;border-radius:6px;background:'+(pos?'rgba(16,185,129,.18)':'rgba(248,113,113,.18)')+';border:1px solid '+(pos?'rgba(16,185,129,.5)':'rgba(248,113,113,.5)')+'"><span class="mut" style="font-size:9px">'+esc(m.month)+'</span><br><b style="font-size:11px;color:'+(pos?'#4ade80':'#f87171')+'">'+(pos?'+':'')+m.pnl.toFixed(0)+'</b></div>';
+      }).join('') : '<div class="empty">Monthly data abhi nahi</div>';
+    // 3) R-multiple histogram
+    var rh = a.rHist||[];
+    var rLabels = ['<-3','-3..-2','-2..-1','-1..0','0..1','1..2','2..3','3..4','4+'];
+    var rHtml = rh.some(function(v){return v>0;}) ? '<canvas id="rChart" style="width:100%;height:120px"></canvas>' : '<div class="empty">R-multiple data tab banega jab trades close hongi (v3.0 journal)</div>';
+    // 4) per-symbol table
+    var symRows = (a.symbols||[]).map(function(s){
+      return '<tr><td><b>'+esc(s.symbol)+'</b></td><td style="text-align:right">'+s.n+'</td><td style="text-align:right">'+s.winrate.toFixed(0)+'%</td><td style="text-align:right;color:'+(s.net>=0?'#4ade80':'#f87171')+'">'+(s.net>=0?'+':'')+s.net.toFixed(2)+'</td><td style="text-align:right">'+s.pf.toFixed(2)+'</td><td style="text-align:right">'+(s.avgR?(s.avgR>0?'+':'')+s.avgR.toFixed(2):'—')+'</td></tr>';
+    }).join('');
+    t.innerHTML =
+      '<h2>📊 Edge Analytics — professional journal (v3.0)</h2>' +
+      '<div class="card full"><div class="k">Daily P&L — last 30 days</div><div style="margin-top:8px">'+dHtml+'</div></div>' +
+      '<div class="card full"><div class="k">Monthly Returns Heatmap</div><div style="margin-top:8px">'+mHtml+'</div></div>' +
+      '<div class="card full"><div class="k">R-Multiple Distribution <span class="mut" style="font-size:10px">(expectancy ka asal chehra)</span></div><div style="margin-top:8px">'+rHtml+'</div></div>' +
+      '<div class="card full"><div class="k">Per-Symbol Performance</div><table style="margin-top:8px"><tr><th style="text-align:left">Sym</th><th>N</th><th>WR</th><th>Net $</th><th>PF</th><th>avgR</th></tr>'+(symRows||'<tr><td colspan="6" class="empty">Abhi koi closed trade nahi</td></tr>')+'</table></div>' +
+      '<div class="card full"><div class="k">Costs (honesty)</div><table style="margin-top:8px"><tr><td class="mut">Total fees paid</td><td><b>$'+(a.fees||0).toFixed(2)+'</b> (0.05%/side)</td></tr><tr><td class="mut">Avg TCA slippage</td><td>'+(a.avgTcaBps||0).toFixed(1)+' bps vs decision price</td></tr><tr><td class="mut">Closed trades</td><td>'+ (a.nClosed||0) +'</td></tr></table>' +
+      '<div class="small" style="margin-top:6px">Ye numbers professional desks jaise hain: agar slippage+fees edge kha rahe hain to yahan nazar aayega.</div></div>' +
+      '<div class="small" style="margin-top:12px"><b>Audit trail:</b> <a href="#" onclick="dlAudit();return false" style="color:var(--gold)">/api/audit.csv download karein</a> — full trades + orders lifecycle export (compliance/LIVE READY).</div>';
+    drawDailyBars(daily);
+    drawRHist(rh);
+  });
+}
+function drawDailyBars(daily){
+  var cv = document.getElementById('dailyChart'); if(!cv || !daily.length) return;
+  var dpr = window.devicePixelRatio||1, W = cv.clientWidth||320, H = 150;
+  cv.width = W*dpr; cv.height = H*dpr;
+  var ctx = cv.getContext('2d'); ctx.scale(dpr,dpr); ctx.clearRect(0,0,W,H);
+  var maxAbs = 1; daily.forEach(function(d){ maxAbs = Math.max(maxAbs, Math.abs(d.pnl)); });
+  var mid = H*0.55, bw = Math.max(3, (W-10)/daily.length - 3);
+  ctx.strokeStyle = 'rgba(139,149,168,.25)'; ctx.beginPath(); ctx.moveTo(4, mid); ctx.lineTo(W-4, mid); ctx.stroke();
+  ctx.font = '8.5px -apple-system, sans-serif';
+  daily.forEach(function(d, i){
+    var x = 6 + i*((W-10)/daily.length);
+    var hAbs = Math.abs(d.pnl)/maxAbs*(H*0.42);
+    ctx.fillStyle = d.pnl>=0 ? '#10b981' : '#f87171';
+    if(d.pnl>=0) ctx.fillRect(x, mid-hAbs, bw, hAbs); else ctx.fillRect(x, mid, bw, hAbs);
+  });
+  var last = daily[daily.length-1];
+  ctx.fillStyle = '#8b95a8';
+  ctx.fillText('day-1', 6, H-4); ctx.textAlign='right'; ctx.fillText('today', W-6, H-4); ctx.textAlign='left';
+}
+function drawRHist(rh){
+  var cv = document.getElementById('rChart'); if(!cv || !rh.length) return;
+  var dpr = window.devicePixelRatio||1, W = cv.clientWidth||320, H = 120;
+  cv.width = W*dpr; cv.height = H*dpr;
+  var ctx = cv.getContext('2d'); ctx.scale(dpr,dpr); ctx.clearRect(0,0,W,H);
+  var max = 1; rh.forEach(function(v){ max = Math.max(max, v); });
+  var labels = ['<-3','-3/-2','-2/-1','-1/0','0/1','1/2','2/3','3/4','4+'];
+  var bw = (W-8)/rh.length - 4;
+  ctx.font = '8px -apple-system, sans-serif';
+  rh.forEach(function(v, i){
+    var h = v/max*(H-30);
+    var x = 6 + i*((W-8)/rh.length);
+    ctx.fillStyle = i<4 ? '#f87171' : '#10b981';
+    ctx.fillRect(x, H-20-h, bw, h);
+    ctx.fillStyle = '#5b6577';
+    ctx.fillText(labels[i], x-2, H-6);
+    if(v>0){ ctx.fillStyle='#8b95a8'; ctx.fillText(String(v), x, H-24-h); }
+  });
+}
+function dlAudit(){
+  fetch('/api/audit.csv', {headers: TOKEN?{'Authorization':'Bearer '+TOKEN}:{}})
+  .then(function(r){ return r.text(); })
+  .then(function(t){
+    var b = new Blob([t], {type:'text/csv'}); var u = URL.createObjectURL(b);
+    var a = document.createElement('a'); a.href = u; a.download = 'atl-audit.csv'; a.click(); URL.revokeObjectURL(u);
+  });
+}
+/* ============ v3.0 SEASONALITY (seasonality.ai pattern — commodities ka asal edge) ============ */
+var SEASON_SYM = 'XAUUSD';
+function renderSeason(){
+  var t = document.getElementById('insBody'); if(!t) return;
+  var chips = ['XAUUSD','XAGUSD','USOIL','UKOIL','NGAS','WHEAT','CORN','COFFEE','COCOA','SUGAR']
+    .map(function(s){ return '<button class="chip '+(SEASON_SYM===s?'on':'')+'" onclick="SEASON_SYM=\''+s+'\';renderSeason()">'+s+'</button>'; }).join('');
+  t.innerHTML = '<h2>🗓 Seasonality — '+esc(SEASON_SYM)+' (5y monthly edge)</h2><div class="chips">'+chips+'</div><div id="seasBody"><div class="empty">Data fetch ho raha hai…</div></div>';
+  api('/api/seasonality?symbol='+SEASON_SYM).then(function(r){
+    var b = document.getElementById('seasBody'); if(!b) return;
+    if(r.status!==200 || !r.data.seasonality){ b.innerHTML = '<div class="banner warn">Seasonality data abhi fetch nahi hua — thodi der baad dobara try karein</div>'; return; }
+    var s = r.data.seasonality, avg = s.avg||[], hit = s.hit||[], n = s.n||[];
+    var names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    var maxAbs = 0.01; avg.forEach(function(v){ maxAbs = Math.max(maxAbs, Math.abs(v)); });
+    var cells = names.map(function(nm, i){
+      var v = avg[i]||0, h = hit[i]||0, cnt = n[i]||0;
+      var alpha = Math.min(0.75, 0.15 + Math.abs(v)/maxAbs*0.6);
+      var bg = v>0 ? 'rgba(16,185,129,'+alpha+')' : v<0 ? 'rgba(248,113,113,'+alpha+')' : 'rgba(139,149,168,.08)';
+      return '<div style="flex:1;min-width:52px;margin:2px;padding:6px 4px;border-radius:6px;background:'+bg+';text-align:center"><div class="mut" style="font-size:9px">'+nm+'</div><b style="font-size:11px;color:'+(v>0?'#4ade80':v<0?'#f87171':'#8b95a8')+'">'+(v>0?'+':'')+v.toFixed(1)+'%</b><br><span class="mut" style="font-size:8.5px">'+h+'% up · n='+cnt+'</span></div>';
+    }).join('');
+    var cur = new Date().getUTCMonth();
+    var curV = avg[cur]||0;
+    b.innerHTML = '<div class="card full"><div class="k">Avg % change by month (5 years, month-close to month-close)</div><div style="display:flex;flex-wrap:wrap;margin-top:8px">'+cells+'</div>' +
+      '<div class="small" style="margin-top:8px">Is mahine ('+names[cur]+') ka seasonal bias: <b style="color:'+(curV>0?'#4ade80':curV<0?'#f87171':'#8b95a8')+'">'+(curV>0?'+':'')+curV.toFixed(1)+'%</b> — Signal Council iska use har entry ko score karne me karta hai. Commodities (coffee frost, heating season, harvest cycles) me ye professional traders ka core edge hai.</div></div>' +
+      '<div class="small">Data source: public futures daily 5y. Refresh: <a href="#" onclick="api(\'/api/seasonality?symbol='+SEASON_SYM+'&refresh=1\').then(function(){renderSeason()});return false" style="color:var(--gold)">force refresh</a></div>';
+  });
 }
 /* v1.8 SETTINGS — General + Broker + Control (admin) ek hi tab mein */
 var SET_TAB = 'general';
@@ -474,9 +584,19 @@ function renderDash(){
        sab se aam wajah hai (OEM battery managers background killers) */
     if(e.battery_ok === false) ban += '<div class="banner red">🔋 <b>24/7 ke liye zaroori:</b> Battery optimization abhi bhi ON hai — Android engine ko sula dega. App kholte waqt aane wale dialog mein <b>Allow</b> dabayen, ya Settings → Battery → AI Trading Lab → <b>Unrestricted</b> karein.</div>';
     if(!e.engine_on) ban += '<div class="banner red">Engine is OFF — enable in Settings</div>';
+    else if(e.safe_mode) ban += '<div class="banner red">🛡 <b>SAFE MODE — feed outage:</b> candle data stale (>10 min). Naye entries band, khuli trades ka SL/TP freeze hai (false trigger se bachne ke liye). Feed wapas aane par auto-resume.</div>';
     else if(e.news_pause) ban += '<div class="banner warn">📰 High-impact news — new entries paused 30 min</div>';
-    else ban += '<div class="banner green">⏱ 24h scanner LIVE — '+e.active_symbols+' instruments on '+(e.timeframe||'1m')+' chart, day & night · 24/7 shield: '+esc(e.watchdog||'watchdog ON')+'</div>';
+    else ban += '<div class="banner green">⏱ 24h scanner LIVE — '+e.active_symbols+' instruments on '+(e.timeframe||'5m')+' chart · QUANT PRO stack: slippage model '+ (e.slip_bps!=null?e.slip_bps:2) +'bps · council '+(e.council_min>0?'GATE ≥'+e.council_min+'%':'tag-only')+' · ML '+(e.ml||'warming up')+'</div>';
     var spark = sparkSvg(d.equity||[]);
+    var exp = d.exposure||{};
+    var heatCell = '<div class="card full"><div class="k">Portfolio Heat + Bucket Exposure (LEAN-style)</div>' +
+      '<div style="display:flex;gap:6px;margin-top:8px">' +
+        '<div style="flex:1"><div class="mut" style="font-size:10px">TOTAL HEAT</div><b style="font-size:16px;color:'+((d.heat||0)>(d.heatCap||0)&&(d.heatCap||0)>0?'#f87171':'#e5e7eb')+'">'+(d.heat||0).toFixed(1)+'%</b>'+(d.heatCap>0?' <span class="mut" style="font-size:10px">/ cap '+d.heatCap+'%</span>':' <span class="mut" style="font-size:10px">/ UNLIMITED</span>')+'</div>' +
+        '<div style="flex:1"><div class="mut" style="font-size:10px">⛏ METALS</div><b>'+(exp.METAL||0).toFixed(1)+'%</b></div>' +
+        '<div style="flex:1"><div class="mut" style="font-size:10px">🛢 ENERGY</div><b>'+(exp.ENERGY||0).toFixed(1)+'%</b></div>' +
+        '<div style="flex:1"><div class="mut" style="font-size:10px">🌾 AGRI</div><b>'+(exp.AGRI||0).toFixed(1)+'%</b></div>' +
+      '</div>' +
+      '<div class="small" style="margin-top:6px">Heat = khuli trades ka total risk (entry→SL) ÷ equity. Caps Settings > QUANT PRO me (default UNLIMITED — aapka rule).</div></div>';
     var chUps = ['XAUUSD','XAGUSD','USOIL','UKOIL','NGAS','XPTUSD'];
     var chChips = chUps.map(function(s){
       return '<button class="chip '+(CHART_SYM===s?'on':'')+'" onclick="CHART_SYM=\''+s+'\';renderDash()">'+s.replace('USDT','')+'</button>';
@@ -493,14 +613,16 @@ function renderDash(){
       card('Open Positions', d.openCount+' <span class="mut" style="font-size:11px">trades</span><br><b style="font-size:15px">'+(d.openPnl>=0?'+':'')+d.openPnl.toFixed(2)+' $ live</b>', d.openPnl>=0?'green':'red') +
       card('Win Rate', d.winRate.toFixed(1)+'% <span class="mut" style="font-size:11px">'+d.closedCount+' closed</span>', d.winRate>=50?'green':'red') +
       card('Today', (d.dayPnlPct>=0?'+':'')+d.dayPnlPct.toFixed(2)+'%', d.dayPnlPct>=0?'green':'red') +
-      card('Drawdown', d.drawdownPct.toFixed(2)+'%', d.drawdownPct>-5?'green':'red') +
-      '<div class="card full"><div class="k">Equity (last 12h)</div><div id="sparkwrap">'+spark+'</div></div>' +
+      card('Drawdown (TRUE HWM)', d.drawdownPct.toFixed(2)+'% <span class="mut" style="font-size:10px">peak-ratcheted</span>', d.drawdownPct>-5?'green':'red') +
+      heatCell +
+      '<div class="card full"><div class="k">Equity (recent)</div><div id="sparkwrap">'+spark+'</div></div>' +
       '<div class="card full"><div class="k">Engine Status</div>' +
         '<table style="margin-top:6px"><tr><td class="mut">Consensus</td><td>'+esc(e.consensus||'')+'</td></tr>' +
         '<tr><td class="mut">Strategy</td><td><b>'+(e.strategy_name||'3C Breakout (M5) — MASTER')+'</b> + PRO FILTER PACK (EMA200 trend · ATR floor · volume · zone-size) · risk '+(e.risk_pct!=null?e.risk_pct:'2')+'%/trade</td></tr>' +
         '<tr><td class="mut">Market scanner</td><td>'+(e.scanner||'24h')+' nonstop · scan #'+(e.scan_count||0)+(e.fear_greed>=0?' · F&G '+e.fear_greed:'')+(e.threec_armed&&e.threec_armed.length?' · <b>'+e.threec_armed.length+' 3C setup(s) armed</b>':'')+'</td></tr>' +
         '<tr><td class="mut">Instruments trading</td><td>'+e.active_symbols+' · '+(e.indicator_count||82)+' indicators · 10s scan · live stop-order entries</td></tr>' +
-        '<tr><td class="mut">Data feed</td><td>'+esc(e.feed||('MT5 commodities · '+(e.data_host||'')))+' · live halal commodities market data (real, not simulated) · fees 0.05%/side modeled</td></tr></table></div>' +
+        '<tr><td class="mut">Data feed</td><td>'+esc(e.feed||('MT5 commodities · '+(e.data_host||'')))+' · live halal commodities market data (real, not simulated) · fees 0.05%/side + slippage '+ (e.slip_bps!=null?e.slip_bps:2) +'bps modeled</td></tr>' +
+        '<tr><td class="mut">QUANT PRO stack</td><td>Signal Council (4 analysts) · ML-lite '+(e.ml||'warming up')+' · degradation monitor 30-min · event gate '+(e.event_gate?'ON':'off')+' · session filter '+(e.session_filter?'ON':'off')+' · bridge live '+(e.bridge_live?'⚠ ON':'off')+'</td></tr></table></div>' +
       '</div>';
     document.getElementById('hdrSub').textContent = USER ? (USER.name + (USER.role==='ADMIN'?' · ADMIN':'')) : '';
     drawCandles();
@@ -564,6 +686,19 @@ function drawCandles(){
     var last = ks[ks.length-1];
     var lp = last.c, ly = Y(lp);
     var lup = last.c >= last.o;
+    // v3.0 — OPEN TRADE OVERLAY (FreqUI-style): entry/SL/TP lines is symbol ki khuli trade ke
+    var tr = r.data.trade;
+    if(tr){
+      [[tr.entry,'#e5e7eb','ENTRY'],[tr.sl,'#f87171','SL'],[tr.tp,'#4ade80','TP']].forEach(function(L){
+        if(!L[0] || L[0]<lo || L[0]>hi) return;
+        var ly2 = Y(L[0]);
+        ctx.strokeStyle = L[1]; ctx.setLineDash([6,4]); ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.moveTo(padL, ly2); ctx.lineTo(padL+plotW, ly2); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = L[1]; ctx.font = 'bold 8.5px -apple-system, sans-serif';
+        ctx.fillText(L[2]+' '+fmtPx(L[0]), padL+6, ly2-3);
+      });
+    }
     ctx.strokeStyle = lup ? 'rgba(52,211,153,.55)' : 'rgba(248,113,113,.55)';
     ctx.setLineDash([4,3]);
     ctx.beginPath(); ctx.moveTo(padL, ly); ctx.lineTo(padL+plotW, ly); ctx.stroke();
@@ -728,11 +863,16 @@ function renderTrades(){
           '<b style="font-size:12px;color:'+(pl>=0?'#4ade80':'#f87171')+'">'+(pl>=0?'+':'')+pl.toFixed(2)+' $</b>'+
           (t.rNow!=null?' <span class="mut" style="font-size:10px">('+(t.rNow>=0?'+':'')+t.rNow.toFixed(2)+'R)</span>':'');
       }
-      var row = '<tr><td><b>'+esc(t.symbol)+'</b> <span class="pill '+t.side+'">'+t.side+'</span><br><span class="mut" style="font-size:10px">'+esc(t.strategy)+' · '+(t.consensus*100).toFixed(0)+'% · '+fmtTime(t.openedAt)+'</span></td>' +
+      var row = '<tr><td><b>'+esc(t.symbol)+'</b> <span class="pill '+t.side+'">'+t.side+'</span>'+
+        (t.council>0?' <span class="pill INFO" style="border:0;font-size:8.5px">COUNCIL '+t.council+'%</span>':'')+
+        (t.winProb>0?' <span class="pill INFO" style="border:0;font-size:8.5px">ML '+Math.round(t.winProb*100)+'%</span>':'')+
+        '<br><span class="mut" style="font-size:10px">'+esc(t.strategy)+' · '+(t.consensus*100).toFixed(0)+'% · '+fmtTime(t.openedAt)+'</span></td>' +
         '<td style="text-align:right">qty '+t.qty.toFixed(5)+'<br>entry '+t.entry.toFixed(4)+liveCell+'</td>' +
         (t.status==='OPEN'
           ? '<td style="text-align:right"><button class="pill ACTIVE" style="border:0" onclick="closeTrade('+t.id+')">CLOSE</button></td>'
-          : '<td style="text-align:right"><b style="color:'+(t.pnl>=0?'#4ade80':'#f87171')+'">'+(t.pnl>=0?'+':'')+t.pnl.toFixed(2)+'</b><br><span class="mut" style="font-size:10px">'+t.status+' '+fmtTime(t.closedAt)+'</span></td>') +
+          : '<td style="text-align:right"><b style="color:'+(t.pnl>=0?'#4ade80':'#f87171')+'">'+(t.pnl>=0?'+':'')+t.pnl.toFixed(2)+'</b>'+
+            (t.rMult?' <span class="mut" style="font-size:10px">'+(t.rMult>0?'+':'')+t.rMult.toFixed(2)+'R</span>':'')+
+            '<br><span class="mut" style="font-size:10px">'+t.status+' '+fmtTime(t.closedAt)+(t.tcaBps?' · TCA '+t.tcaBps.toFixed(1)+'bps':'')+'</span></td>') +
         '</tr>';
       if(t.status==='OPEN') open += row; else closed += row;
     });
@@ -1024,6 +1164,43 @@ function renderSet(){
         '<div class="row" style="margin-top:8px"><button class="btn '+(r.data.proVolFilter?'':'sec')+'" onclick="setFilter(\'proVolFilter\',true)">ON</button><button class="btn '+(r.data.proVolFilter?'sec':'')+'" onclick="setFilter(\'proVolFilter\',false)">OFF</button></div>' +
         '<div class="small" style="margin-top:6px">Setup candle ka volume 1.2× average se zyada ho — weak breakouts band (default ON).</div>' +
         '<div id="filterMsg" style="margin-top:8px"></div></div>' +
+        '<h2>🧠 QUANT PRO — v3.0 professional stack</h2>' +
+        '<div class="banner green" style="margin-bottom:10px"><b>Sab caps OPT-IN hain (default OFF/UNLIMITED — aapka UNLIMITED rule qayam).</b> Ye professional risk machinery hai: heat cap, bucket exposure, slippage model, Signal Council, event gate, CME session filter aur bridge live mirror.</div>' +
+        '<div class="card full">' +
+        '<div class="k">1 · Slippage/spread model (bps per side) — fills ab realistic</div>' +
+        '<div class="row" style="margin-top:8px"><input id="qSlip" type="number" min="0" max="50" step="1" value="'+(r.data.slipBps!=null?r.data.slipBps:2)+'" style="'+INP+';width:110px;padding:8px"><button class="btn" onclick="setPro(\'slipBps\')">SET</button></div>' +
+        '<div class="small" style="margin-top:6px">Default <b>2 bps</b> — entry aur exit dono par adverse slip. Thin markets (LUMBER/RICE) ke liye 5-8 bps behtar. 0 = exact fills (purana behavior).</div>' +
+        '<div class="k" style="margin-top:14px">2 · Portfolio HEAT cap (% of equity, total open risk)</div>' +
+        '<div class="row" style="margin-top:8px"><input id="qHeat" type="number" min="0" max="100" step="0.5" value="'+(r.data.heatMaxPct!=null?r.data.heatMaxPct:0)+'" style="'+INP+';width:110px;padding:8px"><button class="btn" onclick="setPro(\'heatMaxPct\')">SET</button></div>' +
+        '<div class="small" style="margin-top:6px">0 = OFF (UNLIMITED — default). Prop desks <b>6-12%</b> use karte hain: heat = sab khuli trades ka (entry→SL) risk ÷ equity. Home par live gauge hai.</div>' +
+        '<div class="k" style="margin-top:14px">3 · Bucket cap (% — METAL/ENERGY/AGRI correlated group)</div>' +
+        '<div class="row" style="margin-top:8px"><input id="qBucket" type="number" min="0" max="100" step="0.5" value="'+(r.data.bucketMaxPct!=null?r.data.bucketMaxPct:0)+'" style="'+INP+';width:110px;padding:8px"><button class="btn" onclick="setPro(\'bucketMaxPct\')">SET</button></div>' +
+        '<div class="small" style="margin-top:6px">0 = OFF. USOIL+UKOIL+NGAS = ek hi macro bet — bucket cap ek group ka total risk rokta hai (LEAN sector-exposure style).</div>' +
+        '<div class="k" style="margin-top:14px">4 · Signal Council min confidence (0-100)</div>' +
+        '<div class="row" style="margin-top:8px"><input id="qCouncil" type="number" min="0" max="95" step="1" value="'+(r.data.councilMin!=null?r.data.councilMin:0)+'" style="'+INP+';width:110px;padding:8px"><button class="btn" onclick="setPro(\'councilMin\')">SET</button></div>' +
+        '<div class="small" style="margin-top:6px">0 = tag-only (default) — har 3C entry par council % tag hoti hai, kuch block nahi hota. >0 = kam confidence entries block (4 analysts: trend/volatility/news/seasonality). <b>3C rules untouched.</b></div>' +
+        '<div class="k" style="margin-top:14px">5 · Event gate — HIGH-impact news (OPEC/CPI/FOMC) par entries pause</div>' +
+        '<div class="row" style="margin-top:8px"><button class="btn '+(r.data.eventGate?'':'sec')+'" onclick="setPro(\'eventGate\',true)">ON</button><button class="btn '+(r.data.eventGate?'sec':'')+'" onclick="setPro(\'eventGate\',false)">OFF</button></div>' +
+        '<div class="small" style="margin-top:6px">Default OFF. ON = jab bhi 60 min ke andar HIGH-impact news aaye, naye entries pause (stop orders gap events par blind fill hote hain).</div>' +
+        '<div class="k" style="margin-top:14px">6 · CME session filter — maintenance halt (17-18 ET) entries</div>' +
+        '<div class="row" style="margin-top:8px"><button class="btn '+(r.data.sessionFilter?'':'sec')+'" onclick="setPro(\'sessionFilter\',true)">ON</button><button class="btn '+(r.data.sessionFilter?'sec':'')+'" onclick="setPro(\'sessionFilter\',false)">OFF</button></div>' +
+        '<div class="small" style="margin-top:6px">Default OFF. Halt window mein spreads phantom wide hote hain.</div>' +
+        '<div class="k" style="margin-top:14px">7 · Degraded strategy auto-pause (AI/Lab strategies)</div>' +
+        '<div class="row" style="margin-top:8px"><button class="btn '+(r.data.autoPause?'':'sec')+'" onclick="setPro(\'autoPause\',true)">ON</button><button class="btn '+(r.data.autoPause?'sec':'')+'" onclick="setPro(\'autoPause\',false)">OFF</button></div>' +
+        '<div class="small" style="margin-top:6px">Default OFF (sirf alert). ON = rolling 20-trade PF < 0.7 wali AI strategy auto-pause (3C MASTER kabhi auto-pause nahi hota).</div>' +
+        '<div id="proMsg" style="margin-top:8px"></div></div>' +
+        '<h2>🔴 BRIDGE LIVE MIRROR — real orders (owner-only)</h2>' +
+        '<div class="card full">' +
+        '<div class="banner warn" style="margin-bottom:10px"><b>⚠ KHAYAL:</b> Ye REAL MT5 orders bhejta hai (jo account bridge PC par login hai — real ya demo). Pehle <b>DEMO account</b> par test karein. Paper engine kabhi block nahi hota — mirror sirf extra hai.</div>' +
+        '<div class="k">LIVE MIRROR toggle</div>' +
+        '<div class="row" style="margin-top:8px"><button class="btn '+(r.data.bridgeLive?'sec':'')+'" onclick="setPro(\'bridgeLive\',true)">⚠ ON — real orders</button><button class="btn '+(r.data.bridgeLive?'':'sec')+'" onclick="setPro(\'bridgeLive\',false)">OFF (sirf paper)</button></div>' +
+        '<div class="k" style="margin-top:14px">Lot size per mirror order</div>' +
+        '<div class="row" style="margin-top:8px"><input id="qLots" type="number" min="0.01" max="100" step="0.01" value="'+(r.data.bridgeLots!=null?r.data.bridgeLots:0.01)+'" style="'+INP+';width:110px;padding:8px"><button class="btn" onclick="setPro(\'bridgeLots\')">SET</button></div>' +
+        '<div class="small" style="margin-top:6px">Har paper 3C entry par bridge ko {symbol, side, volume} POST hota hai (mt5-bridge.py v2.0 — /order, /close, /positions). Order audit orders table + audit.csv mein save hota hai.</div>' +
+        '<div class="k" style="margin-top:14px">Feed refresh interval (seconds)</div>' +
+        '<div class="row" style="margin-top:8px"><input id="qFeed" type="number" min="20" max="600" step="5" value="'+(r.data.feedIntervalSec||60)+'" style="'+INP+';width:110px;padding:8px"><button class="btn" onclick="setPro(\'feedIntervalSec\')">SET</button></div>' +
+        '<div class="small" style="margin-top:6px">Default 60s — M5 candles ke liye kaafi. Kam = zyada API load (Yahoo rate limit).</div>' +
+        '</div>' +
         '<h2>Version</h2><div class="card full"><div class="k">AI Trading Lab</div><div class="v">'+r.data.version+' · Phone Server</div>' +
         '<div class="small" style="margin-top:8px">Full system on this device: instruments ledger, news engine, system logs ledger, paper executor, broker vault'+(USER&&USER.role==='ADMIN'?', owner Control panel (Settings > Control)':'')+'. No PC needed.</div></div>';
     });
@@ -1052,6 +1229,23 @@ function setFilter(key, boolVal){
   api('/api/settings',{method:'POST',body:b}).then(function(r){
     var el = document.getElementById('filterMsg');
     if(el) el.innerHTML = '<div class="banner green">✅ Filter set — naye setups par foran apply</div>';
+    setTimeout(renderSettings, 1200);
+  });
+}
+/* v3.0 — QUANT PRO settings (slip/heat/bucket/council/event/session/autopause/bridge) */
+function setPro(key, boolVal){
+  var b = {};
+  if(boolVal === true || boolVal === false) b[key] = boolVal;
+  else {
+    var id = {slipBps:'qSlip', heatMaxPct:'qHeat', bucketMaxPct:'qBucket', councilMin:'qCouncil', bridgeLots:'qLots', feedIntervalSec:'qFeed'}[key];
+    var v = parseFloat(document.getElementById(id).value);
+    if(isNaN(v) || v < 0){ alert('Number dein'); return; }
+    b[key] = v;
+  }
+  if(key==='bridgeLive' && boolVal === true && !confirm('REAL orders enable karein? Sirf tab jab bridge PC par demo/real account logged in ho. Pehle DEMO par test karein!')) return;
+  api('/api/settings',{method:'POST',body:b}).then(function(r){
+    var el = document.getElementById('proMsg');
+    if(el) el.innerHTML = '<div class="banner green">✅ QUANT PRO: '+key+' set</div>';
     setTimeout(renderSettings, 1200);
   });
 }

@@ -92,7 +92,7 @@ public class Api {
     private Res get(String path, String auth) throws Exception {
         if ("/".equals(path) || "/index.html".equals(path)) return Res.html(dashboardHtml);
         if ("/api/health".equals(path)) return Res.json(200, new JSONObject()
-                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "2.1.0").put("timeframe", "5m").put("scanner", "24h").put("strategy", "3C Breakout (M5) — MASTER + PRO FILTER PACK + HALAL MT5"));
+                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "3.0.0").put("timeframe", "5m").put("scanner", "24h").put("strategy", "3C Breakout (M5) — MASTER + QUANT PRO stack + HALAL MT5"));
 
         Long uid = userId(auth);
         if (uid == null) return Res.error(401, "authentication required");
@@ -111,7 +111,10 @@ public class Api {
         if ("/api/logs".equals(path)) return logs();
         if ("/api/brokers".equals(path)) return brokers();
         if ("/api/settings".equals(path)) return settings();
-        if (path.startsWith("/api/candles")) return candles(path);   // v1.8 candlestick chart
+        if (path.startsWith("/api/candles")) return candles(path, uid == null ? 0 : uid);   // v1.8 chart (v3.0 + trade overlay)
+        if ("/api/analytics".equals(path)) return analytics(uid);    // v3.0 EDGE ANALYTICS
+        if (path.startsWith("/api/seasonality")) return seasonality(path);  // v3.0 seasonal edge
+        if ("/api/audit.csv".equals(path)) return auditCsv(uid);     // v3.0 audit trail export
         // v5.7 FULL MOBILE CONTROL — owner admin endpoints (role=ADMIN required)
         if ("/api/admin/users".equals(path)) return adminUsers(uid);
         if ("/api/admin/invites".equals(path)) return adminInvites(uid);
@@ -448,6 +451,15 @@ public class Api {
                 .put("pnlPct", round2((bal - start) / start * 100))
                 .put("dayPnlPct", round2((bal - dayStart) / dayStart * 100))
                 .put("drawdownPct", round2(peak > 0 ? (bal - peak) / peak * 100 : 0))
+                // v3.0 — peak ab ratchet hota hai (true HWM drawdown) + portfolio heat + bucket exposure
+                .put("trueDD", true)
+                .put("heat", round2(engine != null ? engine.heatRiskPct(uid) : 0))
+                .put("heatCap", engine != null ? engine.heatMaxPct() : 0)
+                .put("exposure", new JSONObject()
+                        .put("METAL", round2(engine != null ? engine.bucketRiskPct(uid, "METAL") : 0))
+                        .put("ENERGY", round2(engine != null ? engine.bucketRiskPct(uid, "ENERGY") : 0))
+                        .put("AGRI", round2(engine != null ? engine.bucketRiskPct(uid, "AGRI") : 0)))
+                .put("safeMode", engine != null && engine.isSafeMode())
                 .put("openCount", openCount).put("openPnl", round2(openPnl))
                 .put("equityNow", round2(bal + openPnl))
                 .put("closedCount", closed).put("winRate", closed > 0 ? round2(wins * 100.0 / closed) : 0)
@@ -556,7 +568,7 @@ public class Api {
         JSONArray arr = new JSONArray();
         double floating = 0; int fCount = 0;
         Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT id, symbol, side, qty, entry, sl, tp, exit, pnl, status, strategy, consensus, opened_at, closed_at FROM trades WHERE user_id=? ORDER BY id DESC LIMIT 100", new String[]{String.valueOf(uid)});
+                "SELECT id, symbol, side, qty, entry, sl, tp, exit, pnl, status, strategy, consensus, opened_at, closed_at, IFNULL(r_mult,0), IFNULL(mfe,0), IFNULL(mae,0), IFNULL(tca_bps,0), IFNULL(council,0), IFNULL(win_prob,0) FROM trades WHERE user_id=? ORDER BY id DESC LIMIT 100", new String[]{String.valueOf(uid)});
         while (c.moveToNext()) {
             String status = c.getString(9);
             JSONObject t = new JSONObject()
@@ -566,7 +578,11 @@ public class Api {
                     .put("pnl", c.isNull(8) ? JSONObject.NULL : round2(c.getDouble(8)))
                     .put("status", status).put("strategy", c.getString(10))
                     .put("consensus", c.getDouble(11)).put("openedAt", c.getLong(12))
-                    .put("closedAt", c.isNull(13) ? 0 : c.getLong(13));
+                    .put("closedAt", c.isNull(13) ? 0 : c.getLong(13))
+                    // v3.0 — QUANT PRO journal columns (R-multiple, MFE/MAE, TCA, council, ML)
+                    .put("rMult", c.getDouble(14)).put("mfe", round2(c.getDouble(15)))
+                    .put("mae", round2(c.getDouble(16))).put("tcaBps", c.getDouble(17))
+                    .put("council", c.getInt(18)).put("winProb", c.getDouble(19));
             // v1.6 — OPEN trade par LIVE price + unrealized P/L (+ R multiple for 3C trades):
             // abhi ka plus/minus dikhe to owner bada loss hone se pehle react kar sake.
             if ("OPEN".equals(status)) {
@@ -600,6 +616,119 @@ public class Api {
         }
         c.close();
         return Res.json(200, new JSONObject().put("logs", arr));
+    }
+
+    // ================== v3.0 EDGE ANALYTICS (FreqUI + Jesse + LEAN patterns) ==================
+
+    /** GET /api/analytics — daily P&L (30d), per-symbol table, monthly heatmap,
+     *  R-multiple histogram, fee drag — dashboard Insights cards ka data. */
+    private Res analytics(long uid) throws Exception {
+        // 1) Daily P&L last 30 days (FreqUI Profit page pattern)
+        JSONArray daily = new JSONArray();
+        Cursor c = db.getReadableDatabase().rawQuery(
+                "SELECT CAST(closed_at/86400000 AS INTEGER) d, SUM(pnl), COUNT(*) FROM trades "
+                        + "WHERE user_id=? AND status='CLOSED' AND closed_at >= ? GROUP BY d ORDER BY d",
+                new String[]{String.valueOf(uid), String.valueOf(System.currentTimeMillis() - 30L * 86400000)});
+        while (c.moveToNext())
+            daily.put(new JSONObject().put("day", c.getLong(0)).put("pnl", round2(c.getDouble(1))).put("n", c.getInt(2)));
+        c.close();
+        // 2) Per-symbol performance table (FreqUI Performance page pattern)
+        JSONArray syms = new JSONArray();
+        Cursor cs = db.getReadableDatabase().rawQuery(
+                "SELECT symbol, COUNT(*), SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END), IFNULL(SUM(pnl),0), "
+                        + "IFNULL(SUM(CASE WHEN pnl>0 THEN pnl ELSE 0 END),0), IFNULL(SUM(CASE WHEN pnl<=0 THEN -pnl ELSE 0 END),0), "
+                        + "IFNULL(AVG(closed_at-opened_at),0), IFNULL(AVG(r_mult),0) FROM trades "
+                        + "WHERE user_id=? AND status='CLOSED' GROUP BY symbol ORDER BY SUM(pnl) DESC", new String[]{String.valueOf(uid)});
+        while (cs.moveToNext()) {
+            int n = cs.getInt(1); int w = cs.getInt(2);
+            double gl = cs.getDouble(5);
+            syms.put(new JSONObject().put("symbol", cs.getString(0)).put("n", n).put("wins", w)
+                    .put("winrate", n > 0 ? Math.round(w * 1000.0 / n) / 10.0 : 0)
+                    .put("net", round2(cs.getDouble(3)))
+                    .put("pf", gl > 0 ? Math.round(cs.getDouble(4) / gl * 100.0) / 100.0 : (cs.getDouble(4) > 0 ? 99 : 0))
+                    .put("avgMin", Math.round(cs.getDouble(6) / 60000.0)).put("avgR", Math.round(cs.getDouble(7) * 1000.0) / 1000.0));
+        }
+        cs.close();
+        // 3) Monthly heatmap (Jesse pattern): year×month net
+        java.util.Map<String, JSONObject> months = new java.util.LinkedHashMap<>();
+        Cursor cm = db.getReadableDatabase().rawQuery(
+                "SELECT CAST(closed_at/86400000 AS INTEGER) d, SUM(pnl) FROM trades "
+                        + "WHERE user_id=? AND status='CLOSED' GROUP BY d", new String[]{String.valueOf(uid)});
+        java.util.Map<String, Double> mSum = new java.util.LinkedHashMap<>();
+        while (cm.moveToNext()) {
+            java.util.Calendar cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"));
+            cal.setTimeInMillis(cm.getLong(0) * 86400000L);
+            String key = cal.get(java.util.Calendar.YEAR) + "-" + String.format(Locale.US, "%02d", cal.get(java.util.Calendar.MONTH) + 1);
+            mSum.merge(key, cm.getDouble(1), Double::sum);
+        }
+        cm.close();
+        for (java.util.Map.Entry<String, Double> e : mSum.entrySet())
+            months.put(e.getKey(), new JSONObject().put("month", e.getKey()).put("pnl", round2(e.getValue())));
+        // 4) R-multiple histogram (professional journal) — buckets -3..+4+
+        int[] rBuckets = new int[9];   // <-3, -3..-2, -2..-1, -1..0, 0..1, 1..2, 2..3, 3..4, 4+
+        Cursor cr = db.getReadableDatabase().rawQuery(
+                "SELECT r_mult FROM trades WHERE user_id=? AND status='CLOSED' AND r_mult != 0", new String[]{String.valueOf(uid)});
+        while (cr.moveToNext()) {
+            double r = cr.getDouble(0);
+            int b = r < -3 ? 0 : r < -2 ? 1 : r < -1 ? 2 : r < 0 ? 3 : r < 1 ? 4 : r < 2 ? 5 : r < 3 ? 6 : r < 4 ? 7 : 8;
+            rBuckets[b]++;
+        }
+        cr.close();
+        JSONArray rh = new JSONArray();
+        for (int v : rBuckets) rh.put(v);
+        // 5) Fee drag + TCA aggregate
+        Cursor cf = db.getReadableDatabase().rawQuery(
+                "SELECT IFNULL(SUM((qty*entry+qty*exit)*0.0005),0), IFNULL(AVG(tca_bps),0), COUNT(*) FROM trades WHERE user_id=? AND status='CLOSED'", new String[]{String.valueOf(uid)});
+        double feeTotal = 0, avgTca = 0; int nAll = 0;
+        if (cf.moveToFirst()) { feeTotal = cf.getDouble(0); avgTca = cf.getDouble(1); nAll = cf.getInt(2); }
+        cf.close();
+        return Res.json(200, new JSONObject().put("ok", true)
+                .put("daily", daily).put("symbols", syms)
+                .put("monthly", new JSONArray(months.values()))
+                .put("rHist", rh)
+                .put("fees", round2(feeTotal)).put("avgTcaBps", Math.round(avgTca * 100.0) / 100.0).put("nClosed", nAll));
+    }
+
+    /** GET /api/seasonality?symbol=XAUUSD — 5y monthly seasonal edge (seasonality.ai pattern). */
+    private Res seasonality(String path) throws Exception {
+        String sym = "XAUUSD";
+        int q = path.indexOf("?symbol=");
+        if (q > 0) sym = path.substring(q + 8).toUpperCase(Locale.US).trim();
+        if (!sym.matches("[A-Z0-9]{4,20}")) return Res.error(400, "Symbol galat");
+        if (engine == null) return Res.error(503, "engine band hai");
+        JSONObject se = engine.seasonality(sym, q > 0 && path.contains("refresh=1"));
+        if (se == null) return Res.error(503, "Seasonality data abhi fetch nahi hua — dobara try karein");
+        return Res.json(200, new JSONObject().put("ok", true).put("seasonality", se));
+    }
+
+    /** GET /api/audit.csv — full audit trail export (trades + orders) — LIVE READY compliance. */
+    private Res auditCsv(long uid) throws Exception {
+        StringBuilder sb = new StringBuilder("type,id,trade_id,symbol,side,qty_or_status,price,source_or_entry,status_or_exit,ts\n");
+        Cursor t = db.getReadableDatabase().rawQuery(
+                "SELECT id, symbol, side, qty, entry, exit, pnl, status, strategy, opened_at, closed_at, IFNULL(r_mult,0), IFNULL(tca_bps,0) FROM trades WHERE user_id=? ORDER BY id", new String[]{String.valueOf(uid)});
+        while (t.moveToNext()) {
+            sb.append("TRADE,").append(t.getLong(0)).append(",").append(t.getLong(0)).append(',').append(t.getString(1))
+                    .append(',').append(t.getString(2)).append(',').append(t.getDouble(3)).append(',')
+                    .append(t.getDouble(4)).append(',').append(t.getString(7)).append(',')
+                    .append(t.isNull(5) ? "" : t.getDouble(5)).append(',').append(t.isNull(6) ? 0 : t.getDouble(6))
+                    .append(",").append(t.getString(8)).append(',').append(t.getLong(9)).append(',')
+                    .append(t.isNull(10) ? 0 : t.getLong(10)).append(',').append(t.getDouble(11)).append(',').append(t.getDouble(12)).append('\n');
+        }
+        t.close();
+        Cursor o = db.getReadableDatabase().rawQuery(
+                "SELECT id, trade_id, symbol, side, type, price, qty, status, source, ts FROM orders ORDER BY id", null);
+        while (o.moveToNext()) {
+            sb.append("ORDER,").append(o.getLong(0)).append(',').append(o.getLong(1)).append(',').append(o.getString(2))
+                    .append(',').append(o.getString(3)).append(',').append(o.getString(8)).append(',')
+                    .append(o.getDouble(5)).append(',').append(o.getDouble(6)).append(',')
+                    .append(o.getString(4)).append(',').append(o.getString(7)).append(',').append(o.getLong(9)).append('\n');
+        }
+        o.close();
+        Res r = new Res();
+        r.contentType = "text/csv; charset=utf-8";
+        r.body = sb.toString();
+        db.log("INFO", "AUDIT", "AUDIT_EXPORT", "user #" + uid + " — full audit trail (trades + orders) exported");
+        return r;
     }
 
     private Res brokers() throws Exception {
@@ -682,11 +811,26 @@ public class Api {
                 .put("proEmaFilter", engine == null || engine.proEmaFilter())
                 .put("proAtrFloor", engine != null ? engine.proAtrFloor() : 0.08)
                 .put("proVolFilter", engine == null || engine.proVolFilter())
-                .put("version", "2.1"));
+                // v3.0 QUANT PRO (P1-P5)
+                .put("slipBps", engine != null ? engine.slipBps() : 2)
+                .put("heatMaxPct", engine != null ? engine.heatMaxPct() : 0)
+                .put("bucketMaxPct", engine != null ? engine.bucketMaxPct() : 0)
+                .put("councilMin", engine != null ? engine.councilMin() : 0)
+                .put("eventGate", engine != null && engine.eventGateOn())
+                .put("autoPause", "1".equals(db.setting("auto_pause", "0")))
+                .put("sessionFilter", engine != null && engine.sessionFilterOn())
+                .put("bridgeLive", engine != null && engine.bridgeLive())
+                .put("bridgeLots", engine != null ? engine.bridgeLots() : 0.01)
+                .put("feedIntervalSec", db.setting("feed_interval_sec", "60"))
+                .put("labSymbol", db.setting("lab_symbol", "XAUUSD"))
+                .put("safeMode", engine != null && engine.isSafeMode())
+                .put("version", "3.0"));
     }
 
-    /** v1.8 — candlestick chart data: GET /api/candles?symbol=BTCUSDT&n=60 → 5m closed candles. */
-    private Res candles(String path) throws Exception {
+    /** v1.8 — candlestick chart data: GET /api/candles?symbol=XAUUSD&n=60 → 5m candles.
+     *  v3.0 — + open trade overlay (entry/SL/TP levels + side) is symbol par, taake
+     *  Home chart par FreqUI-style trade markers/lines draw ho sakein. */
+    private Res candles(String path, long uid) throws Exception {
         String sym = qParam("symbol").toUpperCase(Locale.US).trim();
         if (!sym.matches("[A-Z0-9]{4,20}")) return Res.error(400, "Symbol galat hai (e.g. XAUUSD)");
         int n;
@@ -698,8 +842,17 @@ public class Api {
             arr.put(new JSONObject().put("ts", k.ts).put("o", k.o).put("h", k.h)
                     .put("l", k.l).put("c", k.c).put("v", k.v));
         }
-        return Res.json(200, new JSONObject().put("ok", true).put("symbol", sym)
-                .put("candles", arr).put("count", arr.length()));
+        JSONObject out = new JSONObject().put("ok", true).put("symbol", sym)
+                .put("candles", arr).put("count", arr.length());
+        // v3.0 — is user ki khuli trade is symbol par (chart overlay ke liye)
+        Cursor ot = db.getReadableDatabase().rawQuery(
+                "SELECT side, entry, sl, tp FROM trades WHERE user_id=? AND symbol=? AND status='OPEN' ORDER BY id DESC LIMIT 1",
+                new String[]{String.valueOf(uid), sym});
+        if (ot.moveToFirst())
+            out.put("trade", new JSONObject().put("side", ot.getString(0)).put("entry", ot.getDouble(1))
+                    .put("sl", ot.getDouble(2)).put("tp", ot.getDouble(3)));
+        ot.close();
+        return Res.json(200, out);
     }
 
     /** v1.2 — Paper Balance: owner apna paper amount khud set karta hai.
@@ -939,6 +1092,66 @@ public class Api {
             db.log("INFO", "DATA", "MT5_BRIDGE_SET", b.isEmpty()
                     ? "MT5 bridge cleared — built-in halal commodities feed use hoga"
                     : "MT5 bridge set: " + b + " — candles ab MetaTrader5 terminal se aayengi");
+        }
+        // ===== v3.0 QUANT PRO settings =====
+        if (o.has("slipBps")) {
+            double v = o.optDouble("slipBps", 2);
+            if (v < 0 || v > 50) return Res.error(400, "Slippage 0–50 bps ke beech set karein (0 = exact fills)");
+            db.setSetting("slip_bps", String.valueOf(v));
+            db.log("INFO", "FILL", "SLIP_SET", "slippage/spread model = " + v + " bps per side");
+        }
+        if (o.has("heatMaxPct")) {
+            double v = o.optDouble("heatMaxPct", 0);
+            if (v < 0 || v > 100) return Res.error(400, "Heat cap 0–100% ke beech set karein (0 = OFF/unlimited)");
+            db.setSetting("heat_max_pct", String.valueOf(v));
+            db.log("INFO", "GUARD", "HEAT_SET", "portfolio heat cap = " + v + "%" + (v <= 0 ? " (OFF — unlimited, owner default)" : ""));
+        }
+        if (o.has("bucketMaxPct")) {
+            double v = o.optDouble("bucketMaxPct", 0);
+            if (v < 0 || v > 100) return Res.error(400, "Bucket cap 0–100% ke beech set karein (0 = OFF)");
+            db.setSetting("bucket_max_pct", String.valueOf(v));
+            db.log("INFO", "GUARD", "BUCKET_SET", "bucket (METAL/ENERGY/AGRI) cap = " + v + "%" + (v <= 0 ? " (OFF)" : ""));
+        }
+        if (o.has("councilMin")) {
+            int v = (int) o.optDouble("councilMin", 0);
+            if (v < 0 || v > 95) return Res.error(400, "Council min 0–95 ke beech set karein (0 = tag-only, koi block nahi)");
+            db.setSetting("council_min", String.valueOf(v));
+            db.log("INFO", "COUNCIL", "COUNCIL_SET", "Signal Council min confidence = " + v + "%" + (v <= 0 ? " (tag-only mode)" : ""));
+        }
+        if (o.has("eventGate")) {
+            db.setSetting("event_gate", o.optBoolean("eventGate") ? "1" : "0");
+            db.log("INFO", "GUARD", "EVENT_GATE_SET", "HIGH-impact news entry pause = " + o.optBoolean("eventGate"));
+        }
+        if (o.has("autoPause")) {
+            db.setSetting("auto_pause", o.optBoolean("autoPause") ? "1" : "0");
+            db.log("INFO", "GUARD", "AUTO_PAUSE_SET", "degraded strategy auto-pause = " + o.optBoolean("autoPause"));
+        }
+        if (o.has("sessionFilter")) {
+            db.setSetting("session_filter", o.optBoolean("sessionFilter") ? "1" : "0");
+            db.log("INFO", "GUARD", "SESSION_SET", "CME halt (17-18 ET) entry filter = " + o.optBoolean("sessionFilter"));
+        }
+        if (o.has("bridgeLive")) {
+            db.setSetting("bridge_live", o.optBoolean("bridgeLive") ? "1" : "0");
+            db.log("WARN", "BRIDGE", "BRIDGE_LIVE_SET", "MT5 bridge LIVE MIRROR = " + o.optBoolean("bridgeLive")
+                    + (o.optBoolean("bridgeLive") ? " — paper trades ke saath bridge par real orders jayenge (owner responsibility)" : " (safe: sirf paper)"));
+        }
+        if (o.has("bridgeLots")) {
+            double v = o.optDouble("bridgeLots", 0.01);
+            if (v < 0.01 || v > 100) return Res.error(400, "Bridge lots 0.01–100 ke beech set karein");
+            db.setSetting("bridge_lots", String.valueOf(v));
+            db.log("INFO", "BRIDGE", "BRIDGE_LOTS_SET", "bridge mirror lot size = " + v);
+        }
+        if (o.has("feedIntervalSec")) {
+            int v = (int) o.optDouble("feedIntervalSec", 60);
+            if (v < 20 || v > 600) return Res.error(400, "Feed interval 20–600 seconds ke beech set karein");
+            db.setSetting("feed_interval_sec", String.valueOf(v));
+            db.log("INFO", "DATA", "FEED_INTERVAL_SET", "per-symbol feed refresh = " + v + "s");
+        }
+        if (o.has("labSymbol")) {
+            String v = o.optString("labSymbol", "XAUUSD").toUpperCase(Locale.US).trim();
+            if (!v.matches("[A-Z0-9]{4,20}")) return Res.error(400, "Lab symbol galat (e.g. XAUUSD)");
+            db.setSetting("lab_symbol", v);
+            db.log("INFO", "LAB", "LAB_SYMBOL_SET", "Lab backtest symbol = " + v);
         }
         return settings();
     }
