@@ -87,6 +87,11 @@ public class EngineCore implements Runnable {
     private volatile int fngValue = -1;     // crypto Fear & Greed (0-100), -1 = no data
     private long lastFng = 0;
     private long lastYt = 0;                // v1.2 YouTube channel watcher cadence
+    // v3.1 — BINANCE SPOT market-data tiers (read-only research feed; separate tables)
+    private long lastBinanceDiscovery = 0, lastBinanceWatchlist = 0, lastBinanceBackfill = 0, lastBinancePurge = 0;
+    private BinanceMarketData binanceRef;
+    private BinanceMarketData.Store binanceStoreRef;
+    private final BinanceMarketData.Http binanceHttp = new BinanceMarketData.HttpUrl();
     private String lastPattern = "";        // last 3C event text (dashboard status)
 
     // ===== v1.4 STRATEGY LAB + 3C STATE =====
@@ -373,6 +378,7 @@ public class EngineCore implements Runnable {
                     lastEvolve = now;
                     if (lab != null) { try { lab.autoEvolve(); } catch (Throwable t) { db.log("ERROR", "LAB", "EVOLVE_FAIL", String.valueOf(t)); } }
                 }
+                binanceTick(now);                        // v3.1 — Binance tiers (discovery/watchlist/backfill)
                 Thread.sleep(2000);
 
             } catch (Throwable t) {
@@ -623,6 +629,203 @@ public class EngineCore implements Runnable {
         }
         c.close();
         return out;
+    }
+
+    // ================== BINANCE SPOT MARKET DATA (v3.1 — read-only, additive) ==================
+    // Master prompt Phase 2: dynamic universe discovery + validated klines + provenance +
+    // rate-limit awareness. IMPORTANT governance property: Binance data lives in its OWN
+    // tables (binance_symbols / binance_candles) and NEVER enters the 3C strategy feed
+    // (instruments/candles + MT5_FEED). No silent provider substitution, no strategy change.
+
+    private BinanceMarketData binance() {
+        if (binanceRef == null) binanceRef = new BinanceMarketData();
+        return binanceRef;
+    }
+
+    private BinanceMarketData.Store binanceStore() {
+        if (binanceStoreRef == null) binanceStoreRef = new BinanceStore();
+        return binanceStoreRef;
+    }
+
+    private long lngSetting(String k, long d) {
+        try { return Long.parseLong(db.setting(k, String.valueOf(d)).trim()); } catch (Exception e) { return d; }
+    }
+
+    /** Tiered scheduler — called from the main loop every ~2s; each tier has its own cadence
+     *  and stops early when the provider is in backoff (fail-closed, battery/API friendly). */
+    private void binanceTick(long now) {
+        try {
+            if (!"1".equals(db.setting("binance_enabled", "1"))) return;
+            BinanceMarketData b = binance();
+            BinanceMarketData.Store st = binanceStore();
+            long discH = Math.max(1, lngSetting("binance_discovery_hours", 12));
+            if (now - lastBinanceDiscovery >= discH * 3600_000L) {
+                lastBinanceDiscovery = now;
+                b.fetchServerTime(st, binanceHttp);              // clock-skew check first
+                b.discoverUniverse(st, binanceHttp);
+            }
+            if (b.inBackoff(now)) return;                         // global backoff: all tiers stop
+            long syncSec = Math.max(30, lngSetting("binance_sync_sec", 60));
+            if (now - lastBinanceWatchlist >= syncSec * 1000L) {
+                lastBinanceWatchlist = now;
+                b.syncWatchlist(st, binanceHttp);
+            }
+            long bfSec = Math.max(15, lngSetting("binance_backfill_sec", 30));
+            if (now - lastBinanceBackfill >= bfSec * 1000L) {
+                lastBinanceBackfill = now;
+                b.backfillBatch(st, binanceHttp);
+            }
+            if (now - lastBinancePurge >= 3600_000L) {            // rolling retention (default 7 days)
+                lastBinancePurge = now;
+                long days = Math.max(1, lngSetting("binance_candle_days", 7));
+                db.getWritableDatabase().execSQL("DELETE FROM binance_candles WHERE ts < ?",
+                        new Object[]{now - days * 86400000L});
+            }
+        } catch (Throwable t) {
+            db.log("ERROR", "BINANCE", "TICK_FAIL", String.valueOf(t));
+        }
+    }
+
+    /** Coverage snapshot for API/status (truthful counts — never claims unverified data). */
+    public java.util.Map<String, Object> binanceCoverage() {
+        try { return binance().coverage(binanceStore()); }
+        catch (Throwable t) {
+            java.util.Map<String, Object> m = new HashMap<>();
+            m.put("error", String.valueOf(t));
+            return m;
+        }
+    }
+
+    /** SQLite-backed Store — the ONLY place Binance rows touch the database. */
+    private final class BinanceStore implements BinanceMarketData.Store {
+        public String setting(String key, String def) { return db.setting(key, def); }
+        public void setSetting(String key, String value) { db.setSetting(key, value); }
+        public void log(String level, String component, String event, String details) { db.log(level, component, event, details); }
+
+        public BinanceMarketData.Symbol getSymbol(String symbol) {
+            Cursor c = db.getReadableDatabase().rawQuery("SELECT symbol, base, quote, status, tick_size, step_size, min_qty, min_notional, spot_allowed, rejected, reject_reason, first_seen, last_verified, digest FROM binance_symbols WHERE symbol=?",
+                    new String[]{symbol});
+            BinanceMarketData.Symbol s = null;
+            if (c.moveToFirst()) s = rowToSymbol(c);
+            c.close();
+            return s;
+        }
+
+        public void upsertSymbol(BinanceMarketData.Symbol s) {
+            db.getWritableDatabase().execSQL(
+                    "INSERT INTO binance_symbols(symbol, base, quote, status, tick_size, step_size, min_qty, min_notional, spot_allowed, rejected, reject_reason, first_seen, last_verified, digest) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) " +
+                            "ON CONFLICT(symbol) DO UPDATE SET base=excluded.base, quote=excluded.quote, status=excluded.status, tick_size=excluded.tick_size, step_size=excluded.step_size, min_qty=excluded.min_qty, min_notional=excluded.min_notional, spot_allowed=excluded.spot_allowed, rejected=excluded.rejected, reject_reason=excluded.reject_reason, last_verified=excluded.last_verified, digest=excluded.digest",
+                    new Object[]{s.symbol, s.base, s.quote, s.status, s.tickSize, s.stepSize, s.minQty, s.minNotional,
+                            s.spotAllowed ? 1 : 0, s.rejected ? 1 : 0, s.rejectReason == null ? "" : s.rejectReason,
+                            s.firstSeen, s.lastVerified, s.digest});
+        }
+
+        /** Delisting/suspension sweep: verified in an older run but absent here now.
+         *  Uses the previous successful-discovery watermark (two-run rule) so one failed
+         *  request can never mass-reject the whole registry. */
+        public int markAbsentVerifiedBefore(long nowMs, String reasonPrefix, long verifyRunTs) {
+            long prev = 0;
+            try { prev = Long.parseLong(stateGet("prev_discovery_at", "0").trim()); } catch (Exception ignored) { }
+            if (prev <= 0) { stateSet("prev_discovery_at", String.valueOf(verifyRunTs)); return 0; }
+            int n;
+            android.database.sqlite.SQLiteDatabase d = db.getWritableDatabase();
+            Cursor c = d.rawQuery("SELECT COUNT(*) FROM binance_symbols WHERE rejected=0 AND last_verified<=?",
+                    new String[]{String.valueOf(Math.min(prev, verifyRunTs))});
+            n = c.moveToFirst() ? c.getInt(0) : 0;
+            c.close();
+            if (n > 0) d.execSQL("UPDATE binance_symbols SET rejected=1, reject_reason=? WHERE rejected=0 AND last_verified<=?",
+                    new Object[]{reasonPrefix + nowMs, Math.min(prev, verifyRunTs)});
+            stateSet("prev_discovery_at", String.valueOf(verifyRunTs));
+            return n;
+        }
+
+        public boolean candleExists(String symbol, String tf, long openTime) {
+            Cursor c = db.getReadableDatabase().rawQuery("SELECT 1 FROM binance_candles WHERE symbol=? AND tf=? AND ts=?",
+                    new String[]{symbol, tf, String.valueOf(openTime)});
+            boolean e = c.moveToFirst();
+            c.close();
+            return e;
+        }
+
+        public void upsertCandle(String symbol, String tf, BinanceMarketData.Kline k) {
+            db.getWritableDatabase().execSQL(
+                    "INSERT INTO binance_candles(symbol, tf, ts, o, h, l, c, v, closed, src_ts, recv_ts, src) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) " +
+                            "ON CONFLICT(symbol, tf, ts) DO UPDATE SET o=excluded.o, h=excluded.h, l=excluded.l, c=excluded.c, v=excluded.v, closed=excluded.closed, src_ts=excluded.src_ts, recv_ts=excluded.recv_ts, src=excluded.src",
+                    new Object[]{symbol, tf, k.openTime, k.o, k.h, k.l, k.c, k.v, k.closed ? 1 : 0, k.openTime, k.recvTs, k.srcHost});
+        }
+
+        public long lastCandleTs(String symbol, String tf) {
+            Cursor c = db.getReadableDatabase().rawQuery("SELECT MAX(ts) FROM binance_candles WHERE symbol=? AND tf=?", new String[]{symbol, tf});
+            long v = c.moveToFirst() ? c.getLong(0) : 0;
+            c.close();
+            return v;
+        }
+
+        public long lastClosedCandleCloseTs(String symbol, String tf) {
+            Cursor c = db.getReadableDatabase().rawQuery("SELECT MAX(ts) FROM binance_candles WHERE symbol=? AND tf=? AND closed=1", new String[]{symbol, tf});
+            long v = c.moveToFirst() ? c.getLong(0) : 0;
+            c.close();
+            return v > 0 ? v + BinanceMarketData.INTERVAL_MS : 0;
+        }
+
+        public java.util.List<String> watchlist() {
+            java.util.List<String> out = new ArrayList<>();
+            String raw = db.setting("binance_watchlist", "BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT");
+            int cap = 200;
+            for (String s : raw.split(",")) {
+                String t = s.trim().toUpperCase(java.util.Locale.US);
+                if (t.matches("[A-Z0-9]{5,20}") && out.size() < cap) out.add(t);
+            }
+            return out;
+        }
+
+        public java.util.List<String> eligibleBatch(int batch, long cursor) {
+            java.util.List<String> out = new ArrayList<>();
+            if (batch <= 0) return out;
+            Cursor cc = db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM binance_symbols WHERE rejected=0", null);
+            long count = cc.moveToFirst() ? cc.getLong(0) : 0;
+            cc.close();
+            if (count <= 0) return out;
+            long off = cursor % count;
+            Cursor c = db.getReadableDatabase().rawQuery(
+                    "SELECT symbol FROM binance_symbols WHERE rejected=0 ORDER BY symbol LIMIT ? OFFSET ?",
+                    new String[]{String.valueOf(batch), String.valueOf(off)});
+            while (c.moveToNext()) out.add(c.getString(0));
+            c.close();
+            return out;
+        }
+
+        public long symbolCount(boolean rejectedOnly) {
+            Cursor c = db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM binance_symbols WHERE rejected=?",
+                    new String[]{rejectedOnly ? "1" : "0"});
+            long v = c.moveToFirst() ? c.getLong(0) : 0;
+            c.close();
+            return v;
+        }
+
+        public String stateGet(String key, String def) {
+            Cursor c = db.getReadableDatabase().rawQuery("SELECT value FROM binance_state WHERE key=?", new String[]{key});
+            String v = def;
+            if (c.moveToFirst()) v = c.getString(0);
+            c.close();
+            return v;
+        }
+
+        public void stateSet(String key, String value) {
+            db.getWritableDatabase().execSQL("INSERT INTO binance_state(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    new Object[]{key, value});
+        }
+
+        private BinanceMarketData.Symbol rowToSymbol(Cursor c) {
+            BinanceMarketData.Symbol s = new BinanceMarketData.Symbol();
+            s.symbol = c.getString(0); s.base = c.getString(1); s.quote = c.getString(2);
+            s.status = c.getString(3); s.tickSize = c.getString(4); s.stepSize = c.getString(5);
+            s.minQty = c.getString(6); s.minNotional = c.getString(7);
+            s.spotAllowed = c.getInt(8) == 1; s.rejected = c.getInt(9) == 1;
+            s.rejectReason = c.getString(10) == null ? "" : c.getString(10);
+            s.firstSeen = c.getLong(11); s.lastVerified = c.getLong(12); s.digest = c.getString(13);
+            return s;
+        }
     }
 
     // ================== INDICATORS ==================
@@ -3339,6 +3542,13 @@ public class EngineCore implements Runnable {
         m.put("event_gate", eventGateOn());
         m.put("session_filter", sessionFilterOn());
         m.put("bridge_live", bridgeLive());
+        // v3.1 — Binance SPOT registry snapshot (truthful: READ_ONLY, separate tables,
+        // never feeds the 3C strategy; coverage counters reflect what was actually verified)
+        try {
+            java.util.Map<String, Object> bc = binanceCoverage();
+            m.put("binance", bc);
+            m.put("binance_enabled", "1".equals(db.setting("binance_enabled", "1")));
+        } catch (Throwable ignored) { }
         JSONObject mw = mlWeights();
         m.put("ml", mw != null ? "trained n=" + mw.optInt("n") + " acc=" + mw.optInt("acc") + "% (experimental)" : "warming up (40+ feature-tagged trades chahiye)");
         m.put("degraded_check", "30-min rolling PF monitor + ML drift check");

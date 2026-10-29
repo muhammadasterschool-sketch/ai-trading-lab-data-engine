@@ -56,6 +56,10 @@ android {
 
 // Runtime: zero external dependencies — pure platform widgets (fastest, most reliable build)
 // Test scope only (v3.0.2): JUnit for the P0 loopback-binding regression test. Not packaged in the APK.
+// Test scope only (v3.1): org.json real implementation for the BinanceMarketData host tests
+// (Android ships org.json in the platform; the Maven artifact is the same API lineage and
+// keeps the pure-Java Binance module testable on the host JVM). Not packaged in the APK.
 dependencies {
     testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
 }

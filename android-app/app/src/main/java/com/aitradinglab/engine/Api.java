@@ -124,6 +124,12 @@ public class Api {
         if ("/api/analytics".equals(path)) return analytics(uid);    // v3.0 EDGE ANALYTICS
         if (path.startsWith("/api/seasonality")) return seasonality(path);  // v3.0 seasonal edge
         if ("/api/audit.csv".equals(path)) return auditCsv(uid);     // v3.0 audit trail export
+        // v3.1 — Binance SPOT registry + broker registry (read-only surfaces; auth required)
+        if ("/api/binance/coverage".equals(path)) return binanceCoverageApi();
+        if (path.startsWith("/api/binance/universe")) return binanceUniverse();
+        if (path.startsWith("/api/binance/candles")) return binanceCandlesApi();
+        if ("/api/binance/watchlist".equals(path)) return binanceWatchlistGet();
+        if ("/api/brokers/registry".equals(path)) return brokerRegistryApi();
         // v5.7 FULL MOBILE CONTROL — owner admin endpoints (role=ADMIN required)
         if ("/api/admin/users".equals(path)) return adminUsers(uid);
         if ("/api/admin/invites".equals(path)) return adminInvites(uid);
@@ -152,6 +158,9 @@ public class Api {
             return Res.json(200, new JSONObject().put("ok", true).put("message", "Discovery + news scan started"));
         }
         if ("/api/settings".equals(path)) return saveSettings(uid, body);
+        // v3.1 — Binance watchlist is a data-collection scope control → ADMIN-gated,
+        // consistent with the v3.0.3 wholesale settings gate (audit-logged).
+        if ("/api/binance/watchlist".equals(path)) return binanceWatchlistSet(uid, body);
         // v1.2 — owner ka apna paper amount: set ANY paper balance
         if ("/api/balance".equals(path)) return setBalance(uid, body);
         // v1.2 Strategy Lab — add/compile/watch/backtest/paper/approve
@@ -831,6 +840,14 @@ public class Api {
                 .put("bridgeLive", engine != null && engine.bridgeLive())
                 .put("bridgeLots", engine != null ? engine.bridgeLots() : 0.01)
                 .put("feedIntervalSec", db.setting("feed_interval_sec", "60"))
+                // v3.1 — Binance SPOT pipeline (read-only research; watchlist via /api/binance/watchlist)
+                .put("binanceEnabled", "1".equals(db.setting("binance_enabled", "1")))
+                .put("binanceQuotes", db.setting("binance_quotes", "USDT"))
+                .put("binanceDiscoveryHours", db.setting("binance_discovery_hours", "12"))
+                .put("binanceSyncSec", db.setting("binance_sync_sec", "60"))
+                .put("binanceBackfillBatch", db.setting("binance_backfill_batch", "4"))
+                .put("binanceStaleMin", db.setting("binance_stale_min", "30"))
+                .put("binanceWeightBudget", db.setting("binance_weight_budget", "1800"))
                 .put("labSymbol", db.setting("lab_symbol", "XAUUSD"))
                 .put("safeMode", engine != null && engine.isSafeMode())
                 .put("version", appVersion));
@@ -887,7 +904,136 @@ public class Api {
                         + " — ab 3C MASTER har trade " + (engine != null ? engine.riskPct() : 1.0) + "% risk leggi (Settings > Risk %) — daily loss/profit UNLIMITED"));
     }
 
+    // ================== v3.1 BINANCE + BROKER REGISTRY (read-only) ==================
+
+    /** GET /api/binance/coverage — truthful coverage snapshot (never claims unverified data). */
+    private Res binanceCoverageApi() throws Exception {
+        if (engine == null) return Res.error(503, "engine band hai");
+        JSONObject out = new JSONObject();
+        for (java.util.Map.Entry<String, Object> e : engine.binanceCoverage().entrySet()) {
+            Object v = e.getValue();
+            if (v instanceof Number) out.put(e.getKey(), v);
+            else if (v instanceof Boolean) out.put(e.getKey(), v);
+            else out.put(e.getKey(), String.valueOf(v));
+        }
+        out.put("order_path", "NONE");                    // explicit: no order endpoints exist for Binance
+        out.put("read_only", true);
+        return Res.json(200, out);
+    }
+
+    /** GET /api/binance/universe?q=&rej=&page=&ps= — paginated search over the discovered registry. */
+    private Res binanceUniverse() throws Exception {
+        String q = qParam("q").trim().toUpperCase(Locale.US);
+        String rej = qParam("rej");                        // all | eligible | rejected
+        int page, ps;
+        try { page = Math.max(1, Integer.parseInt(qParam("page"))); } catch (Exception e) { page = 1; }
+        try { ps = Math.max(1, Math.min(100, Integer.parseInt(qParam("ps")))); } catch (Exception e) { ps = 50; }
+        StringBuilder where = new StringBuilder("1=1");
+        java.util.List<String> args = new java.util.ArrayList<String>();
+        if (!q.isEmpty()) {
+            where.append(" AND (symbol LIKE ? OR base LIKE ?)");
+            args.add(q + "%"); args.add(q + "%");
+        }
+        if ("eligible".equals(rej)) where.append(" AND rejected=0");
+        if ("rejected".equals(rej)) where.append(" AND rejected=1");
+        Cursor cc = db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM binance_symbols WHERE " + where,
+                args.toArray(new String[0]));
+        long total = cc.moveToFirst() ? cc.getLong(0) : 0;
+        cc.close();
+        Cursor c = db.getReadableDatabase().rawQuery(
+                "SELECT symbol, base, quote, status, tick_size, step_size, min_qty, min_notional, rejected, reject_reason, first_seen, last_verified, digest FROM binance_symbols WHERE "
+                        + where + " ORDER BY symbol LIMIT ? OFFSET ?",
+                queryParams(args, ps, page));
+        JSONArray arr = new JSONArray();
+        while (c.moveToNext()) {
+            arr.put(new JSONObject()
+                    .put("symbol", c.getString(0)).put("base", c.getString(1)).put("quote", c.getString(2))
+                    .put("status", c.getString(3)).put("tick_size", c.getString(4)).put("step_size", c.getString(5))
+                    .put("min_qty", c.getString(6)).put("min_notional", c.getString(7))
+                    .put("rejected", c.getInt(8) == 1).put("reject_reason", c.getString(9) == null ? "" : c.getString(9))
+                    .put("first_seen", c.getLong(11)).put("last_verified", c.getLong(12)).put("digest", c.getString(13) == null ? "" : c.getString(13)));
+        }
+        c.close();
+        return Res.json(200, new JSONObject().put("ok", true).put("total", total)
+                .put("page", page).put("page_size", ps).put("count", arr.length()).put("symbols", arr));
+    }
+
+    /** GET /api/binance/candles?symbol=BTCUSDT&n=120 — stored Binance klines (closed flag + provenance). */
+    private Res binanceCandlesApi() throws Exception {
+        String sym = qParam("symbol").toUpperCase(Locale.US).trim();
+        if (!sym.matches("[A-Z0-9]{5,20}")) return Res.error(400, "Binance symbol galat hai (e.g. BTCUSDT)");
+        int n;
+        try { n = Integer.parseInt(qParam("n")); } catch (Exception e) { n = 120; }
+        n = Math.max(1, Math.min(500, n));
+        Cursor c = db.getReadableDatabase().rawQuery(
+                "SELECT ts, o, h, l, c, v, closed, recv_ts, src FROM binance_candles WHERE symbol=? AND tf=? ORDER BY ts DESC LIMIT " + n,
+                new String[]{sym, BinanceMarketData.TF});
+        JSONArray arr = new JSONArray();
+        String src = "";
+        while (c.moveToNext()) {
+            arr.put(new JSONObject().put("ts", c.getLong(0)).put("o", c.getDouble(1)).put("h", c.getDouble(2))
+                    .put("l", c.getDouble(3)).put("c", c.getDouble(4)).put("v", c.getDouble(5))
+                    .put("closed", c.getInt(6) == 1).put("recv_ts", c.getLong(7)));
+            src = c.getString(8) == null ? "" : c.getString(8);
+        }
+        c.close();
+        for (int i = 0, j = arr.length() - 1; i < j; i++, j--) {   // ascending order for charts
+            Object a = arr.get(i); arr.put(i, arr.get(j)); arr.put(j, a);
+        }
+        return Res.json(200, new JSONObject().put("ok", true).put("symbol", sym).put("tf", BinanceMarketData.TF)
+                .put("source_host", src).put("candles", arr).put("count", arr.length())
+                .put("note", "unfinished candles carry closed=false — never treat them as final"));
+    }
+
+    /** GET /api/binance/watchlist — current watchlist + raw setting. */
+    private Res binanceWatchlistGet() throws Exception {
+        String raw = db.setting("binance_watchlist", "BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT");
+        JSONArray arr = new JSONArray();
+        for (String s : raw.split(",")) if (!s.trim().isEmpty()) arr.put(s.trim().toUpperCase(Locale.US));
+        return Res.json(200, new JSONObject().put("ok", true).put("symbols", arr)
+                .put("max", 200).put("sync_sec", db.setting("binance_sync_sec", "60")));
+    }
+
+    /** POST /api/binance/watchlist {symbols:"BTCUSDT,ETHUSDT"} — ADMIN-only, audit-logged. */
+    private Res binanceWatchlistSet(long uid, String body) throws Exception {
+        if (!isAdmin(uid)) {
+            db.log("WARN", "GUARD", "SETTINGS_ADMIN_BLOCKED",
+                    "user " + uid + " tried to change the Binance watchlist (admin-only)");
+            return Res.error(403, "watchlist sirf owner (ADMIN) badal sakta hai");
+        }
+        JSONObject o = HttpServer.jObj(body);
+        String raw = o.optString("symbols", "").trim().toUpperCase(Locale.US);
+        if (raw.isEmpty()) return Res.error(400, "symbols khali hai");
+        java.util.LinkedHashSet<String> clean = new java.util.LinkedHashSet<String>();
+        for (String s : raw.split("[,\\s]+")) {
+            String t = s.trim();
+            if (t.isEmpty()) continue;
+            if (!t.matches("[A-Z0-9]{5,20}")) return Res.error(400, "Galat symbol: " + t);
+            if (clean.size() >= 200) return Res.error(400, "Max 200 symbols (API weight safety)");
+            clean.add(t);
+        }
+        db.setSetting("binance_watchlist", String.join(",", clean));
+        db.log("INFO", "BINANCE", "WATCHLIST_UPDATE", "admin " + uid + " set watchlist: " + clean);
+        return Res.json(200, new JSONObject().put("ok", true).put("symbols", new JSONArray(clean)));
+    }
+
+    /** GET /api/brokers/registry — honest broker/source inventory (capabilities + status). */
+    private Res brokerRegistryApi() throws Exception {
+        JSONArray arr = new JSONArray();
+        for (java.util.Map<String, Object> m : BrokerRegistry.snapshot(engine)) arr.put(new JSONObject(m));
+        return Res.json(200, new JSONObject().put("ok", true).put("adapters", arr)
+                .put("note", "capabilities not declared are DISABLED by design; order placement exists only on the owner-gated MT5 bridge mirror"));
+    }
+
     // ================== v1.2 STRATEGY LAB + PERMANENT HISTORY ==================
+
+    /** Pagination args helper for /api/binance/universe (keeps SQL args in one list). */
+    private String[] queryParams(java.util.List<String> base, int pageSize, int page) {
+        java.util.List<String> all = new java.util.ArrayList<String>(base);
+        all.add(String.valueOf(pageSize));
+        all.add(String.valueOf((long) (page - 1) * pageSize));
+        return all.toArray(new String[0]);
+    }
 
     /** URL-decoded query param for the current request (api/history/csv uses it). */
     private String qParam(String key) {
@@ -1196,6 +1342,49 @@ public class Api {
             if (!v.matches("[A-Z0-9]{4,20}")) return Res.error(400, "Lab symbol galat (e.g. XAUUSD)");
             db.setSetting("lab_symbol", v);
             db.log("INFO", "LAB", "LAB_SYMBOL_SET", "Lab backtest symbol = " + v);
+        }
+        // ===== v3.1 Binance SPOT market-data settings (read-only pipeline; ADMIN-gated
+        // by the wholesale gate above — binance data never touches the 3C strategy feed) =====
+        if (o.has("binanceEnabled")) {
+            db.setSetting("binance_enabled", o.optBoolean("binanceEnabled") ? "1" : "0");
+            db.log("INFO", "BINANCE", "BINANCE_ENABLED_SET", "Binance SPOT market-data pipeline = "
+                    + (o.optBoolean("binanceEnabled") ? "ON (read-only research)" : "OFF"));
+        }
+        if (o.has("binanceQuotes")) {
+            String v = o.optString("binanceQuotes", "USDT").trim().toUpperCase(Locale.US);
+            if (!v.matches("[A-Z0-9*,]{1,60}")) return Res.error(400, "Quote whitelist sirf A-Z0-9 , * ho sakti hai");
+            db.setSetting("binance_quotes", v);
+            db.log("INFO", "BINANCE", "BINANCE_QUOTES_SET", "universe quote filter = " + v + " (* = sab quotes — registry bari hogi)");
+        }
+        if (o.has("binanceDiscoveryHours")) {
+            int v = (int) o.optDouble("binanceDiscoveryHours", 12);
+            if (v < 1 || v > 168) return Res.error(400, "Discovery interval 1–168 ghante ke beech set karein");
+            db.setSetting("binance_discovery_hours", String.valueOf(v));
+            db.log("INFO", "BINANCE", "BINANCE_DISC_SET", "exchangeInfo discovery interval = " + v + "h");
+        }
+        if (o.has("binanceSyncSec")) {
+            int v = (int) o.optDouble("binanceSyncSec", 60);
+            if (v < 30 || v > 3600) return Res.error(400, "Watchlist sync 30–3600 seconds ke beech set karein");
+            db.setSetting("binance_sync_sec", String.valueOf(v));
+            db.log("INFO", "BINANCE", "BINANCE_SYNC_SET", "watchlist klines sync = " + v + "s (per symbol)");
+        }
+        if (o.has("binanceBackfillBatch")) {
+            int v = (int) o.optDouble("binanceBackfillBatch", 4);
+            if (v < 0 || v > 20) return Res.error(400, "Backfill batch 0–20 symbols per tick (0 = OFF)");
+            db.setSetting("binance_backfill_batch", String.valueOf(v));
+            db.log("INFO", "BINANCE", "BINANCE_BF_SET", "background backfill batch = " + v + " (rotation)");
+        }
+        if (o.has("binanceStaleMin")) {
+            int v = (int) o.optDouble("binanceStaleMin", 30);
+            if (v < 2 || v > 1440) return Res.error(400, "Stale threshold 2–1440 minutes ke beech set karein");
+            db.setSetting("binance_stale_min", String.valueOf(v));
+            db.log("INFO", "BINANCE", "BINANCE_STALE_SET", "binance staleness threshold = " + v + " min");
+        }
+        if (o.has("binanceWeightBudget")) {
+            int v = (int) o.optDouble("binanceWeightBudget", 1800);
+            if (v < 100 || v > 6000) return Res.error(400, "Weight budget 100–6000/min (exchange cap 6000 — rahne do conservative)");
+            db.setSetting("binance_weight_budget", String.valueOf(v));
+            db.log("INFO", "BINANCE", "BINANCE_BUDGET_SET", "local API weight budget = " + v + "/min");
         }
         return settings();
     }

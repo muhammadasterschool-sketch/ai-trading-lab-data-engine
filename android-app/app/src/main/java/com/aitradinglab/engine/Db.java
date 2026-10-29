@@ -8,6 +8,13 @@ import android.database.sqlite.SQLiteOpenHelper;
 /** SQLite ledger store — instruments, logs, trades, news, brokers, users, strategies. */
 public class Db extends SQLiteOpenHelper {
     private static final String NAME = "atl-engine.db";
+    // v3.1: VERSION 8 — BINANCE SPOT market-data registry (read-only, no order paths):
+    // binance_symbols (dynamic universe: exchange metadata + eligibility + rejection
+    // reasons + first_seen/last_verified + digest), binance_candles (closed-flag +
+    // provenance: src host + source open-time + receipt time), binance_state (sync
+    // watermarks: rotation cursor, last discovery/sync, rate-limit bookkeeping).
+    // SEPARATE from instruments/candles on purpose: Binance rows must NEVER feed the
+    // 3C strategy universe (no silent provider substitution — governance rule).
     // v3.0: VERSION 7 — QUANT PRO: trade journal columns (r_mult, mfe, mae, risk_amt,
     // decision, tca_bps, council, win_prob, features — professional journaling: R-multiple
     // distribution + MFE/MAE + TCA slippage + Signal Council score + ML prediction) +
@@ -22,7 +29,7 @@ public class Db extends SQLiteOpenHelper {
     // v1.2: VERSION 3 — adds the Strategy Lab table (AI/YouTube/custom strategies:
     // spec JSON, backtest stats, CANDIDATE→BACKTESTED→PAPER→ACTIVE lifecycle) and
     // the trades.risk column (per-trade risk fraction, dynamic by consensus).
-    private static final int VERSION = 7;
+    private static final int VERSION = 8;
 
     public Db(Context ctx) { super(ctx, NAME, null, VERSION); }
 
@@ -79,6 +86,12 @@ public class Db extends SQLiteOpenHelper {
         exec(d, "CREATE TABLE IF NOT EXISTS strategies(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, source TEXT DEFAULT 'MANUAL', video TEXT DEFAULT '{}', spec TEXT, status TEXT DEFAULT 'CANDIDATE', stats TEXT DEFAULT '{}', created_at INTEGER, updated_at INTEGER, deleted_at INTEGER DEFAULT 0)");
         exec(d, "CREATE INDEX IF NOT EXISTS idx_strategies_status ON strategies(status, created_at)");
         exec(d, "CREATE INDEX IF NOT EXISTS idx_strategies_del ON strategies(deleted_at)");
+        // v3.1 — Binance SPOT registry + candles + sync state (read-only market data)
+        exec(d, "CREATE TABLE IF NOT EXISTS binance_symbols(symbol TEXT PRIMARY KEY, base TEXT, quote TEXT, status TEXT, tick_size TEXT, step_size TEXT, min_qty TEXT, min_notional TEXT, spot_allowed INTEGER DEFAULT 0, rejected INTEGER DEFAULT 0, reject_reason TEXT DEFAULT '', first_seen INTEGER, last_verified INTEGER, digest TEXT)");
+        exec(d, "CREATE TABLE IF NOT EXISTS binance_candles(symbol TEXT, tf TEXT, ts INTEGER, o REAL, h REAL, l REAL, c REAL, v REAL, closed INTEGER DEFAULT 0, src_ts INTEGER, recv_ts INTEGER, src TEXT, PRIMARY KEY(symbol, tf, ts))");
+        exec(d, "CREATE TABLE IF NOT EXISTS binance_state(key TEXT PRIMARY KEY, value TEXT)");
+        exec(d, "CREATE INDEX IF NOT EXISTS idx_binance_candles ON binance_candles(symbol, tf, ts)");
+        exec(d, "CREATE INDEX IF NOT EXISTS idx_binance_symbols_rej ON binance_symbols(rejected, symbol)");
         exec(d, "CREATE INDEX IF NOT EXISTS idx_logs_ts ON logs(ts)");
         exec(d, "CREATE INDEX IF NOT EXISTS idx_trades_uid ON trades(user_id, status)");
         exec(d, "CREATE INDEX IF NOT EXISTS idx_candles ON candles(symbol, ts)");
@@ -154,6 +167,17 @@ public class Db extends SQLiteOpenHelper {
             try {
                 exec(d, "CREATE TABLE IF NOT EXISTS orders(id INTEGER PRIMARY KEY AUTOINCREMENT, trade_id INTEGER, user_id INTEGER, symbol TEXT, side TEXT, type TEXT DEFAULT 'STOP', price REAL, qty REAL, status TEXT DEFAULT 'FILLED', source TEXT DEFAULT 'PAPER', ts INTEGER)");
             } catch (Throwable ignored) { }
+        }
+        // v3.1 (db v7→v8): BINANCE SPOT market-data registry — idempotent, old data untouched.
+        // Binance tables are SEPARATE from the 3C strategy tables (instruments/candles):
+        // paper strategies keep running on the existing feed; Binance is an additive,
+        // read-only research universe with its own provenance columns.
+        if (a < 8) {
+            exec(d, "CREATE TABLE IF NOT EXISTS binance_symbols(symbol TEXT PRIMARY KEY, base TEXT, quote TEXT, status TEXT, tick_size TEXT, step_size TEXT, min_qty TEXT, min_notional TEXT, spot_allowed INTEGER DEFAULT 0, rejected INTEGER DEFAULT 0, reject_reason TEXT DEFAULT '', first_seen INTEGER, last_verified INTEGER, digest TEXT)");
+            exec(d, "CREATE TABLE IF NOT EXISTS binance_candles(symbol TEXT, tf TEXT, ts INTEGER, o REAL, h REAL, l REAL, c REAL, v REAL, closed INTEGER DEFAULT 0, src_ts INTEGER, recv_ts INTEGER, src TEXT, PRIMARY KEY(symbol, tf, ts))");
+            exec(d, "CREATE TABLE IF NOT EXISTS binance_state(key TEXT PRIMARY KEY, value TEXT)");
+            exec(d, "CREATE INDEX IF NOT EXISTS idx_binance_candles ON binance_candles(symbol, tf, ts)");
+            exec(d, "CREATE INDEX IF NOT EXISTS idx_binance_symbols_rej ON binance_symbols(rejected, symbol)");
         }
     }
 
