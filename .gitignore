@@ -13,3 +13,4 @@ android-app/app/build/
 android-app/local.properties
 web.log
 .next/standalone/web.log
+scripts/klines_cache.json
