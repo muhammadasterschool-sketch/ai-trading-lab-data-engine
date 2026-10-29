@@ -8,6 +8,9 @@ import android.database.sqlite.SQLiteOpenHelper;
 /** SQLite ledger store — instruments, logs, trades, news, brokers, users, strategies. */
 public class Db extends SQLiteOpenHelper {
     private static final String NAME = "atl-engine.db";
+    // v2.1: VERSION 6 — users.trade_ok (OWNER TRADING GATE: registration approve hone
+    // ke baad bhi trading tabhi chalegi jab owner Control > Users me ENABLE TRADING
+    // dabaye) + brokers.server (MT5 login ke liye) + HALAL MODE universe purge
     // v1.9: VERSION 5 — users.approved (OWNER GATE: naya registration PENDING rehta hai
     // jab tak owner APPROVE na kare — approval ke baad hi login possible; sirf 1 ADMIN)
     // v1.7: VERSION 4 — strategies.deleted_at (SOFT DELETE / UNDO — galti se delete ho
@@ -15,7 +18,7 @@ public class Db extends SQLiteOpenHelper {
     // v1.2: VERSION 3 — adds the Strategy Lab table (AI/YouTube/custom strategies:
     // spec JSON, backtest stats, CANDIDATE→BACKTESTED→PAPER→ACTIVE lifecycle) and
     // the trades.risk column (per-trade risk fraction, dynamic by consensus).
-    private static final int VERSION = 5;
+    private static final int VERSION = 6;
 
     public Db(Context ctx) { super(ctx, NAME, null, VERSION); }
 
@@ -47,7 +50,7 @@ public class Db extends SQLiteOpenHelper {
     @Override public void onCreate(SQLiteDatabase d) {
         // v5.4: IF NOT EXISTS everywhere — if an earlier failed launch left a partial
         // file behind, creation is idempotent and can never crash on "already exists".
-        exec(d, "CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE, name TEXT, pw_hash TEXT, role TEXT DEFAULT 'TRADER', totp_secret TEXT, totp_enabled INTEGER DEFAULT 0, active INTEGER DEFAULT 1, approved INTEGER DEFAULT 1, created_at INTEGER)");
+        exec(d, "CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE, name TEXT, pw_hash TEXT, role TEXT DEFAULT 'TRADER', totp_secret TEXT, totp_enabled INTEGER DEFAULT 0, active INTEGER DEFAULT 1, approved INTEGER DEFAULT 1, trade_ok INTEGER DEFAULT 0, created_at INTEGER)");
         exec(d, "CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, user_id INTEGER, created_at INTEGER)");
         exec(d, "CREATE TABLE IF NOT EXISTS invites(code TEXT PRIMARY KEY, label TEXT, max_uses INTEGER DEFAULT 0, uses INTEGER DEFAULT 0, active INTEGER DEFAULT 1)");
         exec(d, "CREATE TABLE IF NOT EXISTS instruments(symbol TEXT PRIMARY KEY, base TEXT, quote TEXT, exchange TEXT, asset_class TEXT, status TEXT, priority INTEGER DEFAULT 0, discovered_at INTEGER, last_data_at INTEGER, note TEXT)");
@@ -56,7 +59,7 @@ public class Db extends SQLiteOpenHelper {
         exec(d, "CREATE TABLE IF NOT EXISTS trades(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, symbol TEXT, side TEXT, qty REAL, entry REAL, sl REAL, tp REAL, exit REAL, pnl REAL, status TEXT, strategy TEXT, consensus REAL, opened_at INTEGER, closed_at INTEGER)");
         exec(d, "CREATE TABLE IF NOT EXISTS logs(id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, level TEXT, component TEXT, event TEXT, details TEXT)");
         exec(d, "CREATE TABLE IF NOT EXISTS news(id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, source TEXT, headline TEXT, sentiment TEXT, impact TEXT)");
-        exec(d, "CREATE TABLE IF NOT EXISTS brokers(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, kind TEXT, api_key TEXT, api_secret TEXT, login TEXT, password TEXT, status TEXT, added_at INTEGER)");
+        exec(d, "CREATE TABLE IF NOT EXISTS brokers(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, kind TEXT, api_key TEXT, api_secret TEXT, login TEXT, password TEXT, server TEXT, status TEXT, added_at INTEGER)");
         exec(d, "CREATE TABLE IF NOT EXISTS equity(ts INTEGER PRIMARY KEY, value REAL)");
         exec(d, "CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT)");
         // v5.7: in-app admin alert feed — every registration lands here so the owner
@@ -72,8 +75,9 @@ public class Db extends SQLiteOpenHelper {
         exec(d, "CREATE INDEX IF NOT EXISTS idx_logs_ts ON logs(ts)");
         exec(d, "CREATE INDEX IF NOT EXISTS idx_trades_uid ON trades(user_id, status)");
         exec(d, "CREATE INDEX IF NOT EXISTS idx_candles ON candles(symbol, ts)");
-        // master invite seeded — same code as the cloud engine (idempotent)
-        exec(d, "INSERT OR IGNORE INTO invites(code, label, max_uses, uses, active) VALUES('M2991474','Master invite — unlimited',0,0,1)");
+        // v2.1 — koi pre-written invite code NAHI (v1.9 OWNER GATE continuity):
+        // pehla account = owner; baad ke users ke liye owner Control > Invitation Codes
+        // se fresh code generate karke khud bhejta hai.
     }
 
     @Override public void onUpgrade(SQLiteDatabase d, int a, int b) {
@@ -98,6 +102,31 @@ public class Db extends SQLiteOpenHelper {
         // sirf NAYE registrations approved=0 (PENDING) banenge register() se.
         if (a < 5) {
             try { exec(d, "ALTER TABLE users ADD COLUMN approved INTEGER DEFAULT 1"); } catch (Throwable ignored) { }
+        }
+        // v2.1 (db v5→v6): OWNER TRADING GATE + HALAL MODE + MT5 broker fields.
+        // trade_ok DEFAULT 0 — registration approve hone ke baad bhi TRADING tabhi
+        // chalegi jab owner Control > Users me ENABLE TRADING dabaye (owner/ADMIN
+        // ke liye 1). Purane installs par owner account automatic enable hota hai.
+        if (a < 6) {
+            try { exec(d, "ALTER TABLE users ADD COLUMN trade_ok INTEGER DEFAULT 0"); } catch (Throwable ignored) { }
+            try { exec(d, "UPDATE users SET trade_ok=1 WHERE role='ADMIN'"); } catch (Throwable ignored) { }
+            try { exec(d, "ALTER TABLE brokers ADD COLUMN server TEXT"); } catch (Throwable ignored) { }
+            // v2.1 HALAL MODE — owner request: "sare halal commodities add karo, baki
+            // delete kardo". Crypto, forex, indices, stocks, bonds, ETFs sab removed —
+            // sirf 27 halal commodities (metals/energy/agri) rahenge. Removed symbols
+            // par khuli trades CANCEL (exit=entry, pnl=0) — koi fake profit/loss nahi.
+            String halal = "('XAUUSD','XAGUSD','XPTUSD','XPDUSD','XCUUSD','ALUUSD',"
+                    + "'USOIL','UKOIL','NGAS','GASOLINE','HEATOIL',"
+                    + "'WHEAT','CORN','SOYBEAN','SOYMEAL','SOYOIL','RICE','OATS',"
+                    + "'COFFEE','COCOA','SUGAR','COTTON','ORANGEJ',"
+                    + "'CATTLE','FEEDER','HOGS','LUMBER')";
+            try { exec(d, "UPDATE trades SET exit=entry, pnl=0, status='CANCELLED', closed_at=" + System.currentTimeMillis()
+                    + " WHERE status='OPEN' AND symbol NOT IN " + halal); } catch (Throwable ignored) { }
+            try { exec(d, "DELETE FROM instruments WHERE symbol NOT IN " + halal); } catch (Throwable ignored) { }
+            try { exec(d, "DELETE FROM candles WHERE symbol NOT IN " + halal); } catch (Throwable ignored) { }
+            // v2.1 — pre-written master code retired (v1.9 gate continuity): owner
+            // ab bhi Control > Invitation Codes se fresh codes bana sakta hai.
+            try { exec(d, "UPDATE invites SET active=0 WHERE code='M2991474'"); } catch (Throwable ignored) { }
         }
     }
 

@@ -144,7 +144,7 @@ select{width:100%;background:var(--card);border:1px solid var(--line);border-rad
   <div class="logo"><img src="logo.png" alt="AI Trading Lab"></div>
   <h1>AI Trading Lab</h1>
   <div class="sub">Full trading engine on this device — paper trading</div>
-  <div class="sub" style="color:var(--gold)">v2.0 · SIDE DRAWER · OWNER GATE · PRO FILTER PACK · Candlestick</div>
+  <div class="sub" style="color:var(--gold)">v2.1 · HALAL MT5 · OWNER GATE · PRO FILTER PACK · Candlestick</div>
   <div id="engStrip" class="eng">checking engine…</div>
   <div class="note"><b>Naya install / update?</b> Accounts is device ki local database mein hote hain — app reinstall ya update ke baad purana account <b>transfer nahi hota</b>. Pehla account = <b>OWNER (ADMIN)</b>. Baaki log <b>Register</b> se apply karein — <b>invite code owner se milega</b> (kahin likha hua nahi hota), aur owner ke <b>APPROVE</b> karne ke baad hi sign in possible hoga. Kisi authenticator app ki zaroorat nahi.</div>
 
@@ -177,7 +177,7 @@ select{width:100%;background:var(--card);border:1px solid var(--line);border-rad
 
   <!-- register -->
   <div id="register" class="hidden">
-    <div class="note">Invite-only — <b>invite code sirf owner deta hai</b> (kahin pre-written nahi hota). Register karne par owner ko notification jayega — uske <b>APPROVE</b> karne ke baad hi aap sign in kar sakenge. Sirf 1 ADMIN (owner) hota hai; baaki sab TRADER users.</div>
+    <div class="note">Invite-only — <b>invite code sirf owner deta hai</b> (kahin pre-written nahi hota). Register karne par owner ko notification jayega — uske <b>APPROVE</b> karne ke baad sign in hoga, aur uske <b>ENABLE TRADING</b> karne ke baad hi trading chalegi. Sirf 1 ADMIN (owner) hota hai; baaki sab TRADER users.</div>
     <div class="field"><label>INVITATION CODE</label><input id="rgInvite" placeholder="Owner se lein — khali nahi chalega" autocomplete="off"></div>
     <div class="field"><label>FULL NAME</label><input id="rgName" placeholder="Your name"></div>
     <div class="field"><label>EMAIL</label><input id="rgEmail" type="email" placeholder="you@gmail.com"></div>
@@ -217,12 +217,12 @@ select{width:100%;background:var(--card);border:1px solid var(--line);border-rad
   <aside id="drawer">
     <div class="dhead">
       <img src="logo.png" alt="">
-      <div><div class="dt">AI Trading Lab</div><div class="ds" id="drEngine">engine · v2.0</div></div>
+      <div><div class="dt">AI Trading Lab</div><div class="ds" id="drEngine">engine · v2.1</div></div>
       <button class="dclose" onclick="closeDrawer()">✕</button>
     </div>
     <div class="duser" id="drUser"></div>
     <div class="ditems" id="drItems"></div>
-    <div class="dfoot">v2.0 · SIDE DRAWER · paper trading only — engine is device par 24/7 chalta hai</div>
+    <div class="dfoot">v2.1 · HALAL MT5 · paper trading only — engine is device par 24/7 chalta hai</div>
   </aside>
   <main id="main"></main>
   <nav>
@@ -477,7 +477,7 @@ function renderDash(){
     else if(e.news_pause) ban += '<div class="banner warn">📰 High-impact news — new entries paused 30 min</div>';
     else ban += '<div class="banner green">⏱ 24h scanner LIVE — '+e.active_symbols+' instruments on '+(e.timeframe||'1m')+' chart, day & night · 24/7 shield: '+esc(e.watchdog||'watchdog ON')+'</div>';
     var spark = sparkSvg(d.equity||[]);
-    var chUps = ['BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT','DOGEUSDT'];
+    var chUps = ['XAUUSD','XAGUSD','USOIL','UKOIL','NGAS','XPTUSD'];
     var chChips = chUps.map(function(s){
       return '<button class="chip '+(CHART_SYM===s?'on':'')+'" onclick="CHART_SYM=\''+s+'\';renderDash()">'+s.replace('USDT','')+'</button>';
     }).join('');
@@ -486,7 +486,7 @@ function renderDash(){
       '<div class="card full"><div style="display:flex;justify-content:space-between;align-items:baseline"><div class="k">'+esc(CHART_SYM)+' · M5 candlestick</div><div class="chartprice" id="chartPx">—</div></div>' +
         '<div class="chartwrap"><canvas id="cchart"></canvas></div>' +
         '<div class="chips" style="margin-top:10px">'+chChips+'</div>' +
-        '<div class="small" style="margin-top:6px">Real Binance 5m candles — engine inhi par 3C setups dhoondta hai. Green = close upar, red = close neeche.</div></div>' +
+        '<div class="small" style="margin-top:6px">MT5 halal commodities 5m candles (real futures market data — Gold, Silver, Oil, Gas, Agri) — engine inhi par 3C setups dhoondta hai. Green = close upar, red = close neeche.</div></div>' +
       '<div class="grid">' +
       card('Paper Balance', '$'+d.balance.toFixed(2), d.totalPnl>=0?'green':'red') +
       card('Total P&L', (d.totalPnl>=0?'+':'')+d.totalPnl.toFixed(2)+' ('+(d.pnlPct>=0?'+':'')+d.pnlPct.toFixed(2)+'%)', d.totalPnl>=0?'green':'red') +
@@ -500,14 +500,14 @@ function renderDash(){
         '<tr><td class="mut">Strategy</td><td><b>'+(e.strategy_name||'3C Breakout (M5) — MASTER')+'</b> + PRO FILTER PACK (EMA200 trend · ATR floor · volume · zone-size) · risk '+(e.risk_pct!=null?e.risk_pct:'2')+'%/trade</td></tr>' +
         '<tr><td class="mut">Market scanner</td><td>'+(e.scanner||'24h')+' nonstop · scan #'+(e.scan_count||0)+(e.fear_greed>=0?' · F&G '+e.fear_greed:'')+(e.threec_armed&&e.threec_armed.length?' · <b>'+e.threec_armed.length+' 3C setup(s) armed</b>':'')+'</td></tr>' +
         '<tr><td class="mut">Instruments trading</td><td>'+e.active_symbols+' · '+(e.indicator_count||82)+' indicators · 10s scan · live stop-order entries</td></tr>' +
-        '<tr><td class="mut">Data feed</td><td>'+esc((e.data_host||'').replace('https://',''))+' · live Binance market data (real, not simulated) · fees 0.05%/side modeled</td></tr></table></div>' +
+        '<tr><td class="mut">Data feed</td><td>'+esc(e.feed||('MT5 commodities · '+(e.data_host||'')))+' · live halal commodities market data (real, not simulated) · fees 0.05%/side modeled</td></tr></table></div>' +
       '</div>';
     document.getElementById('hdrSub').textContent = USER ? (USER.name + (USER.role==='ADMIN'?' · ADMIN':'')) : '';
     drawCandles();
   });
 }
 /* ================= v1.8 CANDLESTICK CHART (dependency-free canvas) ================= */
-var CHART_SYM = 'BTCUSDT';
+var CHART_SYM = 'XAUUSD';
 function drawCandles(){
   var cv = document.getElementById('cchart');
   if(!cv) return;
@@ -627,9 +627,9 @@ function renderInst(){
         (i.lastDataAt? '<br><span class="mut" style="font-size:10px">'+fmtTime(i.lastDataAt)+'</span>':'') + '</td></tr>';
     });
     tgt().innerHTML =
-      '<div class="banner green">Auto-discovery ON — new instruments register themselves and trading starts automatically.<br>' +
-      '<b>'+d.active+'</b> trading · <b>'+d.watching+'</b> watching · <b>'+d.pending+'</b> pending broker · total <b>'+d.total+'</b> (PDF encyclopedia universe)</div>' +
-      '<button class="btn sec" onclick="scanNow()">🔍 Scan for new instruments now</button>' +
+      '<div class="banner green">🟢 HALAL MODE — universe fixed: <b>27 halal commodities</b> (metals · energy · agri) via MT5-style feed. Crypto, forex, indices, stocks removed owner ki request par — naya symbol auto-register nahi hota.<br>' +
+      '<b>'+d.active+'</b> trading · <b>'+d.watching+'</b> watching (market band) · total <b>'+d.total+'</b> (HALAL MT5 commodities universe)</div>' +
+      '<button class="btn sec" onclick="scanNow()">🔄 Refresh universe status now</button>' +
       chips +
       '<h2>Instruments Ledger ('+shown+')</h2>' +
       (rows ? '<table>'+rows+'</table>' : '<div class="empty">First discovery scan running — refresh in a minute</div>');
@@ -802,7 +802,7 @@ function renderLab(){
       '<h2>1 · AI se strategy banao (kisi bhi zubaan mein)</h2>' +
       '<div class="card full"><textarea id="aiText" rows="4" placeholder="e.g. Jab RSI 30 se neeche ho aur price EMA50 ke upar ho to BUY — aur jab RSI 70 se upar ho to SELL karo" style="'+INP+'"></textarea>' +
       '<div class="row" style="margin-top:8px"><button class="btn" onclick="labAdd()">🤖 AI COMPILE</button><button class="btn sec" onclick="labLoad()">🔄 Refresh</button></div>' +
-      '<div class="small" style="margin-top:6px">AI aapki baat ko machine rules banata hai — phir backtest se prove hota hai. Backtest symbol: <b>'+esc(d.symbol||'BTCUSDT')+'</b> <input id="labSym" placeholder="BTCUSDT" style="'+INP+';width:110px;padding:6px;margin-left:4px"><button class="pill INFO" style="border:0" onclick="labSym()">SET</button></div>' +
+      '<div class="small" style="margin-top:6px">AI aapki baat ko machine rules banata hai — phir backtest se prove hota hai. Backtest symbol: <b>'+esc(d.symbol||'XAUUSD')+'</b> <input id="labSym" placeholder="XAUUSD" style="'+INP+';width:110px;padding:6px;margin-left:4px"><button class="pill INFO" style="border:0" onclick="labSym()">SET</button></div>' +
       '<div id="aiMsg"></div></div>' +
       '<h2>2 · YouTube — video dekho, strategy adopt karo</h2>' +
       '<div class="card full">' +
@@ -941,25 +941,29 @@ function renderBroker(){
   api('/api/brokers').then(function(r){
     var rows = '';
     (r.data.brokers||[]).forEach(function(b){
-      rows += '<tr><td><b>'+esc(b.name)+'</b><br><span class="mut" style="font-size:10px">'+esc(b.kind)+' · added '+fmtTime(b.addedAt)+'</span></td>' +
+      rows += '<tr><td><b>'+esc(b.name)+'</b><br><span class="mut" style="font-size:10px">'+esc(b.kind)+(b.server?' @ '+esc(b.server):'')+' · added '+fmtTime(b.addedAt)+'</span></td>' +
         '<td style="text-align:right"><span class="pill SAVED">'+b.status+'</span><br><button class="pill ERROR" style="border:0;margin-top:6px" onclick="delBroker('+b.id+')">REMOVE</button></td></tr>';
     });
     tgt().innerHTML =
-      '<div class="banner green">Add any broker with API key + login credentials. They are stored safely on this device and auto-connect when you enable live trading (v5 live phase).</div>' +
-      '<h2>Add Custom Broker</h2>' +
-      '<div class="field"><label>BROKER NAME</label><input id="bkName" placeholder="e.g. My Binance / OANDA / My Broker"></div>' +
-      '<div class="field"><label>BROKER TYPE</label><select id="bkKind"><option>CUSTOM</option><option>BINANCE</option><option>OANDA</option><option>MT4/MT5</option><option>INTERACTIVE_BROKERS</option></select></div>' +
-      '<div class="field"><label>API KEY</label><input id="bkKey" placeholder="API key from broker"></div>' +
+      '<div class="banner green"><b>Broker vault (v2.1):</b> MT5/MT4 account hai to <b>BROKER TYPE = MT5/MT4</b> chunein — Login + Password + Server bharein (API key ki zaroorat nahi). API brokers (Binance/OANDA) ke liye API key + secret. Credentials is device par safe hain — live trading phase me connect honge. Paper trading abhi MT5 commodities feed se chal rahi hai.</div>' +
+      '<h2>Add Broker</h2>' +
+      '<div class="field"><label>BROKER NAME</label><input id="bkName" placeholder="e.g. Exness / IC Markets / My MT5"></div>' +
+      '<div class="field"><label>BROKER TYPE</label><select id="bkKind"><option>MT5</option><option>MT4</option><option>BINANCE</option><option>OANDA</option><option>INTERACTIVE_BROKERS</option><option>CUSTOM</option></select></div>' +
+      '<div class="field"><label>MT5 SERVER (MT5/MT4 ke liye)</label><input id="bkServer" placeholder="e.g. Exness-MT5Trial8 / ICMarketsSC-Demo"></div>' +
+      '<div class="field"><label>API KEY (MT5 ke liye optional)</label><input id="bkKey" placeholder="API key from broker"></div>' +
       '<div class="field"><label>API SECRET</label><input id="bkSecret" type="password" placeholder="API secret"></div>' +
-      '<div class="field"><label>LOGIN / ACCOUNT ID</label><input id="bkLogin" placeholder="Login or account number"></div>' +
-      '<div class="field"><label>BROKER PASSWORD</label><input id="bkPass" type="password" placeholder="Account password"></div>' +
+      '<div class="field"><label>LOGIN / ACCOUNT ID</label><input id="bkLogin" placeholder="MT5 login number ya API login"></div>' +
+      '<div class="field"><label>BROKER PASSWORD</label><input id="bkPass" type="password" placeholder="MT5 password"></div>' +
       '<button class="btn" onclick="addBroker()">Save broker credentials</button><div id="bkMsg"></div>' +
       '<h2>Saved Brokers</h2>' + (rows? '<table>'+rows+'</table>' : '<div class="empty">No brokers added yet</div>');
   });
 }
 function addBroker(){
-  var b = {name:bkName.value.trim(), kind:bkKind.value, apiKey:bkKey.value.trim(), apiSecret:bkSecret.value, login:bkLogin.value.trim(), password:bkPass.value};
-  if(!b.name||!b.apiKey){ msg('bkMsg','Broker name and API key are required','err'); return; }
+  var b = {name:bkName.value.trim(), kind:bkKind.value, server:bkServer.value.trim(), apiKey:bkKey.value.trim(), apiSecret:bkSecret.value, login:bkLogin.value.trim(), password:bkPass.value};
+  var mt5 = b.kind.indexOf('MT')===0;
+  if(!b.name){ msg('bkMsg','Broker name likhein','err'); return; }
+  if(mt5 && (!b.login||!b.password)){ msg('bkMsg','MT5/MT4 ke liye Login + Password zaroori hain (API key optional)','err'); return; }
+  if(!mt5 && !b.apiKey){ msg('bkMsg','API broker ke liye API key zaroori hai','err'); return; }
   api('/api/brokers',{method:'POST',body:b}).then(function(r){
     if(r.status===200){ msg('bkMsg',r.data.message,'ok'); setTimeout(renderBroker,800); }
     else msg('bkMsg', r.data.error,'err');
@@ -987,7 +991,11 @@ function renderSet(){
         '<div class="card full"><div class="k">Paper trading engine</div>' +
         '<div class="row"><button class="btn '+(on?'sec':'')+'" onclick="setEngine(true)">▶ START</button>' +
         '<button class="btn '+(on?'':'sec')+'" onclick="setEngine(false)">⏸ STOP</button></div>' +
-        '<div class="small" style="margin-top:10px">Engine runs in background via Android foreground service. It survives app close and phone reboot. Fees realistic model hoti hain: <b>0.05% per side</b> (Binance futures taker) — paper P/L real jaisa.</div></div>' +
+        '<div class="small" style="margin-top:10px">Engine runs in background via Android foreground service. It survives app close and phone reboot. Fees realistic model hoti hain: <b>0.05% per side</b> (commodity futures taker) — paper P/L real jaisa.</div></div>' +
+        '<h2>📡 MT5 DATA FEED — halal commodities (v2.1)</h2>' +
+        '<div class="card full"><div class="k">MT5 Bridge (optional) — REAL MetaTrader5 candles</div>' +
+        '<div class="row" style="margin-top:8px"><input id="mt5Url" placeholder="e.g. http://192.168.1.5:8899 — khali = built-in feed" value="'+esc(r.data.mt5Bridge||'')+'" style="flex:1;min-width:0;padding:11px;border-radius:10px;border:1px solid #27272a;background:#09090b;color:#e4e4e7;font-size:14px"><button class="btn" onclick="setMt5()">SET</button></div>' +
+        '<div class="small" style="margin-top:10px"><b>Default (khali chhodo):</b> engine halal commodities ki REAL futures candles khud fetch karta hai — Gold, Silver, Platinum, Oil, Gas, Wheat, Coffee... (27 symbols, koi setup nahi chahiye). <b>Advanced:</b> agar aapke PC par MetaTrader5 terminal chalta hai to downloads page se <b>mt5-bridge.py</b> wahan run karein aur uska URL yahan dalein — candles phir seedha aapke MT5 broker ke prices se aayengi.</div></div>' +
         '<h2>🛡️ PRO GUARD — protections (freqtrade-style)</h2>' +
         '<div class="card full">' +
         '<div class="k">1 · Loss cooldown — SL loss ke baad us symbol par naya entry kitni der band</div>' +
@@ -1060,6 +1068,13 @@ function setBalance(){
 function setEngine(on){
   api('/api/settings',{method:'POST',body:{engineOn:on}}).then(function(){ renderSettings(); });
 }
+function setMt5(){
+  var v = document.getElementById('mt5Url').value.trim();
+  api('/api/settings',{method:'POST',body:{mt5Bridge:v}}).then(function(r){
+    if(r.status===200){ alert('MT5 feed: '+(v?'bridge set — '+v:'built-in halal commodities feed (default)')); renderSettings(); }
+    else alert(r.data.error||'MT5 bridge set failed');
+  });
+}
 
 /* --------- v5.7 FULL MOBILE CONTROL — owner ki poori taqat, ek tab me --------- */
 function renderControl(){
@@ -1085,12 +1100,15 @@ function paintControl(al, us, iv){
   users.forEach(function(x){
     var self = (USER && USER.id===x.id);
     var pend = !x.approved; /* v1.9 OWNER GATE — approved=0 = PENDING, login blocked */
+    var tOk = (x.tradeOk != null) ? x.tradeOk : (x.role==='ADMIN' ? 1 : 0); /* v2.1 OWNER TRADING GATE */
     uHtml += '<tr><td><b>'+esc(x.name)+'</b>'+(x.role==='ADMIN'?' <span class="pill ADMIN">ADMIN</span>':'')+
-      (pend?' <span class="pill WARN">PENDING</span>':'')+
+      (pend?' <span class="pill WARN">PENDING</span>':'')+(!tOk?' <span class="pill WARN">NO TRADE</span>':'')+
       '<br><span class="mut" style="font-size:10px">'+esc(x.email)+' · joined '+fmtTime(x.createdAt)+' · '+x.sessions+' session(s)</span></td>'+
       '<td style="text-align:right">'+(pend?'<span class="pill WARN">LOGIN BLOCKED</span><br>':'')+
-      '<span class="pill '+(!pend&&x.active?'ACTIVE':'ERROR')+'">'+(pend?'PENDING':(x.active?'ACTIVE':'OFF'))+'</span><br>'+
+      '<span class="pill '+(!pend&&x.active?'ACTIVE':'ERROR')+'">'+(pend?'PENDING':(x.active?'ACTIVE':'OFF'))+'</span> '+
+      '<span class="pill '+(tOk?'ACTIVE':'WARN')+'">'+(tOk?'TRADING ON':'TRADING OFF')+'</span><br>'+
       (pend? '<button class="pill ACTIVE pillbtn" onclick="userAction('+x.id+',\'approve\')">✓ APPROVE</button> ' : '')+
+      (!pend&&!self? '<button class="pill '+(tOk?'WARN':'ACTIVE')+' pillbtn" onclick="userAction('+x.id+',\'trade\','+(tOk?0:1)+')">'+(tOk?'⛔ STOP TRADING':'▶ ENABLE TRADING')+'</button> ' : '')+
       (self? '<span class="mut" style="font-size:10px">you</span>' :
         '<button class="pill '+(!pend&&!x.active?'ACTIVE':'WARN')+' pillbtn" onclick="userAction('+x.id+',\''+(!pend&&x.active?'deactivate':'activate')+'\')">'+(!pend&&x.active?'DISABLE':'ENABLE')+'</button> '+
         '<button class="pill ERROR pillbtn" onclick="userAction('+x.id+',\'delete\')">DEL</button>')+
@@ -1104,7 +1122,7 @@ function paintControl(al, us, iv){
       '</td></tr>';
   });
   tgt().innerHTML =
-    '<div class="banner green">🛡️ Owner Control — users, invites, alerts sab aapke control me. Naya registration hote hi status-bar alert + yahan NEW entry + Home par red banner. <b>Approval ke baad hi user login kar sakta hai</b> · sirf 1 ADMIN (aap) — baaki sab TRADER.</div>'+
+    '<div class="banner green">🛡️ Owner Control — users, invites, alerts sab aapke control me. Naya registration hote hi status-bar alert + yahan NEW entry + Home par red banner. <b>Approval ke baad hi user login kar sakta hai</b> · sirf 1 ADMIN (aap) — baaki sab TRADER. <b>Trading gate (v2.1):</b> approval ke baad bhi har user ke liye <b>▶ ENABLE TRADING</b> alag se dabana hoga — tab engine us ke liye trades kholega.</div>'+
     '<div class="grid">'+
     card('Total Users', us.total!=null?us.total:'—','')+
     card('Active Users', us.activeUsers!=null?us.activeUsers:'—','green')+
@@ -1124,13 +1142,15 @@ function paintControl(al, us, iv){
     '<div class="field"><label>MAX USES (0 = unlimited)</label><input id="ivMax" inputmode="numeric" value="0"></div>'+
     '<button class="btn" onclick="inviteCreate()">Generate new invite code</button></div>'+
     (iHtml ? '<table>'+iHtml+'</table>' : '<div class="empty">No invite codes</div>')+
-    '<div class="small" style="margin-top:14px">Disabled user foran sign-out ho jata hai. PENDING user login nahi kar sakta jab tak aap APPROVE na dabayen. Delete = user + uska paper data permanently remove.</div>';
+    '<div class="small" style="margin-top:14px">Disabled user foran sign-out ho jata hai. PENDING user login nahi kar sakta jab tak aap APPROVE na dabayen. Approved user bhi trade NAHI kar sakta jab tak aap uske liye ENABLE TRADING na dabayen (v2.1 gate). Delete = user + uska paper data permanently remove.</div>';
 }
 
-function userAction(id, action){
+function userAction(id, action, value){
   if(action==='delete' && !confirm('Delete this user permanently? Their sessions, paper account and trades are removed.')) return;
-  api('/api/admin/users',{method:'POST',body:{id:id,action:action}}).then(function(r){
-    if(r.status===200 && action==='approve') alert(r.data.message||'User approved');
+  var b = {id:id, action:action};
+  if(action==='trade') b.value = value;
+  api('/api/admin/users',{method:'POST',body:b}).then(function(r){
+    if(r.status===200 && (action==='approve'||action==='trade')) alert(r.data.message||'Done');
     else if(r.status!==200) alert(r.data.error||'action failed');
     renderControl(); pollAlerts();
   });

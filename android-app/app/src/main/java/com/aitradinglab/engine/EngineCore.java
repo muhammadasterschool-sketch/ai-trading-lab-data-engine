@@ -49,25 +49,26 @@ import org.json.JSONObject;
  *   strategy, backtests it on real candles and notifies the owner — "aur strategies
  *   banati raho". AI kabhi khud LIVE nahi jati, sirf owner approve karta hai.
  *
- * Data: LIVE 5m klines from the Binance public API (data-api.binance.vision) — real
- *   market data, candles are never simulated. 24/7 nonstop scanner.
- * Discovery (30 min): Binance ticker scan -> auto-register new instruments (top 150).
+ * Data (v2.1 HALAL MT5): LIVE 5m candles for 27 HALAL COMMODITIES — public commodity
+ *   futures feed (Yahoo chart API) ya optional MT5 bridge (PC par MetaTrader5 +
+ *   mt5-bridge.py). Real market data — candles are never simulated. 24/7 scanner.
+ * Universe (v2.1): halal commodities only (metals, energy, agri) — crypto/forex/
+ *   indices/stocks owner ke hukum par removed. Discovery = universe maintenance.
  * News (15 min): RSS -> sentiment -> display only.
  */
 public class EngineCore implements Runnable {
-    private static final String[] DATA_HOSTS = {"https://data-api.binance.vision", "https://api.binance.com"};
+    // v2.1 — Binance retired: MT5 halal commodities feed (DATA section neeche).
     private static final String TF = "5m";                 // 3C strategy timeframe (MASTER PROMPT: M5)
     private static final long TF_MS = 5L * 60 * 1000;
     /** public for StrategyLab backtester */ public static final long TF_MS_PUB = TF_MS;
-    private static final int ACTIVE_TOP = 30;      // trade the top-N by volume
-    private static final int LEDGER_TOP = 150;     // keep in instruments ledger
+    private static final int ACTIVE_TOP = 30;      // halal universe (27) — cap sirf safety
     // ==== 3C STRATEGY CONSTANTS (MASTER PROMPT — kabhi change nahi without owner approval) ====
     public static final double THREEC_BODY_MIN = 0.70;  // C1 & C2 body >= 70% of High-Low range
     public static final int THREEC_WINDOW = 5;          // breakout window: next 5 M5 candles
     public static final double THREEC_TP_R = 3.0;       // take profit at +3R, whole position
     private static final double RISK_DEFAULT_PCT = 2.0; // v1.8: owner "risk increase karoo" (was 1.0)
     // ==== v1.7 PRO GUARD — professional protections (freqtrade-inspired) ====
-    /** Binance USDT-M futures taker fee per side (0.05%) — paper P/L ab realistic.
+    /** Commodity futures/CFD taker fee per side (0.05%) — paper P/L ab realistic.
      *  freqtrade/production bots hamesha fees model karte hain warna paper results
      *  real se 10-20% door hote hain. */
     public static final double TAKER_FEE = 0.0005;
@@ -77,7 +78,7 @@ public class EngineCore implements Runnable {
 
     private final Db db;
     private volatile boolean running = true;
-    private String dataHost = DATA_HOSTS[0];
+    private String dataHost = "PUBLIC-FUTURES";   // v2.1: PUBLIC-FUTURES ya MT5-BRIDGE (status ke liye)
     private long lastDiscovery = 0, lastNews = 0, lastLoop = 0, lastEvolve = 0;
     private String lastConsensus = "";
     private int activeSymbols = 0;
@@ -160,7 +161,7 @@ public class EngineCore implements Runnable {
         } catch (Exception e) { return 0; }
     }
 
-    // ===== v1.8 PRO FILTER PACK (92-din Binance backtest se proved — owner: "losses kyu") =====
+    // ===== v1.8 PRO FILTER PACK (92-din futures-data backtest se proved — owner: "losses kyu") =====
     // BASELINE: 1336 trades, PF 0.07, avgR -5.22, maxDD -6982R (92 din, 6 syms, fee-aware)
     // PACK ON :  268 trades, PF 0.83, avgR -0.11, maxDD  -40R  -> bleed 95% kam, XRP breakeven+
     /** Min risk distance as % of price — chhota zone = fees risk se zyada (fee bomb fix). */
@@ -220,8 +221,9 @@ public class EngineCore implements Runnable {
     public static void appContext(android.content.Context c) { appCtxRef = c; }
     private static android.content.Context appContext() { return appCtxRef; }
 
-    /** Public klines fetch for the Strategy Lab backtester (real Binance data). */
-    public List<Candle> klinesFor(String symbol, int limit) { return fetchKlines(symbol, limit); }
+    /** Public klines fetch for the Strategy Lab backtester (v2.1 MT5 commodities feed).
+     *  force=true — backtest rate-limit bypass karta hai. */
+    public List<Candle> klinesFor(String symbol, int limit) { return fetchKlines(symbol, limit, true); }
 
     public void stop() { running = false; }
     public boolean isRunning() { return running; }
@@ -327,14 +329,80 @@ public class EngineCore implements Runnable {
     // daily loss/profit is UNLIMITED. rollDay() stays only to keep the dashboard's
     // dayPnlPct counter honest (it no longer halts anything).
 
-    // ================== DATA ==================
+    // ================== DATA (v2.1 HALAL MT5 FEED) ==================
     public static class Candle { long ts; double o, h, l, c, v; }
 
-    private List<Candle> fetchKlines(String symbol, int limit) {
-        String path = "/api/v3/klines?symbol=" + symbol + "&interval=" + TF + "&limit=" + limit;
-        String body = httpGet(path);
-        if (body == null) return null;
+    /** v2.1 — MT5-style halal commodity universe: MT5 symbol -> public futures feed
+     *  (Yahoo Finance chart API, 5m interval). Ye REAL exchange candles hain (CME/CBOT
+     *  futures) — MT5 broker ke spot quote se chhota basis hota hai, paper trading ke
+     *  liye bilkul theek. Optional MT5 bridge (settings mt5_bridge) set ho to candles
+     *  seedha user ke MetaTrader5 terminal se aati hain (real MT5 data — PC par
+     *  mt5-bridge.py chalana hota hai, script downloads page par mojood hai). */
+    static final java.util.Map<String, String> MT5_FEED = new java.util.LinkedHashMap<>();
+    static {
+        MT5_FEED.put("XAUUSD",  "GC=F");    // Gold
+        MT5_FEED.put("XAGUSD",  "SI=F");    // Silver
+        MT5_FEED.put("XPTUSD",  "PL=F");    // Platinum
+        MT5_FEED.put("XPDUSD",  "PA=F");    // Palladium
+        MT5_FEED.put("XCUUSD",  "HG=F");    // Copper
+        MT5_FEED.put("ALUUSD",  "ALI=F");   // Aluminium
+        MT5_FEED.put("USOIL",   "CL=F");    // WTI Crude Oil
+        MT5_FEED.put("UKOIL",   "BZ=F");    // Brent Crude Oil
+        MT5_FEED.put("NGAS",    "NG=F");    // Natural Gas
+        MT5_FEED.put("GASOLINE","RB=F");    // RBOB Gasoline
+        MT5_FEED.put("HEATOIL", "HO=F");    // Heating Oil / ULSD
+        MT5_FEED.put("WHEAT",   "ZW=F");    // Wheat
+        MT5_FEED.put("CORN",    "ZC=F");    // Corn
+        MT5_FEED.put("SOYBEAN", "ZS=F");    // Soybeans
+        MT5_FEED.put("SOYMEAL", "ZM=F");    // Soybean Meal
+        MT5_FEED.put("SOYOIL",  "ZL=F");    // Soybean Oil
+        MT5_FEED.put("RICE",    "ZR=F");    // Rough Rice
+        MT5_FEED.put("OATS",    "ZO=F");    // Oats
+        MT5_FEED.put("COFFEE",  "KC=F");    // Coffee Arabica
+        MT5_FEED.put("COCOA",   "CC=F");    // Cocoa
+        MT5_FEED.put("SUGAR",   "SB=F");    // Sugar #11
+        MT5_FEED.put("COTTON",  "CT=F");    // Cotton #2
+        MT5_FEED.put("ORANGEJ", "OJ=F");    // Orange Juice
+        MT5_FEED.put("CATTLE",  "LE=F");    // Live Cattle
+        MT5_FEED.put("FEEDER",  "GF=F");    // Feeder Cattle
+        MT5_FEED.put("HOGS",    "HE=F");    // Lean Hogs
+        MT5_FEED.put("LUMBER",  "LBR=F");   // Lumber
+    }
+    private static final String YAHOO_HOST = "https://query1.finance.yahoo.com";
+    /** Per-symbol last fetch attempt (rate-limit guard — M5 candles 60s refresh kaafi). */
+    private final java.util.Map<String, Long> lastFetchAt = new HashMap<>();
+
+    /** Optional MT5 bridge URL (settings mt5_bridge) — khali = built-in futures feed. */
+    public String mt5Bridge() {
+        String s = db.setting("mt5_bridge", "");
+        return s == null ? "" : s.trim();
+    }
+
+    private List<Candle> fetchKlines(String symbol, int limit) { return fetchKlines(symbol, limit, false); }
+
+    private List<Candle> fetchKlines(String symbol, int limit, boolean force) {
+        if (!force) {
+            Long last = lastFetchAt.get(symbol);
+            long minGap = 60_000L;
+            try { minGap = Math.max(20, Integer.parseInt(db.setting("feed_interval_sec", "60").trim())) * 1000L; } catch (Exception ignored) { }
+            if (last != null && System.currentTimeMillis() - last < minGap) return new ArrayList<>();
+        }
+        List<Candle> out = fetchFromBridge(symbol, limit);
+        if (out == null) out = fetchFromYahoo(symbol, limit);
+        lastFetchAt.put(symbol, System.currentTimeMillis());
+        return out;
+    }
+
+    /** MT5 bridge mode: user ke PC par chalte MetaTrader5 terminal se REAL MT5 candles.
+     *  Protocol: GET {bridge}/candles?symbol=XAUUSD&tf=5m&limit=200
+     *  Response: JSON array [[ts_ms, open, high, low, close, volume], ...] */
+    private List<Candle> fetchFromBridge(String symbol, int limit) {
+        String base = mt5Bridge();
+        if (base.isEmpty()) return null;
         try {
+            String body = httpGetUrl(base + (base.endsWith("/") ? "" : "/")
+                    + "candles?symbol=" + symbol + "&tf=5m&limit=" + limit, 8000);
+            if (body == null) return null;
             JSONArray arr = new JSONArray(body);
             List<Candle> out = new ArrayList<>();
             for (int i = 0; i < arr.length(); i++) {
@@ -348,25 +416,48 @@ public class EngineCore implements Runnable {
         } catch (Exception e) { return null; }
     }
 
-    private String httpGet(String path) {
-        for (int attempt = 0; attempt < 2; attempt++) {
-            try {
-                HttpURLConnection cn = (HttpURLConnection) new URL(dataHost + path).openConnection();
-                cn.setConnectTimeout(10000); cn.setReadTimeout(15000);
-                cn.setRequestProperty("User-Agent", "AI-Trading-Lab/5.0");
-                int code = cn.getResponseCode();
-                if (code == 200) {
-                    BufferedReader r = new BufferedReader(new InputStreamReader(cn.getInputStream()));
-                    StringBuilder sb = new StringBuilder(); String line;
-                    while ((line = r.readLine()) != null) sb.append(line);
-                    r.close();
-                    return sb.toString();
-                }
-                if (code == 451 || code == 403) { dataHost = DATA_HOSTS[1]; continue; }
-            } catch (Exception ignored) { }
-            dataHost = (attempt == 0) ? DATA_HOSTS[1] : DATA_HOSTS[0];
-        }
-        return null;
+    /** Built-in feed: public commodity futures candles (Yahoo chart API, 5m, 5d). */
+    private List<Candle> fetchFromYahoo(String symbol, int limit) {
+        String y = MT5_FEED.get(symbol);
+        if (y == null) return null;
+        try {
+            String body = httpGetUrl(YAHOO_HOST + "/v8/finance/chart/" + y + "?interval=5m&range=5d", 12000);
+            if (body == null) return null;
+            JSONObject res = new JSONObject(body).getJSONObject("chart").getJSONArray("result").getJSONObject(0);
+            JSONArray ts = res.getJSONArray("timestamp");
+            JSONObject q = res.getJSONObject("indicators").getJSONArray("quote").getJSONObject(0);
+            JSONArray oA = q.getJSONArray("open"), hA = q.getJSONArray("high"), lA = q.getJSONArray("low");
+            JSONArray cA = q.getJSONArray("close"), vA = q.getJSONArray("volume");
+            List<Candle> out = new ArrayList<>();
+            for (int i = 0; i < ts.length(); i++) {
+                if (oA.isNull(i) || hA.isNull(i) || lA.isNull(i) || cA.isNull(i)) continue;   // session gaps
+                double o = oA.getDouble(i), h = hA.getDouble(i), l = lA.getDouble(i), c = cA.getDouble(i);
+                if (o <= 0 || h <= 0 || l <= 0 || c <= 0) continue;
+                Candle cd = new Candle();
+                cd.ts = ts.getLong(i) * 1000L;                    // Yahoo seconds -> ms
+                cd.o = o; cd.h = h; cd.l = l; cd.c = c;
+                cd.v = vA.isNull(i) ? 0 : vA.getDouble(i);
+                out.add(cd);
+            }
+            if (out.size() > limit) out = new ArrayList<>(out.subList(out.size() - limit, out.size()));
+            return out;
+        } catch (Exception e) { return null; }
+    }
+
+    /** Full-URL HTTP GET (v2.1 MT5 feed) — failure par null (caller skip karta hai). */
+    private String httpGetUrl(String url, int timeoutMs) {
+        try {
+            HttpURLConnection cn = (HttpURLConnection) new URL(url).openConnection();
+            cn.setConnectTimeout(timeoutMs); cn.setReadTimeout(timeoutMs + 5000);
+            cn.setRequestProperty("User-Agent", "Mozilla/5.0 (Android) AI-Trading-Lab/2.1");
+            int code = cn.getResponseCode();
+            if (code != 200) return null;
+            BufferedReader r = new BufferedReader(new InputStreamReader(cn.getInputStream()));
+            StringBuilder sb = new StringBuilder(); String line;
+            while ((line = r.readLine()) != null) sb.append(line);
+            r.close();
+            return sb.toString();
+        } catch (Exception e) { return null; }
     }
 
     private List<String> activeSymbols() {
@@ -398,6 +489,9 @@ public class EngineCore implements Runnable {
             }
             d.execSQL("UPDATE instruments SET last_data_at=? WHERE symbol=?",
                     new Object[]{System.currentTimeMillis(), s});
+            // v2.1: rolling window — 4 din se purani M5 candles purge (DB lean rakhta hai)
+            d.execSQL("DELETE FROM candles WHERE symbol=? AND tf=? AND ts < ?",
+                    new Object[]{s, TF, System.currentTimeMillis() - 4L * 86400000L});
             d.setTransactionSuccessful();
         } finally { d.endTransaction(); }
     }
@@ -1821,9 +1915,48 @@ public class EngineCore implements Runnable {
         }
     }
 
+    // ===== v2.1 OWNER TRADING GATE =====
+    /** Owner ne is user ke liye TRADING enable ki hai? (users.trade_ok; ADMIN hamesha 1). */
+    private boolean tradingAllowed(long uid) {
+        Cursor c = db.getReadableDatabase().rawQuery(
+                "SELECT IFNULL(trade_ok, CASE WHEN role='ADMIN' THEN 1 ELSE 0 END) FROM users WHERE id=?",
+                new String[]{String.valueOf(uid)});
+        boolean ok = c.moveToFirst() && c.getInt(0) == 1;
+        c.close();
+        return ok;
+    }
+
+    /** v2.1 — trading-disabled user ke signal par owner ko request (30 min throttle per user). */
+    private final java.util.Map<String, Long> tradeAskAt = new HashMap<>();
+    private void askOwnerToEnableTrading(long uid) {
+        String key = String.valueOf(uid);
+        long now = System.currentTimeMillis();
+        Long last = tradeAskAt.get(key);
+        if (last != null && now - last < 30L * 60 * 1000) return;
+        tradeAskAt.put(key, now);
+        String nm = "user #" + uid;
+        Cursor c = db.getReadableDatabase().rawQuery("SELECT name FROM users WHERE id=?", new String[]{key});
+        if (c.moveToFirst()) nm = c.getString(0);
+        c.close();
+        db.log("INFO", "GUARD", "TRADE_BLOCKED_PENDING",
+                nm + " ke liye signal aya lekin TRADING disabled hai — owner Control > Users me ENABLE TRADING dabayen");
+        try {
+            db.getWritableDatabase().execSQL(
+                    "INSERT INTO notifications(kind, title, body, meta, read, created_at) VALUES('TRADE_REQUEST',?,?,?,0,?)",
+                    new Object[]{"Trading request — " + nm,
+                            nm + " trade karna chahta hai. Settings > Control > Users me ENABLE TRADING dabayen — tab engine us ke liye trades kholega.",
+                            new JSONObject().put("uid", uid).put("name", nm).toString(), now});
+        } catch (Throwable ignored) { }
+        try {
+            Notifier.post(appContext(), "TRADING request — " + nm,
+                    "Control > Users me ENABLE TRADING dabayen, tab ye user trade kar sakega");
+        } catch (Throwable ignored) { }
+    }
+
     /** 3C entry — one trade per setup per account, one open position per symbol. */
     private void openTrade3C(long uid, String sym, Setup3C s, double fill) {
         if (entryBlocked(uid, sym)) return;                 // v1.7 PRO GUARD
+        if (!tradingAllowed(uid)) { askOwnerToEnableTrading(uid); return; }   // v2.1 OWNER TRADING GATE
         Cursor ex = db.getReadableDatabase().rawQuery(
                 "SELECT COUNT(*) FROM trades WHERE user_id=? AND symbol=? AND status='OPEN'",
                 new String[]{String.valueOf(uid), sym});
@@ -1898,6 +2031,7 @@ public class EngineCore implements Runnable {
     /** Lab strategy entry — ATR SL/TP model (1.5x / 2.5x), 1% risk, same guards as 3C. */
     private void openTradeLab(long uid, String sym, String side, List<Candle> k, String tier) {
         if (entryBlocked(uid, sym)) return;                 // v1.7 PRO GUARD
+        if (!tradingAllowed(uid)) { askOwnerToEnableTrading(uid); return; }   // v2.1 OWNER TRADING GATE
         Cursor ex = db.getReadableDatabase().rawQuery(
                 "SELECT COUNT(*) FROM trades WHERE user_id=? AND symbol=? AND status='OPEN'",
                 new String[]{String.valueOf(uid), sym});
@@ -1981,7 +2115,7 @@ public class EngineCore implements Runnable {
 
     private void closeTrade(long id, long uid, double price, String reason, double qty, double entry, String side) {
         // v1.7 PRO GUARD — fee modeling (freqtrade-style): entry + exit dono sides par
-        // Binance futures taker fee 0.05%. Paper results ab real trading jaise realistic.
+        // Taker fee 0.05% per side. Paper results ab real trading jaise realistic.
         double fees = (qty * entry + qty * price) * TAKER_FEE;
         double pnl = ("BUY".equals(side) ? price - entry : entry - price) * qty - fees;
         db.getWritableDatabase().execSQL(
@@ -2114,348 +2248,93 @@ public class EngineCore implements Runnable {
         } catch (Throwable ignored) { }
     }
 
-    // ================== DISCOVERY (all-world instruments) ==================
+    // ================== INSTRUMENT UNIVERSE (v2.1 HALAL COMMODITIES) ==================
+    /** v2.1 HALAL MODE — owner request: "binance ke bajaye MT5 connect karo, sare halal
+     *  commodities add karo baki delete". Universe = 27 halal physical commodities
+     *  (metals, energy, agriculture) — sab LIVE (public futures feed / MT5 bridge).
+     *  Crypto, forex, indices, stocks, bonds, ETFs hata diye gaye. */
+    static final String[][] HALAL_COMMODITIES = {
+            {"XAUUSD", "METAL", "Gold spot (MT5 XAUUSD)"},
+            {"XAGUSD", "METAL", "Silver spot (MT5 XAGUSD)"},
+            {"XPTUSD", "METAL", "Platinum spot"},
+            {"XPDUSD", "METAL", "Palladium spot"},
+            {"XCUUSD", "METAL", "Copper (Dr. Copper)"},
+            {"ALUUSD", "METAL", "Aluminium"},
+            {"USOIL", "ENERGY", "WTI Crude Oil"},
+            {"UKOIL", "ENERGY", "Brent Crude Oil"},
+            {"NGAS", "ENERGY", "Natural Gas (Henry Hub)"},
+            {"GASOLINE", "ENERGY", "RBOB Gasoline"},
+            {"HEATOIL", "ENERGY", "Heating Oil / ULSD"},
+            {"WHEAT", "AGRI", "Wheat (Chicago)"},
+            {"CORN", "AGRI", "Corn (CBOT)"},
+            {"SOYBEAN", "AGRI", "Soybeans"},
+            {"SOYMEAL", "AGRI", "Soybean Meal"},
+            {"SOYOIL", "AGRI", "Soybean Oil"},
+            {"RICE", "AGRI", "Rough Rice"},
+            {"OATS", "AGRI", "Oats"},
+            {"COFFEE", "AGRI", "Coffee Arabica"},
+            {"COCOA", "AGRI", "Cocoa"},
+            {"SUGAR", "AGRI", "Sugar #11"},
+            {"COTTON", "AGRI", "Cotton #2"},
+            {"ORANGEJ", "AGRI", "Orange Juice (FCOJ)"},
+            {"CATTLE", "AGRI", "Live Cattle"},
+            {"FEEDER", "AGRI", "Feeder Cattle"},
+            {"HOGS", "AGRI", "Lean Hogs"},
+            {"LUMBER", "AGRI", "Lumber"}
+    };
+
     private void seedStaticInstruments() {
-        // v5.9 PDF ENCYCLOPEDIA instrument universe — every major asset class
-        // from the Complete Trading Encyclopedia (Part 1 of the PDF).
-        // CRYPTO  = traded live on Binance (paper money) — activated by discovery.
-        // BROKER  = forex/metals/energy/agri/indices/stocks/bonds — pending broker connection.
-        List<String[]> statics = new ArrayList<>();
-        // symbol, class, status, note
-        // --- Precious & industrial metals (PDF 1.6) ---
-        statics.add(new String[]{"XAUUSD", "METAL", "PENDING_BROKER", "Gold spot XAU/USD"});
-        statics.add(new String[]{"XAGUSD", "METAL", "PENDING_BROKER", "Silver spot XAG/USD"});
-        statics.add(new String[]{"XPTUSD", "METAL", "PENDING_BROKER", "Platinum spot"});
-        statics.add(new String[]{"XPDUSD", "METAL", "PENDING_BROKER", "Palladium spot"});
-        statics.add(new String[]{"XCUUSD", "METAL", "PENDING_BROKER", "Copper (Dr. Copper)"});
-        statics.add(new String[]{"ALUUSD", "METAL", "PENDING_BROKER", "LME Aluminium"});
-        statics.add(new String[]{"ZNCUSD", "METAL", "PENDING_BROKER", "LME Zinc"});
-        statics.add(new String[]{"NIKUSD", "METAL", "PENDING_BROKER", "LME Nickel"});
-        statics.add(new String[]{"LEADUSD", "METAL", "PENDING_BROKER", "LME Lead"});
-        statics.add(new String[]{"TINUSD", "METAL", "PENDING_BROKER", "LME Tin"});
-        statics.add(new String[]{"LITUSD", "METAL", "PENDING_BROKER", "Lithium carbonate (battery metal)"});
-        statics.add(new String[]{"IRONUSD", "METAL", "PENDING_BROKER", "Iron ore (SGX)"});
-        statics.add(new String[]{"URAUSD", "METAL", "PENDING_BROKER", "Uranium U3O8"});
-        // --- Energy (PDF 1.7) ---
-        statics.add(new String[]{"USOIL", "ENERGY", "PENDING_BROKER", "WTI Crude Oil (CL)"});
-        statics.add(new String[]{"UKOIL", "ENERGY", "PENDING_BROKER", "Brent Crude Oil (BZ)"});
-        statics.add(new String[]{"NATGAS", "ENERGY", "PENDING_BROKER", "Natural Gas (Henry Hub NG)"});
-        statics.add(new String[]{"GASOLINE", "ENERGY", "PENDING_BROKER", "RBOB Gasoline (RB)"});
-        statics.add(new String[]{"HEATOIL", "ENERGY", "PENDING_BROKER", "Heating Oil / ULSD (HO)"});
-        statics.add(new String[]{"COAL", "ENERGY", "PENDING_BROKER", "Newcastle thermal coal"});
-        statics.add(new String[]{"CARBON", "ENERGY", "PENDING_BROKER", "EU carbon allowance (EUA)"});
-        // --- Agriculture (PDF 1.8) ---
-        statics.add(new String[]{"CORN", "AGRI", "PENDING_BROKER", "Corn (CBOT)"});
-        statics.add(new String[]{"WHEAT", "AGRI", "PENDING_BROKER", "Wheat (Chicago SRW)"});
-        statics.add(new String[]{"SOYBEAN", "AGRI", "PENDING_BROKER", "Soybeans"});
-        statics.add(new String[]{"SOYMEAL", "AGRI", "PENDING_BROKER", "Soybean Meal"});
-        statics.add(new String[]{"SOYOIL", "AGRI", "PENDING_BROKER", "Soybean Oil"});
-        statics.add(new String[]{"RICE", "AGRI", "PENDING_BROKER", "Rough Rice"});
-        statics.add(new String[]{"OATS", "AGRI", "PENDING_BROKER", "Oats"});
-        statics.add(new String[]{"CANOLA", "AGRI", "PENDING_BROKER", "Rapeseed / Canola"});
-        statics.add(new String[]{"COFFEE", "AGRI", "PENDING_BROKER", "Coffee Arabica"});
-        statics.add(new String[]{"ROBUSTA", "AGRI", "PENDING_BROKER", "Coffee Robusta"});
-        statics.add(new String[]{"COCOA", "AGRI", "PENDING_BROKER", "Cocoa"});
-        statics.add(new String[]{"SUGAR", "AGRI", "PENDING_BROKER", "Sugar #11"});
-        statics.add(new String[]{"COTTON", "AGRI", "PENDING_BROKER", "Cotton #2"});
-        statics.add(new String[]{"ORANGEJ", "AGRI", "PENDING_BROKER", "Orange Juice (FCOJ)"});
-        statics.add(new String[]{"CATTLE", "AGRI", "PENDING_BROKER", "Live Cattle"});
-        statics.add(new String[]{"FEEDER", "AGRI", "PENDING_BROKER", "Feeder Cattle"});
-        statics.add(new String[]{"HOGS", "AGRI", "PENDING_BROKER", "Lean Hogs"});
-        statics.add(new String[]{"LUMBER", "AGRI", "PENDING_BROKER", "Lumber"});
-        statics.add(new String[]{"RUBBER", "AGRI", "PENDING_BROKER", "Rubber (TSR20)"});
-        statics.add(new String[]{"PALMOIL", "AGRI", "PENDING_BROKER", "Crude Palm Oil"});
-        // --- Forex majors (PDF 1.2) ---
-        statics.add(new String[]{"EURUSD", "FOREX", "PENDING_BROKER", "Euro / US Dollar (Fiber)"});
-        statics.add(new String[]{"GBPUSD", "FOREX", "PENDING_BROKER", "Pound / US Dollar (Cable)"});
-        statics.add(new String[]{"USDJPY", "FOREX", "PENDING_BROKER", "US Dollar / Yen (Gopher)"});
-        statics.add(new String[]{"USDCHF", "FOREX", "PENDING_BROKER", "US Dollar / Franc (Swissie)"});
-        statics.add(new String[]{"AUDUSD", "FOREX", "PENDING_BROKER", "Aussie / US Dollar"});
-        statics.add(new String[]{"NZDUSD", "FOREX", "PENDING_BROKER", "Kiwi / US Dollar"});
-        statics.add(new String[]{"USDCAD", "FOREX", "PENDING_BROKER", "US Dollar / Loonie"});
-        // --- Forex crosses (PDF 1.3) ---
-        statics.add(new String[]{"EURGBP", "FOREX", "PENDING_BROKER", "Euro / Pound"});
-        statics.add(new String[]{"EURJPY", "FOREX", "PENDING_BROKER", "Euro / Yen"});
-        statics.add(new String[]{"EURCHF", "FOREX", "PENDING_BROKER", "Euro / Franc"});
-        statics.add(new String[]{"EURAUD", "FOREX", "PENDING_BROKER", "Euro / Aussie"});
-        statics.add(new String[]{"EURNZD", "FOREX", "PENDING_BROKER", "Euro / Kiwi"});
-        statics.add(new String[]{"EURCAD", "FOREX", "PENDING_BROKER", "Euro / Loonie"});
-        statics.add(new String[]{"GBPJPY", "FOREX", "PENDING_BROKER", "Pound / Yen (Guppy)"});
-        statics.add(new String[]{"GBPCHF", "FOREX", "PENDING_BROKER", "Pound / Franc"});
-        statics.add(new String[]{"GBPAUD", "FOREX", "PENDING_BROKER", "Pound / Aussie"});
-        statics.add(new String[]{"GBPNZD", "FOREX", "PENDING_BROKER", "Pound / Kiwi"});
-        statics.add(new String[]{"GBPCAD", "FOREX", "PENDING_BROKER", "Pound / Loonie"});
-        statics.add(new String[]{"AUDJPY", "FOREX", "PENDING_BROKER", "Aussie / Yen"});
-        statics.add(new String[]{"AUDNZD", "FOREX", "PENDING_BROKER", "Aussie / Kiwi"});
-        statics.add(new String[]{"AUDCAD", "FOREX", "PENDING_BROKER", "Aussie / Loonie"});
-        statics.add(new String[]{"AUDCHF", "FOREX", "PENDING_BROKER", "Aussie / Franc"});
-        statics.add(new String[]{"NZDJPY", "FOREX", "PENDING_BROKER", "Kiwi / Yen"});
-        statics.add(new String[]{"NZDCAD", "FOREX", "PENDING_BROKER", "Kiwi / Loonie"});
-        statics.add(new String[]{"NZDCHF", "FOREX", "PENDING_BROKER", "Kiwi / Franc"});
-        statics.add(new String[]{"CADJPY", "FOREX", "PENDING_BROKER", "Loonie / Yen"});
-        statics.add(new String[]{"CADCHF", "FOREX", "PENDING_BROKER", "Loonie / Franc"});
-        statics.add(new String[]{"CHFJPY", "FOREX", "PENDING_BROKER", "Franc / Yen"});
-        // --- Forex exotics (PDF 1.4) — Asia ---
-        statics.add(new String[]{"USDCNH", "FOREX", "PENDING_BROKER", "USD / Yuan (onshore-offshore)"});
-        statics.add(new String[]{"USDSGD", "FOREX", "PENDING_BROKER", "USD / Singapore Dollar"});
-        statics.add(new String[]{"USDHKD", "FOREX", "PENDING_BROKER", "USD / Hong Kong Dollar"});
-        statics.add(new String[]{"USDINR", "FOREX", "PENDING_BROKER", "USD / Indian Rupee (NDF)"});
-        statics.add(new String[]{"USDPKR", "FOREX", "PENDING_BROKER", "USD / Pakistani Rupee"});
-        statics.add(new String[]{"USDBDT", "FOREX", "PENDING_BROKER", "USD / Bangladeshi Taka"});
-        statics.add(new String[]{"USDLKR", "FOREX", "PENDING_BROKER", "USD / Sri Lankan Rupee"});
-        statics.add(new String[]{"USDIDR", "FOREX", "PENDING_BROKER", "USD / Indonesian Rupiah (NDF)"});
-        statics.add(new String[]{"USDMYR", "FOREX", "PENDING_BROKER", "USD / Malaysian Ringgit"});
-        statics.add(new String[]{"USDTHB", "FOREX", "PENDING_BROKER", "USD / Thai Baht"});
-        statics.add(new String[]{"USDPHP", "FOREX", "PENDING_BROKER", "USD / Philippine Peso"});
-        statics.add(new String[]{"USDKRW", "FOREX", "PENDING_BROKER", "USD / Korean Won (NDF)"});
-        statics.add(new String[]{"USDTWD", "FOREX", "PENDING_BROKER", "USD / Taiwan Dollar (NDF)"});
-        statics.add(new String[]{"USDVND", "FOREX", "PENDING_BROKER", "USD / Vietnamese Dong (NDF)"});
-        // exotics — Middle East / Africa
-        statics.add(new String[]{"USDTRY", "FOREX", "PENDING_BROKER", "USD / Turkish Lira"});
-        statics.add(new String[]{"USDILS", "FOREX", "PENDING_BROKER", "USD / Israeli Shekel"});
-        statics.add(new String[]{"USDAED", "FOREX", "PENDING_BROKER", "USD / UAE Dirham"});
-        statics.add(new String[]{"USDSAR", "FOREX", "PENDING_BROKER", "USD / Saudi Riyal"});
-        statics.add(new String[]{"USDQAR", "FOREX", "PENDING_BROKER", "USD / Qatari Riyal"});
-        statics.add(new String[]{"USDKWD", "FOREX", "PENDING_BROKER", "USD / Kuwaiti Dinar"});
-        statics.add(new String[]{"USDEGP", "FOREX", "PENDING_BROKER", "USD / Egyptian Pound"});
-        statics.add(new String[]{"USDZAR", "FOREX", "PENDING_BROKER", "USD / South African Rand"});
-        statics.add(new String[]{"USDNGN", "FOREX", "PENDING_BROKER", "USD / Nigerian Naira (NDF)"});
-        statics.add(new String[]{"USDKES", "FOREX", "PENDING_BROKER", "USD / Kenyan Shilling"});
-        statics.add(new String[]{"USDMAD", "FOREX", "PENDING_BROKER", "USD / Moroccan Dirham"});
-        // exotics — Europe
-        statics.add(new String[]{"USDPLN", "FOREX", "PENDING_BROKER", "USD / Polish Zloty"});
-        statics.add(new String[]{"USDCZK", "FOREX", "PENDING_BROKER", "USD / Czech Koruna"});
-        statics.add(new String[]{"USDHUF", "FOREX", "PENDING_BROKER", "USD / Hungarian Forint"});
-        statics.add(new String[]{"USDRON", "FOREX", "PENDING_BROKER", "USD / Romanian Leu"});
-        statics.add(new String[]{"USDSEK", "FOREX", "PENDING_BROKER", "USD / Swedish Krona"});
-        statics.add(new String[]{"USDNOK", "FOREX", "PENDING_BROKER", "USD / Norwegian Krone"});
-        statics.add(new String[]{"USDDKK", "FOREX", "PENDING_BROKER", "USD / Danish Krone"});
-        statics.add(new String[]{"USDRUB", "FOREX", "PENDING_BROKER", "USD / Russian Ruble"});
-        statics.add(new String[]{"USDUAH", "FOREX", "PENDING_BROKER", "USD / Ukrainian Hryvnia"});
-        // exotics — Americas
-        statics.add(new String[]{"USDMXN", "FOREX", "PENDING_BROKER", "USD / Mexican Peso"});
-        statics.add(new String[]{"USDBRL", "FOREX", "PENDING_BROKER", "USD / Brazilian Real (NDF)"});
-        statics.add(new String[]{"USDARS", "FOREX", "PENDING_BROKER", "USD / Argentine Peso"});
-        statics.add(new String[]{"USDCLP", "FOREX", "PENDING_BROKER", "USD / Chilean Peso"});
-        statics.add(new String[]{"USDCOP", "FOREX", "PENDING_BROKER", "USD / Colombian Peso"});
-        statics.add(new String[]{"USDPEN", "FOREX", "PENDING_BROKER", "USD / Peruvian Sol"});
-        // exotics — cross pairs
-        statics.add(new String[]{"EURTRY", "FOREX", "PENDING_BROKER", "Euro / Turkish Lira"});
-        statics.add(new String[]{"EURZAR", "FOREX", "PENDING_BROKER", "Euro / Rand"});
-        statics.add(new String[]{"EURPLN", "FOREX", "PENDING_BROKER", "Euro / Zloty"});
-        statics.add(new String[]{"EURSEK", "FOREX", "PENDING_BROKER", "Euro / Krona"});
-        statics.add(new String[]{"EURNOK", "FOREX", "PENDING_BROKER", "Euro / Krone"});
-        statics.add(new String[]{"EURDKK", "FOREX", "PENDING_BROKER", "Euro / Danish Krone"});
-        statics.add(new String[]{"EURMXN", "FOREX", "PENDING_BROKER", "Euro / Mexican Peso"});
-        statics.add(new String[]{"EURILS", "FOREX", "PENDING_BROKER", "Euro / Shekel"});
-        statics.add(new String[]{"EURSGD", "FOREX", "PENDING_BROKER", "Euro / SGD"});
-        statics.add(new String[]{"GBPSGD", "FOREX", "PENDING_BROKER", "Pound / SGD"});
-        statics.add(new String[]{"GBPZAR", "FOREX", "PENDING_BROKER", "Pound / Rand"});
-        statics.add(new String[]{"GBPTRY", "FOREX", "PENDING_BROKER", "Pound / Lira"});
-        statics.add(new String[]{"SGDJPY", "FOREX", "PENDING_BROKER", "SGD / Yen"});
-        statics.add(new String[]{"ZARJPY", "FOREX", "PENDING_BROKER", "Rand / Yen"});
-        statics.add(new String[]{"NOKSEK", "FOREX", "PENDING_BROKER", "Krone / Krona"});
-        statics.add(new String[]{"TRYJPY", "FOREX", "PENDING_BROKER", "Lira / Yen"});
-        statics.add(new String[]{"MXNJPY", "FOREX", "PENDING_BROKER", "Peso / Yen"});
-        statics.add(new String[]{"CNHJPY", "FOREX", "PENDING_BROKER", "Yuan / Yen"});
-        statics.add(new String[]{"AUDSGD", "FOREX", "PENDING_BROKER", "Aussie / SGD"});
-        statics.add(new String[]{"CHFSGD", "FOREX", "PENDING_BROKER", "Franc / SGD"});
-        // --- Currency indices (PDF 1.5) ---
-        statics.add(new String[]{"USDX", "INDEX", "PENDING_BROKER", "US Dollar Index (DXY)"});
-        statics.add(new String[]{"EXY", "INDEX", "PENDING_BROKER", "Euro Currency Index"});
-        statics.add(new String[]{"BXY", "INDEX", "PENDING_BROKER", "British Pound Index"});
-        statics.add(new String[]{"JXY", "INDEX", "PENDING_BROKER", "Japanese Yen Index"});
-        statics.add(new String[]{"AXY", "INDEX", "PENDING_BROKER", "Australian Dollar Index"});
-        statics.add(new String[]{"CXY", "INDEX", "PENDING_BROKER", "Canadian Dollar Index"});
-        statics.add(new String[]{"SXY", "INDEX", "PENDING_BROKER", "Swiss Franc Index"});
-        statics.add(new String[]{"ZXY", "INDEX", "PENDING_BROKER", "NZ Dollar Index"});
-        // --- Stock indices (PDF 1.9) ---
-        statics.add(new String[]{"US500", "INDEX", "PENDING_BROKER", "S&P 500"});
-        statics.add(new String[]{"NAS100", "INDEX", "PENDING_BROKER", "Nasdaq 100"});
-        statics.add(new String[]{"US30", "INDEX", "PENDING_BROKER", "Dow Jones 30"});
-        statics.add(new String[]{"RUSSELL2000", "INDEX", "PENDING_BROKER", "Russell 2000 small cap"});
-        statics.add(new String[]{"SOX", "INDEX", "PENDING_BROKER", "Philadelphia Semiconductor"});
-        statics.add(new String[]{"VIX", "INDEX", "PENDING_BROKER", "CBOE Volatility Index"});
-        statics.add(new String[]{"GER40", "INDEX", "PENDING_BROKER", "DAX 40 (Germany)"});
-        statics.add(new String[]{"UK100", "INDEX", "PENDING_BROKER", "FTSE 100 (UK)"});
-        statics.add(new String[]{"FRA40", "INDEX", "PENDING_BROKER", "CAC 40 (France)"});
-        statics.add(new String[]{"EU50", "INDEX", "PENDING_BROKER", "Euro Stoxx 50"});
-        statics.add(new String[]{"IBEX35", "INDEX", "PENDING_BROKER", "IBEX 35 (Spain)"});
-        statics.add(new String[]{"FTSEMIB", "INDEX", "PENDING_BROKER", "FTSE MIB (Italy)"});
-        statics.add(new String[]{"AEX25", "INDEX", "PENDING_BROKER", "AEX (Netherlands)"});
-        statics.add(new String[]{"SMI20", "INDEX", "PENDING_BROKER", "SMI (Switzerland)"});
-        statics.add(new String[]{"OMXS30", "INDEX", "PENDING_BROKER", "OMX Stockholm 30"});
-        statics.add(new String[]{"OBX25", "INDEX", "PENDING_BROKER", "OBX (Norway)"});
-        statics.add(new String[]{"WIG20", "INDEX", "PENDING_BROKER", "WIG20 (Poland)"});
-        statics.add(new String[]{"BIST100", "INDEX", "PENDING_BROKER", "BIST 100 (Turkey)"});
-        statics.add(new String[]{"JP225", "INDEX", "PENDING_BROKER", "Nikkei 225 (Japan)"});
-        statics.add(new String[]{"TOPIX", "INDEX", "PENDING_BROKER", "TOPIX (Japan)"});
-        statics.add(new String[]{"HK50", "INDEX", "PENDING_BROKER", "Hang Seng (Hong Kong)"});
-        statics.add(new String[]{"HSTECH", "INDEX", "PENDING_BROKER", "Hang Seng Tech"});
-        statics.add(new String[]{"SHCOMP", "INDEX", "PENDING_BROKER", "Shanghai Composite"});
-        statics.add(new String[]{"CSI300", "INDEX", "PENDING_BROKER", "CSI 300 (China A-shares)"});
-        statics.add(new String[]{"KOSPI", "INDEX", "PENDING_BROKER", "KOSPI (South Korea)"});
-        statics.add(new String[]{"TAIEX", "INDEX", "PENDING_BROKER", "TAIEX (Taiwan)"});
-        statics.add(new String[]{"NIFTY50", "INDEX", "PENDING_BROKER", "Nifty 50 (India)"});
-        statics.add(new String[]{"SENSEX", "INDEX", "PENDING_BROKER", "BSE Sensex (India)"});
-        statics.add(new String[]{"BANKNIFTY", "INDEX", "PENDING_BROKER", "Bank Nifty (India)"});
-        statics.add(new String[]{"KSE100", "INDEX", "PENDING_BROKER", "KSE-100 (Pakistan Stock Exchange)"});
-        statics.add(new String[]{"KSE30", "INDEX", "PENDING_BROKER", "KSE-30 (Pakistan)"});
-        statics.add(new String[]{"KMI30", "INDEX", "PENDING_BROKER", "KMI-30 Islamic index (Pakistan)"});
-        statics.add(new String[]{"DSEX", "INDEX", "PENDING_BROKER", "DSEX (Bangladesh)"});
-        statics.add(new String[]{"CSEALL", "INDEX", "PENDING_BROKER", "CSE All Share (Sri Lanka)"});
-        statics.add(new String[]{"NEPSE", "INDEX", "PENDING_BROKER", "NEPSE (Nepal)"});
-        statics.add(new String[]{"STI", "INDEX", "PENDING_BROKER", "Straits Times (Singapore)"});
-        statics.add(new String[]{"KLCI", "INDEX", "PENDING_BROKER", "FTSE KLCI (Malaysia)"});
-        statics.add(new String[]{"SET", "INDEX", "PENDING_BROKER", "SET (Thailand)"});
-        statics.add(new String[]{"JCI", "INDEX", "PENDING_BROKER", "JCI (Indonesia)"});
-        statics.add(new String[]{"PSEI", "INDEX", "PENDING_BROKER", "PSEi (Philippines)"});
-        statics.add(new String[]{"VNINDEX", "INDEX", "PENDING_BROKER", "VN-Index (Vietnam)"});
-        statics.add(new String[]{"AUS200", "INDEX", "PENDING_BROKER", "ASX 200 (Australia)"});
-        statics.add(new String[]{"NZX50", "INDEX", "PENDING_BROKER", "NZX 50 (New Zealand)"});
-        statics.add(new String[]{"TSX60", "INDEX", "PENDING_BROKER", "S&P/TSX 60 (Canada)"});
-        statics.add(new String[]{"BOVESPA", "INDEX", "PENDING_BROKER", "Bovespa (Brazil)"});
-        statics.add(new String[]{"IPCMX", "INDEX", "PENDING_BROKER", "IPC (Mexico)"});
-        statics.add(new String[]{"TASI", "INDEX", "PENDING_BROKER", "Tadawul TASI (Saudi Arabia)"});
-        statics.add(new String[]{"DFMGI", "INDEX", "PENDING_BROKER", "DFM General (Dubai)"});
-        statics.add(new String[]{"TA35", "INDEX", "PENDING_BROKER", "TA-35 (Israel)"});
-        statics.add(new String[]{"EGX30", "INDEX", "PENDING_BROKER", "EGX 30 (Egypt)"});
-        statics.add(new String[]{"JSE40", "INDEX", "PENDING_BROKER", "JSE Top 40 (South Africa)"});
-        // --- Global stocks by sector (PDF 1.11) ---
-        String[][] stocks = {
-            {"AAPL", "Apple"}, {"MSFT", "Microsoft"}, {"GOOGL", "Alphabet"}, {"AMZN", "Amazon"},
-            {"META", "Meta Platforms"}, {"NVDA", "Nvidia"}, {"TSLA", "Tesla"}, {"AVGO", "Broadcom"},
-            {"TSM", "TSMC"}, {"ORCL", "Oracle"}, {"SAP", "SAP"}, {"ADBE", "Adobe"},
-            {"CRM", "Salesforce"}, {"AMD", "AMD"}, {"INTC", "Intel"}, {"QCOM", "Qualcomm"},
-            {"IBM", "IBM"}, {"PLTR", "Palantir"},
-            {"JPM", "JPMorgan"}, {"BAC", "Bank of America"}, {"GS", "Goldman Sachs"},
-            {"MS", "Morgan Stanley"}, {"V", "Visa"}, {"MA", "Mastercard"}, {"PYPL", "PayPal"},
-            {"HSBC", "HSBC"}, {"BRKB", "Berkshire Hathaway B"},
-            {"XOM", "ExxonMobil"}, {"CVX", "Chevron"}, {"SHEL", "Shell"}, {"BP", "BP"}, {"TTE", "TotalEnergies"},
-            {"LLY", "Eli Lilly"}, {"NVO", "Novo Nordisk"}, {"UNH", "UnitedHealth"}, {"JNJ", "Johnson & Johnson"},
-            {"PFE", "Pfizer"}, {"MRK", "Merck"},
-            {"WMT", "Walmart"}, {"COST", "Costco"}, {"KO", "Coca-Cola"}, {"PEP", "PepsiCo"},
-            {"PG", "P&G"}, {"NSRGY", "Nestle"}, {"MCD", "McDonald's"}, {"NKE", "Nike"},
-            {"BA", "Boeing"}, {"CAT", "Caterpillar"}, {"LMT", "Lockheed Martin"}, {"RTX", "RTX Corp"},
-            {"SIEGY", "Siemens"}, {"HON", "Honeywell"},
-            {"DIS", "Disney"}, {"NFLX", "Netflix"}, {"VZ", "Verizon"}, {"TMUS", "T-Mobile"}
-        };
-        for (String[] s : stocks) statics.add(new String[]{s[0], "STOCK", "PENDING_BROKER", s[1] + " (US/global stock)"});
-        // --- Pakistani stocks — PSX (PDF 1.11 includes HBL/UBL/MCB/OGDC/PSO/Engro...) ---
-        String[][] psx = {
-            {"HBL", "Habib Bank Limited"}, {"UBL", "United Bank Limited"}, {"MCB", "MCB Bank"},
-            {"MEZN", "Meezan Bank"}, {"OGDC", "Oil & Gas Development Co"}, {"PPL", "Pakistan Petroleum"},
-            {"PSO", "Pakistan State Oil"}, {"ENGRO", "Engro Corporation"},
-            {"LUCK", "Lucky Cement"}, {"FFC", "Fauji Fertilizer Company"},
-            {"PTC", "PTCL"}, {"KEL", "K-Electric"}, {"HUBC", "Hub Power Company"}
-        };
-        for (String[] s : psx) statics.add(new String[]{"PSX_" + s[0], "STOCK", "PENDING_BROKER", s[1] + " (PSX Pakistan)"});
-        // --- Bonds / rates (PDF 1.13, reference) ---
-        statics.add(new String[]{"US10Y", "BOND", "PENDING_BROKER", "US Treasury 10Y yield"});
-        statics.add(new String[]{"US02Y", "BOND", "PENDING_BROKER", "US Treasury 2Y yield"});
-        statics.add(new String[]{"DE10Y", "BOND", "PENDING_BROKER", "German Bund 10Y yield"});
-        statics.add(new String[]{"UK10Y", "BOND", "PENDING_BROKER", "UK Gilt 10Y yield"});
-        statics.add(new String[]{"JP10Y", "BOND", "PENDING_BROKER", "JGB 10Y yield"});
-        statics.add(new String[]{"PK06Y", "BOND", "PENDING_BROKER", "Pakistan T-Bill / PIB yield (KIBOR ref)"});
-        // --- ETFs / funds (PDF 1.15, reference) ---
-        String[][] etfs = {
-            {"SPY", "S&P 500 ETF"}, {"QQQ", "Nasdaq 100 ETF"}, {"DIA", "Dow ETF"}, {"IWM", "Russell 2000 ETF"},
-            {"VTI", "Total Market ETF"}, {"EEM", "Emerging Markets ETF"}, {"GLD", "Gold ETF"}, {"SLV", "Silver ETF"},
-            {"USO", "Oil ETF"}, {"UNG", "NatGas ETF"}, {"TLT", "20Y Treasury ETF"}, {"HYG", "High Yield ETF"},
-            {"SMH", "Semiconductor ETF"}, {"IBIT", "Spot Bitcoin ETF"}
-        };
-        for (String[] s : etfs) statics.add(new String[]{"ETF_" + s[0], "FUND", "PENDING_BROKER", s[1]});
-        // --- Binance-tradeable proxies (paper trade from day one) ---
-        statics.add(new String[]{"PAXGUSDT", "CRYPTO", "ACTIVE", "GOLD proxy — PAXG tracks spot gold 1:1"});
-        statics.add(new String[]{"EURUSDT", "CRYPTO", "ACTIVE", "EUR/USD proxy — Euro token on Binance"});
-        statics.add(new String[]{"BTCUSDT", "CRYPTO", "ACTIVE", "Bitcoin"});
-        statics.add(new String[]{"ETHUSDT", "CRYPTO", "ACTIVE", "Ethereum"});
-        // --- Crypto watchlist (PDF 1.12) — majors, L1s, L2s, DeFi, memes, AI ---
-        String[][] crypto = {
-            {"BNBUSDT", "BNB"}, {"SOLUSDT", "Solana"}, {"XRPUSDT", "XRP"}, {"ADAUSDT", "Cardano"},
-            {"DOGEUSDT", "Dogecoin"}, {"AVAXUSDT", "Avalanche"}, {"DOTUSDT", "Polkadot"}, {"LINKUSDT", "Chainlink"},
-            {"TRXUSDT", "TRON"}, {"LTCUSDT", "Litecoin"}, {"BCHUSDT", "Bitcoin Cash"}, {"ATOMUSDT", "Cosmos"},
-            {"XLMUSDT", "Stellar"}, {"NEARUSDT", "NEAR Protocol"}, {"APTUSDT", "Aptos"}, {"OPUSDT", "Optimism"},
-            {"ARBUSDT", "Arbitrum"}, {"FILUSDT", "Filecoin"}, {"INJUSDT", "Injective"}, {"SUIUSDT", "Sui"},
-            {"TONUSDT", "Toncoin"}, {"PEPEUSDT", "Pepe"}, {"SHIBUSDT", "Shiba Inu"},
-            {"XMRUSDT", "Monero"}, {"ZECUSDT", "Zcash"}, {"ETCUSDT", "Ethereum Classic"},
-            {"UNIUSDT", "Uniswap"}, {"AAVEUSDT", "Aave"}, {"MKRUSDT", "Maker/Sky"}, {"CRVUSDT", "Curve"},
-            {"LDOUSDT", "Lido DAO"}, {"COMPUSDT", "Compound"}, {"SNXUSDT", "Synthetix"}, {"DYDXUSDT", "dYdX"},
-            {"GMXUSDT", "GMX"}, {"CAKEUSDT", "PancakeSwap"}, {"JUPUSDT", "Jupiter"}, {"RAYUSDT", "Raydium"},
-            {"FLOKIUSDT", "Floki"}, {"BONKUSDT", "Bonk"}, {"WIFUSDT", "dogwifhat"},
-            {"TAOUSDT", "Bittensor"}, {"RENDERUSDT", "Render"}, {"FETUSDT", "Artificial Superintelligence"},
-            {"GRTUSDT", "The Graph"}, {"AKTUSDT", "Akash Network"},
-            {"SEIUSDT", "Sei"}, {"TIAUSDT", "Celestia"}, {"KASUSDT", "Kaspa"}, {"HBARUSDT", "Hedera"},
-            {"ICPUSDT", "Internet Computer"}, {"ZKUSDT", "zkSync"}, {"STRKUSDT", "Starknet"}, {"MNTUSDT", "Mantle"},
-            {"ALGOUSDT", "Algorand"}, {"ENAUSDT", "Ethena"}, {"WLDUSDT", "Worldcoin"},
-            {"GALAUSDT", "Gala"}, {"AXSUSDT", "Axie Infinity"}, {"SANDUSDT", "The Sandbox"},
-            {"MANAUSDT", "Decentraland"}, {"IMXUSDT", "Immutable X"}
-        };
-        for (String[] s : crypto) statics.add(new String[]{s[0], "CRYPTO", "WATCHING", s[1]});
-        for (String[] s : statics) {
-            db.getWritableDatabase().execSQL(
-                    "INSERT OR IGNORE INTO instruments(symbol, base, quote, exchange, asset_class, status, priority, discovered_at, note) VALUES(?,?,?,?,?,?,?,?,?)",
-                    new Object[]{s[0], s[0], "USD", s[2].equals("ACTIVE") ? "BINANCE" : "BROKER", s[1], s[2], s[2].equals("ACTIVE") ? 5000 : 0, System.currentTimeMillis(), s[3]});
+        android.database.sqlite.SQLiteDatabase d = db.getWritableDatabase();
+        long now = System.currentTimeMillis();
+        for (String[] s : HALAL_COMMODITIES) {
+            d.execSQL("INSERT OR IGNORE INTO instruments(symbol, base, quote, exchange, asset_class, status, priority, discovered_at, note) VALUES(?,?,'USD','MT5',?,'ACTIVE',5000,?,?)",
+                    new Object[]{s[0], s[0], s[1], now, s[2]});
         }
-        // upgrade path: force-activate the always-on proxies even on existing installs
-        db.getWritableDatabase().execSQL("UPDATE instruments SET status='ACTIVE' WHERE symbol IN ('PAXGUSDT','EURUSDT','BTCUSDT','ETHUSDT')");
-        if (db.setting("seeded_v59", "0").equals("0")) {
-            db.setSetting("seeded_v59", "1");
-            db.log("INFO", "DISCOVERY", "ENCYCLOPEDIA_SEED", "v5.9 PDF encyclopedia universe registered: metals, energy, 21 agri, 100+ forex, 60+ indices, stocks + PSX, bonds, ETFs, 62 crypto (" + statics.size() + " instruments)");
+        // upgrade path: halal universe force-ACTIVE (purane install par bhi trade-ready)
+        StringBuilder in = new StringBuilder();
+        for (String[] s : HALAL_COMMODITIES) {
+            if (in.length() > 0) in.append(',');
+            in.append('\'').append(s[0]).append('\'');
+        }
+        d.execSQL("UPDATE instruments SET status='ACTIVE', exchange='MT5' WHERE symbol IN (" + in + ")");
+        if (!"1".equals(db.setting("seeded_v21", "0"))) {
+            db.setSetting("seeded_v21", "1");
+            db.log("INFO", "DISCOVERY", "HALAL_SEED", "v2.1 HALAL MT5 universe: " + HALAL_COMMODITIES.length
+                    + " commodities (metals/energy/agri) — crypto, forex, indices, stocks, bonds, ETFs removed by owner request. Feed: public futures ya MT5 bridge.");
         }
     }
 
+    /** v2.1 — universe maintenance (Binance auto-discovery retired): halal list fixed.
+     *  Data 6h+ purana (market band) -> WATCHING; data fresh -> ACTIVE. Koi naya
+     *  symbol auto-register NAHI hota — universe sirf owner ke hukum se badalta hai. */
     private void discover() {
-        String body = httpGet("/api/v3/ticker/24hr");
-        if (body == null) { db.log("WARN", "DISCOVERY", "TICKER_FETCH_FAIL", "no data host reachable"); return; }
-        try {
-            JSONArray arr = new JSONArray(body);
-            List<double[]> vols = new ArrayList<>(); // [volume, index]
-            List<JSONObject> rows = new ArrayList<>();
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject t = arr.getJSONObject(i);
-                String symbol = t.optString("symbol", "");
-                if (!symbol.endsWith("USDT")) continue;
-                if (symbol.endsWith("UPUSDT") || symbol.endsWith("DOWNUSDT") || symbol.contains("BULL") || symbol.contains("BEAR")) continue;
-                double vol;
-                try { vol = t.getDouble("quoteVolume"); } catch (Exception e) { continue; }
-                rows.add(t); vols.add(new double[]{vol, rows.size() - 1});
-            }
-            Collections.sort(vols, (x, y) -> Double.compare(y[0], x[0]));
-            int newCount = 0;
-            for (int rank = 0; rank < Math.min(vols.size(), LEDGER_TOP); rank++) {
-                JSONObject t = rows.get((int) vols.get(rank)[1]);
-                String symbol = t.getString("symbol");
-                String base = symbol.substring(0, symbol.length() - 4);
-                boolean alwaysOn = symbol.equals("PAXGUSDT") || symbol.equals("EURUSDT") || symbol.equals("BTCUSDT") || symbol.equals("ETHUSDT");
-                String status = (rank < ACTIVE_TOP || alwaysOn) ? "ACTIVE" : "WATCHING";
-                Cursor ex = db.getReadableDatabase().rawQuery("SELECT symbol FROM instruments WHERE symbol=?", new String[]{symbol});
-                boolean exists = ex.moveToFirst(); ex.close();
-                if (!exists) {
-                    db.getWritableDatabase().execSQL(
-                            "INSERT INTO instruments(symbol, base, quote, exchange, asset_class, status, priority, discovered_at, note) VALUES(?,?,?,?,?,?,?,?,?)",
-                            new Object[]{symbol, base, "USDT", "BINANCE", "CRYPTO", status, (long) vols.get(rank)[0], System.currentTimeMillis(), "auto-registered by discovery scanner"});
-                    newCount++;
-                    db.log("INFO", "DISCOVERY", "AUTO_REGISTER", symbol + " rank=" + (rank + 1) + " -> " + status + " (trading starts automatically)");
-                } else {
-                    db.getWritableDatabase().execSQL("UPDATE instruments SET status=?, priority=? WHERE symbol=?",
-                            new Object[]{status, (long) vols.get(rank)[0], symbol});
-                }
-            }
-            if (newCount > 0) db.log("INFO", "DISCOVERY", "SCAN_DONE", "24h market scan — " + newCount + " new instrument(s) auto-registered, trading enabled on them");
-        } catch (Exception e) {
-            db.log("ERROR", "DISCOVERY", "SCAN_PARSE_FAIL", String.valueOf(e));
+        long now = System.currentTimeMillis();
+        Cursor c = db.getReadableDatabase().rawQuery("SELECT symbol, status, IFNULL(last_data_at,0) FROM instruments", null);
+        List<Object[]> upd = new ArrayList<>();
+        while (c.moveToNext()) {
+            String sym = c.getString(0), st = c.getString(1);
+            long lastData = c.getLong(2);
+            if (lastData <= 0) continue;
+            if ("ACTIVE".equals(st) && now - lastData > 6L * 3600 * 1000) upd.add(new Object[]{"WATCHING", sym});
+            else if ("WATCHING".equals(st) && now - lastData < 3600 * 1000) upd.add(new Object[]{"ACTIVE", sym});
+        }
+        c.close();
+        for (Object[] u : upd) {
+            db.getWritableDatabase().execSQL("UPDATE instruments SET status=? WHERE symbol=?", u);
+            db.log("INFO", "DISCOVERY", "UNIVERSE_MAINT", u[1] + " -> " + u[0]
+                    + ("WATCHING".equals(u[0]) ? " (data 6h+ purana — market band hai)" : " (data wapas aya)"));
         }
     }
 
     // ================== NEWS ENGINE ==================
+    // v2.1 HALAL MODE — commodities news sources (crypto RSS retired)
     private static final String[] FEEDS = {
-            "https://cointelegraph.com/rss",
-            "https://www.coindesk.com/arc/outboundfeeds/rss/"
+            "https://www.investing.com/rss/news_25.rss",    // commodities market news
+            "https://oilprice.com/rss/main"                 // energy / crude
     };
     private static final String[] BULL = {"surge", "rally", "gain", "record", "adopt", "approval", "approved", "bullish", "soar", "jump", "rise", "up", "inflow", "upgrade", "breakout"};
     private static final String[] BEAR = {"crash", "plunge", "ban", "hack", "lawsuit", "drop", "fall", "bearish", "sink", "loss", "outflow", "downgrade", "sell-off", "fear"};
-    private static final String[] HIGH_IMPACT = {"fed", "fomc", "rate", "cpi", "inflation", "sec", "war", "tariff", "default", "emergency", "hack", "ban"};
+    private static final String[] HIGH_IMPACT = {"fed", "fomc", "rate", "cpi", "inflation", "opec", "war", "sanction", "tariff", "default", "emergency", "drought", "frost", "strike"};
 
     private void fetchNews() {
         for (String feed : FEEDS) {
@@ -2556,7 +2435,8 @@ public class EngineCore implements Runnable {
         m.put("engine_on", "1".equals(db.setting("engine_on", "1")));
         m.put("active_symbols", activeSymbols);
         m.put("consensus", lastConsensus.isEmpty() ? "warming up" : lastConsensus);
-        m.put("data_host", dataHost);
+        m.put("data_host", mt5Bridge().isEmpty() ? dataHost : "MT5-BRIDGE");
+        m.put("feed", "MT5 commodities — 27 halal (metals/energy/agri)");
         m.put("timeframe", TF);
         m.put("scanner", "24h");
         m.put("scan_count", scanCount);

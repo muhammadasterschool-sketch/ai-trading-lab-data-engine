@@ -92,7 +92,7 @@ public class Api {
     private Res get(String path, String auth) throws Exception {
         if ("/".equals(path) || "/index.html".equals(path)) return Res.html(dashboardHtml);
         if ("/api/health".equals(path)) return Res.json(200, new JSONObject()
-                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "2.0.0").put("timeframe", "5m").put("scanner", "24h").put("strategy", "3C Breakout (M5) — MASTER + PRO FILTER PACK"));
+                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "2.1.0").put("timeframe", "5m").put("scanner", "24h").put("strategy", "3C Breakout (M5) — MASTER + PRO FILTER PACK + HALAL MT5"));
 
         Long uid = userId(auth);
         if (uid == null) return Res.error(401, "authentication required");
@@ -193,11 +193,14 @@ public class Api {
         // karne ke baad hi login possible. Second admin ban hi nahi sakta.
         String role = first ? "ADMIN" : "TRADER";
         int approved = first ? 1 : 0;
+        // v2.1 OWNER TRADING GATE — registration approve hone ke baad bhi TRADING tabhi
+        // chalegi jab owner Control > Users me ENABLE TRADING dabaye. Owner khud auto-on.
+        int tradeOk = first ? 1 : 0;
 
         String secret = Auth.totpSecret();
         db.getWritableDatabase().execSQL(
-                "INSERT INTO users(email, name, pw_hash, role, totp_secret, totp_enabled, active, approved, created_at) VALUES(?,?,?,?,?,0,1,?,?)",
-                new Object[]{email, name, Auth.hashPw(pw), role, secret, approved, System.currentTimeMillis()});
+                "INSERT INTO users(email, name, pw_hash, role, totp_secret, totp_enabled, active, approved, trade_ok, created_at) VALUES(?,?,?,?,?,0,1,?,?,?)",
+                new Object[]{email, name, Auth.hashPw(pw), role, secret, approved, tradeOk, System.currentTimeMillis()});
         Cursor nc = db.getReadableDatabase().rawQuery("SELECT id FROM users WHERE email=?", new String[]{email});
         long uid = nc.moveToFirst() ? nc.getLong(0) : -1; nc.close();
         db.getWritableDatabase().execSQL(
@@ -211,9 +214,9 @@ public class Api {
         // PENDING registration par approval bhi Home par banner banta hai.
         String code = invite == null ? "" : invite.trim().toUpperCase();
         String alertBody = first
-                ? name + " (" + email + ") OWNER account ban gaya — role ADMIN (auto-approved)"
+                ? name + " (" + email + ") OWNER account ban gaya — role ADMIN (auto-approved, trading enabled)"
                 : "APPROVAL ZAROORI — " + name + " (" + email + ") ne invite code " + code
-                        + " se register kiya · role TRADER · Control > Users me APPROVE dabayen, tabhi login hoga";
+                        + " se register kiya · role TRADER · Control > Users me APPROVE dabayen (tabhi login hoga) · uske baad ENABLE TRADING bhi dabayen (tabhi trade karega)";
         try {
             String meta = new JSONObject().put("email", email).put("name", name)
                     .put("invite", code).put("role", role).put("pending", first ? 0 : 1).toString();
@@ -227,7 +230,7 @@ public class Api {
                 .put("pending", first ? 0 : 1)
                 .put("message", first
                         ? "Owner account created. Sign in karein — dashboard foran khulega."
-                        : "Registration submitted! Owner ko notification chala gaya — wo APPROVE karega, uske baad hi sign in possible hoga."));
+                        : "Registration submitted! Owner ko notification chala gaya — wo APPROVE karega, phir ENABLE TRADING karega. Uske baad aap sign in karke trade kar sakenge."));
     }
 
     private Res login(String body) throws Exception {
@@ -602,10 +605,11 @@ public class Api {
     private Res brokers() throws Exception {
         JSONArray arr = new JSONArray();
         Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT id, name, kind, status, added_at FROM brokers ORDER BY id DESC", null);
+                "SELECT id, name, kind, IFNULL(server,''), status, added_at FROM brokers ORDER BY id DESC", null);
         while (c.moveToNext()) {
             arr.put(new JSONObject().put("id", c.getLong(0)).put("name", c.getString(1))
-                    .put("kind", c.getString(2)).put("status", c.getString(3)).put("addedAt", c.getLong(4)));
+                    .put("kind", c.getString(2)).put("server", c.getString(3))
+                    .put("status", c.getString(4)).put("addedAt", c.getLong(5)));
         }
         c.close();
         return Res.json(200, new JSONObject().put("brokers", arr));
@@ -615,19 +619,25 @@ public class Api {
         JSONObject o = HttpServer.jObj(body);
         String name = HttpServer.jStr(o, "name");
         String kind = HttpServer.jStr(o, "kind");
+        String server = HttpServer.jStr(o, "server");
         String key = HttpServer.jStr(o, "apiKey");
         String secret = HttpServer.jStr(o, "apiSecret");
         String login = HttpServer.jStr(o, "login");
         String pw = HttpServer.jStr(o, "password");
 
         if (name.length() < 2) return Res.error(400, "Enter a broker name");
-        if (key.length() < 8) return Res.error(400, "Enter the API key from your broker");
+        boolean mt5 = kind.toUpperCase(Locale.US).contains("MT");
+        // v2.1 — MT5/MT4 account API key nahi use karta: Login + Password + Server kaafi
+        if (mt5 && (login.isEmpty() || pw.isEmpty()))
+            return Res.error(400, "MT5/MT4 ke liye Login + Password zaroori hain (API key optional hai)");
+        if (!mt5 && key.length() < 8) return Res.error(400, "Enter the API key from your broker");
         db.getWritableDatabase().execSQL(
-                "INSERT INTO brokers(name, kind, api_key, api_secret, login, password, status, added_at) VALUES(?,?,?,?,?,?, 'SAVED', ?)",
-                new Object[]{name, kind.isEmpty() ? "CUSTOM" : kind, key, secret, login, pw, System.currentTimeMillis()});
-        db.log("INFO", "BROKER", "ADDED", name + " (" + kind + ") — credentials saved, will connect at live trading phase");
+                "INSERT INTO brokers(name, kind, api_key, api_secret, login, password, server, status, added_at) VALUES(?,?,?,?,?,?,?,'SAVED',?)",
+                new Object[]{name, kind.isEmpty() ? "MT5" : kind, key, secret, login, pw, server, System.currentTimeMillis()});
+        db.log("INFO", "BROKER", "ADDED", name + " (" + (kind.isEmpty() ? "MT5" : kind)
+                + (server.isEmpty() ? "" : " @ " + server) + ") — credentials saved on this device");
         return Res.json(200, new JSONObject().put("ok", true)
-                .put("message", "Broker saved. Credentials are stored on this device — the engine will connect it when you enable live trading."));
+                .put("message", "Broker saved. Credentials is device par safe hain — live trading phase me connect hoga. (Paper trading abhi chal rahi hai — MT5 data feed se.)"));
     }
 
     private Res testBroker(String body) throws Exception {
@@ -660,6 +670,8 @@ public class Api {
         return Res.json(200, new JSONObject()
                 .put("engineOn", "1".equals(db.setting("engine_on", "1")))
                 .put("riskPct", engine != null ? engine.riskPct() : 2.0)
+                // v2.1 — MT5 feed
+                .put("mt5Bridge", db.setting("mt5_bridge", ""))
                 // v1.7 PRO GUARD settings
                 .put("cooldownMin", engine != null ? engine.cooldownMin() : 15)
                 .put("consecLoss", engine != null ? engine.consecLossN() : 3)
@@ -670,13 +682,13 @@ public class Api {
                 .put("proEmaFilter", engine == null || engine.proEmaFilter())
                 .put("proAtrFloor", engine != null ? engine.proAtrFloor() : 0.08)
                 .put("proVolFilter", engine == null || engine.proVolFilter())
-                .put("version", "2.0"));
+                .put("version", "2.1"));
     }
 
     /** v1.8 — candlestick chart data: GET /api/candles?symbol=BTCUSDT&n=60 → 5m closed candles. */
     private Res candles(String path) throws Exception {
         String sym = qParam("symbol").toUpperCase(Locale.US).trim();
-        if (!sym.matches("[A-Z0-9]{5,20}")) return Res.error(400, "Symbol galat hai (e.g. BTCUSDT)");
+        if (!sym.matches("[A-Z0-9]{4,20}")) return Res.error(400, "Symbol galat hai (e.g. XAUUSD)");
         int n;
         try { n = Integer.parseInt(qParam("n")); } catch (Exception e) { n = 60; }
         if (engine == null) return Res.error(503, "engine band hai");
@@ -916,6 +928,18 @@ public class Api {
             db.setSetting("daily_kill_pct", String.valueOf(k));
             db.log("INFO", "GUARD", "DAILY_KILL_SET", "Daily kill switch = " + k + "%" + (k <= 0 ? " (OFF — unlimited)" : ""));
         }
+        // v2.1 — optional MT5 bridge URL: PC par MetaTrader5 terminal + mt5-bridge.py
+        // chalao aur yahan uska URL dalo — candles phir REAL MT5 terminal se aayengi.
+        if (o.has("mt5Bridge")) {
+            String b = o.optString("mt5Bridge", "").trim();
+            if (b.length() > 300) return Res.error(400, "Bridge URL bohat lamba hai (max 300 chars)");
+            if (!b.isEmpty() && !b.startsWith("http://") && !b.startsWith("https://"))
+                return Res.error(400, "Bridge URL http:// ya https:// se shuru hona chahiye");
+            db.setSetting("mt5_bridge", b);
+            db.log("INFO", "DATA", "MT5_BRIDGE_SET", b.isEmpty()
+                    ? "MT5 bridge cleared — built-in halal commodities feed use hoga"
+                    : "MT5 bridge set: " + b + " — candles ab MetaTrader5 terminal se aayengi");
+        }
         return settings();
     }
 
@@ -939,13 +963,14 @@ public class Api {
         Res g = adminGuard(uid); if (g != null) return g;
         JSONArray arr = new JSONArray();
         Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT id, name, email, role, active, created_at, (SELECT COUNT(*) FROM sessions s WHERE s.user_id=u.id), IFNULL(approved,1) FROM users u ORDER BY id", null);
+                "SELECT id, name, email, role, active, created_at, (SELECT COUNT(*) FROM sessions s WHERE s.user_id=u.id), IFNULL(approved,1), IFNULL(trade_ok, CASE WHEN role='ADMIN' THEN 1 ELSE 0 END) FROM users u ORDER BY id", null);
         while (c.moveToNext()) {
             arr.put(new JSONObject()
                     .put("id", c.getLong(0)).put("name", c.getString(1))
                     .put("email", c.getString(2)).put("role", c.getString(3))
                     .put("active", c.getInt(4)).put("createdAt", c.getLong(5))
-                    .put("sessions", c.getInt(6)).put("approved", c.getInt(7)));
+                    .put("sessions", c.getInt(6)).put("approved", c.getInt(7))
+                    .put("tradeOk", c.getInt(8)));
         }
         c.close();
         Cursor sc = db.getReadableDatabase().rawQuery("SELECT COUNT(*), IFNULL(SUM(active),0), SUM(CASE WHEN IFNULL(approved,1)=0 THEN 1 ELSE 0 END) FROM users", null);
@@ -973,6 +998,24 @@ public class Api {
             db.log("INFO", "ADMIN", "USER_APPROVED", nm + " (" + em + ") approved by owner — ab sign in kar sakta hai");
             return Res.json(200, new JSONObject().put("ok", true)
                     .put("message", nm + " APPROVED — ab wo sign in kar sakta hai"));
+        }
+
+        // v2.1 OWNER TRADING GATE — {id, action:'trade', value:1|0}:
+        // owner decide karta hai kaun user engine se trade kar sakta hai
+        if ("trade".equals(action)) {
+            int val = o.optInt("value", -1);
+            if (val != 0 && val != 1) return Res.error(400, "value 0 ya 1 required");
+            if (id == uid && val == 0) return Res.error(400, "Apna khud ka trading band nahi kar sakte (aap owner hain)");
+            Cursor ec = db.getReadableDatabase().rawQuery("SELECT name FROM users WHERE id=?", new String[]{String.valueOf(id)});
+            if (!ec.moveToFirst()) { ec.close(); return Res.error(404, "User not found"); }
+            String nm = ec.getString(0); ec.close();
+            db.getWritableDatabase().execSQL("UPDATE users SET trade_ok=? WHERE id=?", new Object[]{val, id});
+            db.log("INFO", "ADMIN", val == 1 ? "TRADING_ENABLED" : "TRADING_DISABLED",
+                    nm + " trading " + (val == 1 ? "ENABLED" : "DISABLED") + " by owner");
+            return Res.json(200, new JSONObject().put("ok", true)
+                    .put("message", nm + " — trading " + (val == 1
+                            ? "ENABLED — ab engine is user ke liye trades kholega"
+                            : "DISABLED — is user ke liye naye trades nahi khulenge")));
         }
 
         if ("activate".equals(action) || "deactivate".equals(action)) {

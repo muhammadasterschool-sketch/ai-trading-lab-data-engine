@@ -354,11 +354,11 @@ public class StrategyLab {
 
     // ================== LIFECYCLE ==================
 
-    /** Backtest on real 5m klines. Symbol: settings lab_symbol (default BTCUSDT). */
+    /** Backtest on real 5m klines. Symbol: settings lab_symbol (default XAUUSD — HALAL MT5). */
     public JSONObject backtest(long id) {
         JSONObject spec = rowSpec(id);
         if (spec == null) return fail("Strategy nahi mili");
-        String sym = db.setting("lab_symbol", "BTCUSDT");
+        String sym = db.setting("lab_symbol", "XAUUSD");
         List<EngineCore.Candle> k = engine.klinesFor(sym, 1000);
         if (k == null || k.size() < 120) return fail(sym + " ke real candles fetch nahi hue — dobara try karein");
         // drop unclosed last candle (v5.9.2 rule)
@@ -919,7 +919,7 @@ public class StrategyLab {
                     .put("id", db.setting("yt_channel_id", ""))
                     .put("name", db.setting("yt_channel_name", "")));
             out.put("lastVoteSym", engine.lastVoteSym);
-            out.put("symbol", db.setting("lab_symbol", "BTCUSDT"));
+            out.put("symbol", db.setting("lab_symbol", "XAUUSD"));
             out.put("ok", true);
         } catch (Exception e) {
             try { out.put("ok", false).put("error", String.valueOf(e)); } catch (Exception ignored) { }
