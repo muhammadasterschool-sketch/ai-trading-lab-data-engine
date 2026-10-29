@@ -7,20 +7,24 @@ import android.content.Context;
 import android.os.Build;
 
 /**
- * v5.6 — instant admin alerts on the phone: every new registration (any invitation
+ * v1.9 — instant admin alerts on the phone: every new registration (any invitation
  * code) fires a high-importance status-bar notification to the owner BEFORE the new
- * user is even seen in the dashboard. Best-effort: never breaks the API response.
+ * user can even log in (PENDING until approved). Best-effort: never breaks the API.
  */
 public class Notifier {
     private static final String CHANNEL = "atl_alerts";
     private static long seq = System.currentTimeMillis();
 
     /** Fired by Api.register() right after a new account is created. */
-    public static void registration(Context ctx, String name, String email, String role, String invite) {
-        post(ctx,
-                "New registration — " + name,
-                name + " (" + email + ") joined via invitation code " + invite
-                        + " · role: " + role + " · paper account created");
+    public static void registration(Context ctx, String name, String email, String role, String invite, boolean owner) {
+        if (owner) {
+            post(ctx, "Owner account created — " + name,
+                    name + " (" + email + ") · role ADMIN (auto-approved) · ye aapka owner account hai");
+        } else {
+            post(ctx, "🔔 New registration — APPROVE karein: " + name,
+                    name + " (" + email + ") invite code " + invite
+                            + " se register hua · role TRADER · abhi PENDING — Settings > Control > Users me APPROVE dabayen, tabhi login kar sakta hai");
+        }
     }
 
     /** Generic high-importance alert. Safe to call from any thread; never throws. */

@@ -118,9 +118,9 @@ select{width:100%;background:var(--card);border:1px solid var(--line);border-rad
   <div class="logo"><img src="logo.png" alt="AI Trading Lab"></div>
   <h1>AI Trading Lab</h1>
   <div class="sub">Full trading engine on this device — paper trading</div>
-  <div class="sub" style="color:var(--gold)">v1.8 · PRO FILTER PACK · PRO GUARD · LIVE P/L · Candlestick Chart</div>
+  <div class="sub" style="color:var(--gold)">v1.9 · OWNER GATE · PRO FILTER PACK · LIVE P/L · Candlestick Chart</div>
   <div id="engStrip" class="eng">checking engine…</div>
-  <div class="note"><b>Naya install / update?</b> Accounts is device ki local database mein hote hain — app reinstall ya update ke baad purana account <b>transfer nahi hota</b>. Is liye pehli dafa <b>Register</b> tab par account banayen (invite code pehle se bhara hai), phir <b>Sign in</b> — dashboard foran khulega. Kisi authenticator app ki zaroorat nahi.</div>
+  <div class="note"><b>Naya install / update?</b> Accounts is device ki local database mein hote hain — app reinstall ya update ke baad purana account <b>transfer nahi hota</b>. Pehla account = <b>OWNER (ADMIN)</b>. Baaki log <b>Register</b> se apply karein — <b>invite code owner se milega</b> (kahin likha hua nahi hota), aur owner ke <b>APPROVE</b> karne ke baad hi sign in possible hoga. Kisi authenticator app ki zaroorat nahi.</div>
 
   <div class="tabs">
     <button id="tabSignin" class="on" onclick="showTab('signin')">Sign in</button>
@@ -140,7 +140,7 @@ select{width:100%;background:var(--card);border:1px solid var(--line);border-rad
   <!-- reset password (v5.3) -->
   <div id="resetpw" class="hidden">
     <div class="note">Password recovery — needs your invitation code. <b>Agar error aaye "No account found"</b> to iska matlab is device par is email ka account nahi hai (naya install) — <b>Register tab</b> se pehle account banayen, phir yeh page baad mein use ho sakta hai. After reset, sign in with the new password.</div>
-    <div class="field"><label>INVITATION CODE</label><input id="rsInvite" value="M2991474"></div>
+    <div class="field"><label>INVITATION CODE</label><input id="rsInvite" placeholder="Owner se lein — khali nahi chalega" autocomplete="off"></div>
     <div class="field"><label>FULL NAME</label><input id="rsName" placeholder="The name on the account"></div>
     <div class="field"><label>EMAIL</label><input id="rsEmail" type="email" placeholder="you@gmail.com"></div>
     <div class="field"><label>NEW PASSWORD</label><input id="rsPass" type="password" placeholder="Min 8 chars, letters + numbers"></div>
@@ -151,8 +151,8 @@ select{width:100%;background:var(--card);border:1px solid var(--line);border-rad
 
   <!-- register -->
   <div id="register" class="hidden">
-    <div class="note">Invite-only — a valid invitation code is required</div>
-    <div class="field"><label>INVITATION CODE</label><input id="rgInvite" value="M2991474"></div>
+    <div class="note">Invite-only — <b>invite code sirf owner deta hai</b> (kahin pre-written nahi hota). Register karne par owner ko notification jayega — uske <b>APPROVE</b> karne ke baad hi aap sign in kar sakenge. Sirf 1 ADMIN (owner) hota hai; baaki sab TRADER users.</div>
+    <div class="field"><label>INVITATION CODE</label><input id="rgInvite" placeholder="Owner se lein — khali nahi chalega" autocomplete="off"></div>
     <div class="field"><label>FULL NAME</label><input id="rgName" placeholder="Your name"></div>
     <div class="field"><label>EMAIL</label><input id="rgEmail" type="email" placeholder="you@gmail.com"></div>
     <div class="field"><label>PASSWORD</label><input id="rgPass" type="password" placeholder="Min 8 chars, letters + numbers"></div>
@@ -247,9 +247,10 @@ function doReset(){
 }
 function doRegister(){
   var b = {name:rgName.value.trim(), email:rgEmail.value.trim(), password:rgPass.value, invitationCode:rgInvite.value.trim()};
+  if(!b.invitationCode){ msg('regMsg','Invitation code likhein — ye sirf owner se milta hai (kahin pre-written nahi hota)','err'); return; }
   if(!b.name||!b.email||!b.password){ msg('regMsg','Fill all fields','err'); return; }
   api('/api/auth/register',{method:'POST',body:b}).then(function(r){
-    if(r.status===200){ msg('regMsg', r.data.message, 'ok'); setTimeout(function(){ showTab('signin'); liName.value=b.name; liEmail.value=b.email; },1200); }
+    if(r.status===200){ msg('regMsg', r.data.message, 'ok'); setTimeout(function(){ showTab('signin'); liName.value=b.name; liEmail.value=b.email; },2500); }
     else msg('regMsg', r.data.error||'failed','err');
   });
 }
@@ -305,9 +306,26 @@ function pollAlerts(){
   api('/api/admin/alerts').then(function(r){
     var n = (r.data && r.data.unreadCount) || 0;
     UNREAD = n; // v1.8 — Settings > Control section badge ke liye
+    updateNavBadges();
+  });
+  /* v1.9 OWNER GATE — PENDING approvals Home par foran dikhen (admin only) */
+  api('/api/admin/users').then(function(r){
+    PENDING = (r.data && r.data.pendingUsers) || 0;
+    PENDING_NAMES = (r.data.users||[]).filter(function(x){ return !x.approved; })
+      .map(function(x){ return x.name; }).join(', ');
+    updateNavBadges();
+    if(TAB==='dash') renderDash();
   });
 }
-var UNREAD = 0;
+var UNREAD = 0, PENDING = 0, PENDING_NAMES = '';
+/* v1.9 — Settings nav button par red badge jab unread alerts ya pending approvals hon */
+function updateNavBadges(){
+  var b = document.querySelector('nav button[data-t="set"]');
+  if(!b) return;
+  var n = UNREAD + PENDING;
+  var base = '<span class="ic">⚙️</span>Settings';
+  b.innerHTML = n > 0 ? base + ' <span class="navbadge">' + n + '</span>' : base;
+}
 
 /* ---------------- tabs ---------------- */
 function go(t){
@@ -364,6 +382,10 @@ function renderDash(){
     if(r.status!==200){ tgt().innerHTML = '<div class="banner warn">Engine busy/restarting — retrying…</div>'; return; }
     var d = r.data, e = d.engine||{};
     var ban = '';
+    /* v1.9 OWNER GATE — PENDING approvals sab se upar, admin ko miss nahi honge */
+    if(USER && USER.role==='ADMIN' && PENDING > 0){
+      ban += '<div class="banner red">⏳ <b>'+PENDING+' registration'+(PENDING>1?'s':'')+' PENDING approval</b>'+(PENDING_NAMES?' — <b>'+esc(PENDING_NAMES)+'</b>':'')+' — inlog abhi login NAHI kar sakte. <a href="#" onclick="SET_TAB=\'control\';go(\'set\');return false" style="color:#fbbf24;text-decoration:underline">Settings > Control me APPROVE karein →</a></div>';
+    }
     /* v1.3 24/7 — battery optimization sab se pehle: yehi engine band hone ki
        sab se aam wajah hai (OEM battery managers background killers) */
     if(e.battery_ok === false) ban += '<div class="banner red">🔋 <b>24/7 ke liye zaroori:</b> Battery optimization abhi bhi ON hai — Android engine ko sula dega. App kholte waqt aane wale dialog mein <b>Allow</b> dabayen, ya Settings → Battery → AI Trading Lab → <b>Unrestricted</b> karein.</div>';
@@ -978,11 +1000,15 @@ function paintControl(al, us, iv){
   var uHtml = '';
   users.forEach(function(x){
     var self = (USER && USER.id===x.id);
+    var pend = !x.approved; /* v1.9 OWNER GATE — approved=0 = PENDING, login blocked */
     uHtml += '<tr><td><b>'+esc(x.name)+'</b>'+(x.role==='ADMIN'?' <span class="pill ADMIN">ADMIN</span>':'')+
+      (pend?' <span class="pill WARN">PENDING</span>':'')+
       '<br><span class="mut" style="font-size:10px">'+esc(x.email)+' · joined '+fmtTime(x.createdAt)+' · '+x.sessions+' session(s)</span></td>'+
-      '<td style="text-align:right"><span class="pill '+(x.active?'ACTIVE':'ERROR')+'">'+(x.active?'ACTIVE':'OFF')+'</span><br>'+
+      '<td style="text-align:right">'+(pend?'<span class="pill WARN">LOGIN BLOCKED</span><br>':'')+
+      '<span class="pill '+(!pend&&x.active?'ACTIVE':'ERROR')+'">'+(pend?'PENDING':(x.active?'ACTIVE':'OFF'))+'</span><br>'+
+      (pend? '<button class="pill ACTIVE pillbtn" onclick="userAction('+x.id+',\'approve\')">✓ APPROVE</button> ' : '')+
       (self? '<span class="mut" style="font-size:10px">you</span>' :
-        '<button class="pill '+(x.active?'WARN':'ACTIVE')+' pillbtn" onclick="userAction('+x.id+',\''+(x.active?'deactivate':'activate')+'\')">'+(x.active?'DISABLE':'ENABLE')+'</button> '+
+        '<button class="pill '+(!pend&&!x.active?'ACTIVE':'WARN')+' pillbtn" onclick="userAction('+x.id+',\''+(!pend&&x.active?'deactivate':'activate')+'\')">'+(!pend&&x.active?'DISABLE':'ENABLE')+'</button> '+
         '<button class="pill ERROR pillbtn" onclick="userAction('+x.id+',\'delete\')">DEL</button>')+
       '</td></tr>';
   });
@@ -994,13 +1020,14 @@ function paintControl(al, us, iv){
       '</td></tr>';
   });
   tgt().innerHTML =
-    '<div class="banner green">🛡️ Owner Control — poora system aapke hath me: users, invites, alerts. Naya registration hote hi status-bar alert + yahan NEW entry.</div>'+
+    '<div class="banner green">🛡️ Owner Control — users, invites, alerts sab aapke control me. Naya registration hote hi status-bar alert + yahan NEW entry + Home par red banner. <b>Approval ke baad hi user login kar sakta hai</b> · sirf 1 ADMIN (aap) — baaki sab TRADER.</div>'+
     '<div class="grid">'+
     card('Total Users', us.total!=null?us.total:'—','')+
     card('Active Users', us.activeUsers!=null?us.activeUsers:'—','green')+
+    card('Pending Approval', us.pendingUsers>0?'<span style="color:#fbbf24">'+us.pendingUsers+'</span>':'0', us.pendingUsers>0?'':'green')+
     card('Invite Codes', iv.total!=null?iv.total:'—','')+
-    card('Unread Alerts', unread>0?'<span style="color:#fbbf24">'+unread+'</span>':'0', unread>0?'':'green')+
     '</div>'+
+    (us.pendingUsers>0 ? '<div class="banner red">⏳ '+us.pendingUsers+' user(s) approval ka intezar kar rahe hain — neeche Users list me <b>✓ APPROVE</b> dabayen, tabhi wo login kar sakenge.</div>' : '')+
     '<h2>🔔 Registration Alerts '+(unread>0?'<span class="navbadge" style="vertical-align:middle">'+unread+'</span>':'')+'</h2>'+
     '<div class="row"><button class="btn sec" onclick="alertAction(\'read-all\')">✓ Mark all read</button><button class="btn sec" onclick="alertAction(\'clear\')">🧹 Clear read</button></div>'+
     (alHtml || '<div class="empty">Koi alert nahi — naya registration hote hi yahan + status-bar me foran aayega</div>')+
@@ -1008,17 +1035,19 @@ function paintControl(al, us, iv){
     (uHtml ? '<table>'+uHtml+'</table>' : '<div class="empty">No users yet</div>')+
     '<h2>🎟️ Invitation Codes</h2>'+
     '<div class="card full"><div class="k">Naya code banayen</div>'+
+    '<div class="small" style="margin-bottom:8px">Code <b>kahin display nahi hota</b> — aap khud user ko bhejen (WhatsApp etc). Revoked code se registration fail hoti hai.</div>'+
     '<div class="field" style="margin-top:8px"><label>LABEL (optional)</label><input id="ivLabel" placeholder="e.g. Bhai ke liye"></div>'+
     '<div class="field"><label>MAX USES (0 = unlimited)</label><input id="ivMax" inputmode="numeric" value="0"></div>'+
     '<button class="btn" onclick="inviteCreate()">Generate new invite code</button></div>'+
     (iHtml ? '<table>'+iHtml+'</table>' : '<div class="empty">No invite codes</div>')+
-    '<div class="small" style="margin-top:14px">Disabled user foran sign-out ho jata hai. Revoked code se registration fail hoti hai. Delete = user + uska paper data permanently remove.</div>';
+    '<div class="small" style="margin-top:14px">Disabled user foran sign-out ho jata hai. PENDING user login nahi kar sakta jab tak aap APPROVE na dabayen. Delete = user + uska paper data permanently remove.</div>';
 }
 
 function userAction(id, action){
   if(action==='delete' && !confirm('Delete this user permanently? Their sessions, paper account and trades are removed.')) return;
   api('/api/admin/users',{method:'POST',body:{id:id,action:action}}).then(function(r){
-    if(r.status!==200) alert(r.data.error||'action failed');
+    if(r.status===200 && action==='approve') alert(r.data.message||'User approved');
+    else if(r.status!==200) alert(r.data.error||'action failed');
     renderControl(); pollAlerts();
   });
 }

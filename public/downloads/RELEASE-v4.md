@@ -81,7 +81,7 @@ Every device then enters just `https://your-domain.com` — works on mobile data
 1. Start the engine (Mode A or B above).
 2. Open the app → enter the server URL → CONNECT.
 3. **Admin login:** `muhammadasterschool@gmail.com` / password `AurumLab2026` (forgot it? run `bun scripts/reset-admin.mjs` in the install folder) → scan QR with Google Authenticator → enter 6-digit code.
-4. **Invite a user:** Admin tab → Invitation codes → the master code `M2991474` is pre-seeded (unlimited uses), or create a fresh single-use code.
+4. **Invite a user:** Admin tab → Invitation codes → the master code `M•••••••(REDACTED)` is pre-seeded (unlimited uses), or create a fresh single-use code.
 5. **User joins:** they open the app → same server URL → **Register** → enter the invitation code + their name + Gmail + password → sign in → scan their own 2FA QR. Their paper account is created automatically, fully isolated from yours.
 6. Autopilot: Paper tab → switch ON → the engine now fires **1 trade/sec bursts** whenever ≥2 strategies reach ≥60% consensus and the confirmation candle closes.
 

@@ -92,7 +92,7 @@ public class Api {
     private Res get(String path, String auth) throws Exception {
         if ("/".equals(path) || "/index.html".equals(path)) return Res.html(dashboardHtml);
         if ("/api/health".equals(path)) return Res.json(200, new JSONObject()
-                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "1.8.0").put("timeframe", "5m").put("scanner", "24h").put("strategy", "3C Breakout (M5) — MASTER + PRO FILTER PACK"));
+                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "1.9.0").put("timeframe", "5m").put("scanner", "24h").put("strategy", "3C Breakout (M5) — MASTER + PRO FILTER PACK"));
 
         Long uid = userId(auth);
         if (uid == null) return Res.error(401, "authentication required");
@@ -188,36 +188,46 @@ public class Api {
 
         Cursor cnt = db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM users", null);
         boolean first = cnt.moveToFirst() && cnt.getInt(0) == 0; cnt.close();
+        // v1.9 OWNER GATE — sirf pehla account kabhi ADMIN banta hai (owner);
+        // baaki SAB registrations TRADER + approved=0 (PENDING) — owner ke APPROVE
+        // karne ke baad hi login possible. Second admin ban hi nahi sakta.
         String role = first ? "ADMIN" : "TRADER";
+        int approved = first ? 1 : 0;
 
         String secret = Auth.totpSecret();
         db.getWritableDatabase().execSQL(
-                "INSERT INTO users(email, name, pw_hash, role, totp_secret, totp_enabled, active, created_at) VALUES(?,?,?,?,?,0,1,?)",
-                new Object[]{email, name, Auth.hashPw(pw), role, secret, System.currentTimeMillis()});
+                "INSERT INTO users(email, name, pw_hash, role, totp_secret, totp_enabled, active, approved, created_at) VALUES(?,?,?,?,?,0,1,?,?)",
+                new Object[]{email, name, Auth.hashPw(pw), role, secret, approved, System.currentTimeMillis()});
         Cursor nc = db.getReadableDatabase().rawQuery("SELECT id FROM users WHERE email=?", new String[]{email});
         long uid = nc.moveToFirst() ? nc.getLong(0) : -1; nc.close();
         db.getWritableDatabase().execSQL(
                 "INSERT OR IGNORE INTO accounts(user_id, balance, start_balance, peak, day_start, day_ts) VALUES(?,100,100,100,100,?)",
                 new Object[]{uid, System.currentTimeMillis() / 86400000L});
-        db.log("INFO", "AUTH", "REGISTER", email + " (" + role + ") — account + paper account created");
-        // v5.7 — the owner now gets the alert THREE ways, instantly:
-        //   1) persistent in-app row (Control tab feed — survives reboots)
+        db.log("INFO", "AUTH", "REGISTER", email + " (" + role + ") — account created, " + (first ? "owner (auto-approved)" : "PENDING owner approval"));
+        // v1.9 — owner ko alert TEEN tareeqon se, foran:
+        //   1) persistent in-app row (Control tab feed — reboots survive karta hai)
         //   2) high-importance status-bar notification (Notifier)
         //   3) system ledger entry (log above)
+        // PENDING registration par approval bhi Home par banner banta hai.
         String code = invite == null ? "" : invite.trim().toUpperCase();
+        String alertBody = first
+                ? name + " (" + email + ") OWNER account ban gaya — role ADMIN (auto-approved)"
+                : "APPROVAL ZAROORI — " + name + " (" + email + ") ne invite code " + code
+                        + " se register kiya · role TRADER · Control > Users me APPROVE dabayen, tabhi login hoga";
         try {
             String meta = new JSONObject().put("email", email).put("name", name)
-                    .put("invite", code).put("role", role).toString();
+                    .put("invite", code).put("role", role).put("pending", first ? 0 : 1).toString();
             db.getWritableDatabase().execSQL(
                     "INSERT INTO notifications(kind, title, body, meta, read, created_at) VALUES('REGISTER',?,?,?,0,?)",
-                    new Object[]{"New registration — " + name,
-                            name + " (" + email + ") joined via invitation code " + code
-                                    + " · role: " + role + " · paper account created",
-                            meta, System.currentTimeMillis()});
+                    new Object[]{first ? "Owner account created — " + name : "New registration — APPROVE karein: " + name,
+                            alertBody, meta, System.currentTimeMillis()});
         } catch (Throwable ignored) { /* feed row is best-effort — registration must succeed */ }
-        Notifier.registration(appCtx, name, email, role, code);
+        Notifier.registration(appCtx, name, email, role, code, first);
         return Res.json(200, new JSONObject().put("ok", true)
-                .put("message", "Account created. Sign in with name + email + password."));
+                .put("pending", first ? 0 : 1)
+                .put("message", first
+                        ? "Owner account created. Sign in karein — dashboard foran khulega."
+                        : "Registration submitted! Owner ko notification chala gaya — wo APPROVE karega, uske baad hi sign in possible hoga."));
     }
 
     private Res login(String body) throws Exception {
@@ -227,7 +237,7 @@ public class Api {
         String pw = HttpServer.jStr(o, "password");
 
         Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT id, name, pw_hash, active, totp_enabled, totp_secret FROM users WHERE email=?", new String[]{email});
+                "SELECT id, name, pw_hash, active, totp_enabled, totp_secret, approved FROM users WHERE email=?", new String[]{email});
         if (!c.moveToFirst()) {
             c.close();
             // v5.9.1 — fresh-install guidance: if this device has NO accounts at all,
@@ -235,7 +245,7 @@ public class Api {
             Cursor cnt = db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM users", null);
             boolean noAccounts = cnt.moveToFirst() && cnt.getInt(0) == 0; cnt.close();
             if (noAccounts) return Res.error(401,
-                    "Is device par abhi koi account nahi hai (naya install). Pehle REGISTER tab se account banayen (invite code pehle se bhara hai), phir sign in karein.");
+                    "Is device par abhi koi account nahi hai (naya install). Pehle REGISTER tab se account banayen (invite code owner se lein), phir sign in karein.");
             return Res.error(401, "Invalid email or password — ya name match nahi hua. Exact wahi name aur email likhein jo registration par use hua tha.");
         }
         long uid = c.getLong(0);
@@ -243,12 +253,28 @@ public class Api {
         String hash = c.getString(2);
         int active = c.getInt(3), totpEnabled = c.getInt(4);
         String secret = c.getString(5);
+        int approved = c.getInt(6);
         c.close();
 
         if (!Auth.verifyPw(pw, hash)) return Res.error(401, "Invalid email or password");
         if (name.isEmpty() || !name.equals(storedName))
             return Res.error(401, "Name does not match this account — enter the exact name used at registration");
         if (active == 0) return Res.error(403, "Account deactivated");
+        // v1.9 OWNER GATE — PENDING registration login NAHI kar sakta jab tak owner
+        // APPROVE na kare. Owner ko dobara notification bhi jata hai (best-effort).
+        if (approved == 0) {
+            Notifier.post(appCtx, "Approval pending — " + storedName,
+                    storedName + " (" + email + ") login karne ki koshish kar raha hai lekin abhi PENDING hai. Settings > Control > Users me APPROVE dabayen.");
+            try {
+                db.getWritableDatabase().execSQL(
+                        "INSERT INTO notifications(kind, title, body, meta, read, created_at) VALUES('PENDING_LOGIN',?,?,?,0,?)",
+                        new Object[]{"PENDING user login try kar raha hai: " + storedName,
+                                storedName + " (" + email + ") ne login try kiya — account abhi bhi approval ka intezar kar raha hai. Control > Users me APPROVE karein.",
+                                "{}", System.currentTimeMillis()});
+            } catch (Throwable ignored) { }
+            db.log("INFO", "AUTH", "LOGIN_BLOCKED_PENDING", email + " — login refused, owner approval chahiye");
+            return Res.error(403, "Account PENDING approval — owner ne abhi approve nahi kiya. Registration par owner ko notification chala hai; jaise hi wo APPROVE karega, aap sign in kar sakenge.");
+        }
 
         // v5.5 DIRECT ENTRY — no TOTP wall on the phone engine.
         // This server runs on the owner's own device at 127.0.0.1 and is invite-only;
@@ -644,7 +670,7 @@ public class Api {
                 .put("proEmaFilter", engine == null || engine.proEmaFilter())
                 .put("proAtrFloor", engine != null ? engine.proAtrFloor() : 0.08)
                 .put("proVolFilter", engine == null || engine.proVolFilter())
-                .put("version", "1.8"));
+                .put("version", "1.9"));
     }
 
     /** v1.8 — candlestick chart data: GET /api/candles?symbol=BTCUSDT&n=60 → 5m closed candles. */
@@ -913,30 +939,41 @@ public class Api {
         Res g = adminGuard(uid); if (g != null) return g;
         JSONArray arr = new JSONArray();
         Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT id, name, email, role, active, created_at, (SELECT COUNT(*) FROM sessions s WHERE s.user_id=u.id) FROM users u ORDER BY id", null);
+                "SELECT id, name, email, role, active, created_at, (SELECT COUNT(*) FROM sessions s WHERE s.user_id=u.id), IFNULL(approved,1) FROM users u ORDER BY id", null);
         while (c.moveToNext()) {
             arr.put(new JSONObject()
                     .put("id", c.getLong(0)).put("name", c.getString(1))
                     .put("email", c.getString(2)).put("role", c.getString(3))
                     .put("active", c.getInt(4)).put("createdAt", c.getLong(5))
-                    .put("sessions", c.getInt(6)));
+                    .put("sessions", c.getInt(6)).put("approved", c.getInt(7)));
         }
         c.close();
-        Cursor sc = db.getReadableDatabase().rawQuery("SELECT COUNT(*), IFNULL(SUM(active),0) FROM users", null);
-        int total = 0, activeUsers = 0;
-        if (sc.moveToFirst()) { total = sc.getInt(0); activeUsers = sc.getInt(1); }
+        Cursor sc = db.getReadableDatabase().rawQuery("SELECT COUNT(*), IFNULL(SUM(active),0), SUM(CASE WHEN IFNULL(approved,1)=0 THEN 1 ELSE 0 END) FROM users", null);
+        int total = 0, activeUsers = 0, pendingUsers = 0;
+        if (sc.moveToFirst()) { total = sc.getInt(0); activeUsers = sc.getInt(1); pendingUsers = sc.getInt(2); }
         sc.close();
         return Res.json(200, new JSONObject().put("users", arr)
-                .put("total", total).put("activeUsers", activeUsers));
+                .put("total", total).put("activeUsers", activeUsers).put("pendingUsers", pendingUsers));
     }
 
-    /** POST /api/admin/users — {id, action: activate|deactivate|delete}. */
+    /** POST /api/admin/users — {id, action: approve|activate|deactivate|delete}. */
     private Res adminUserAction(long uid, String body) throws Exception {
         Res g = adminGuard(uid); if (g != null) return g;
         JSONObject o = HttpServer.jObj(body);
         long id = o.optLong("id", -1);
         String action = HttpServer.jStr(o, "action");
         if (id <= 0) return Res.error(400, "User id required");
+
+        // v1.9 OWNER GATE — approve: PENDING user ko login permission milta hai
+        if ("approve".equals(action)) {
+            Cursor ec = db.getReadableDatabase().rawQuery("SELECT name, email FROM users WHERE id=?", new String[]{String.valueOf(id)});
+            if (!ec.moveToFirst()) { ec.close(); return Res.error(404, "User not found"); }
+            String nm = ec.getString(0), em = ec.getString(1); ec.close();
+            db.getWritableDatabase().execSQL("UPDATE users SET approved=1 WHERE id=?", new Object[]{id});
+            db.log("INFO", "ADMIN", "USER_APPROVED", nm + " (" + em + ") approved by owner — ab sign in kar sakta hai");
+            return Res.json(200, new JSONObject().put("ok", true)
+                    .put("message", nm + " APPROVED — ab wo sign in kar sakta hai"));
+        }
 
         if ("activate".equals(action) || "deactivate".equals(action)) {
             if (id == uid) return Res.error(400, "You cannot deactivate your own owner account");

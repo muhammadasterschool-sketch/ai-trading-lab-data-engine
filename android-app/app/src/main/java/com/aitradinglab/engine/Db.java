@@ -8,12 +8,14 @@ import android.database.sqlite.SQLiteOpenHelper;
 /** SQLite ledger store — instruments, logs, trades, news, brokers, users, strategies. */
 public class Db extends SQLiteOpenHelper {
     private static final String NAME = "atl-engine.db";
+    // v1.9: VERSION 5 — users.approved (OWNER GATE: naya registration PENDING rehta hai
+    // jab tak owner APPROVE na kare — approval ke baad hi login possible; sirf 1 ADMIN)
     // v1.7: VERSION 4 — strategies.deleted_at (SOFT DELETE / UNDO — galti se delete ho
     // jaye to 7 din tak restore ho sakta hai, phir auto-purge)
     // v1.2: VERSION 3 — adds the Strategy Lab table (AI/YouTube/custom strategies:
     // spec JSON, backtest stats, CANDIDATE→BACKTESTED→PAPER→ACTIVE lifecycle) and
     // the trades.risk column (per-trade risk fraction, dynamic by consensus).
-    private static final int VERSION = 4;
+    private static final int VERSION = 5;
 
     public Db(Context ctx) { super(ctx, NAME, null, VERSION); }
 
@@ -45,7 +47,7 @@ public class Db extends SQLiteOpenHelper {
     @Override public void onCreate(SQLiteDatabase d) {
         // v5.4: IF NOT EXISTS everywhere — if an earlier failed launch left a partial
         // file behind, creation is idempotent and can never crash on "already exists".
-        exec(d, "CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE, name TEXT, pw_hash TEXT, role TEXT DEFAULT 'TRADER', totp_secret TEXT, totp_enabled INTEGER DEFAULT 0, active INTEGER DEFAULT 1, created_at INTEGER)");
+        exec(d, "CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE, name TEXT, pw_hash TEXT, role TEXT DEFAULT 'TRADER', totp_secret TEXT, totp_enabled INTEGER DEFAULT 0, active INTEGER DEFAULT 1, approved INTEGER DEFAULT 1, created_at INTEGER)");
         exec(d, "CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, user_id INTEGER, created_at INTEGER)");
         exec(d, "CREATE TABLE IF NOT EXISTS invites(code TEXT PRIMARY KEY, label TEXT, max_uses INTEGER DEFAULT 0, uses INTEGER DEFAULT 0, active INTEGER DEFAULT 1)");
         exec(d, "CREATE TABLE IF NOT EXISTS instruments(symbol TEXT PRIMARY KEY, base TEXT, quote TEXT, exchange TEXT, asset_class TEXT, status TEXT, priority INTEGER DEFAULT 0, discovered_at INTEGER, last_data_at INTEGER, note TEXT)");
@@ -90,6 +92,12 @@ public class Db extends SQLiteOpenHelper {
         if (a < 4) {
             try { exec(d, "ALTER TABLE strategies ADD COLUMN deleted_at INTEGER DEFAULT 0"); } catch (Throwable ignored) { }
             exec(d, "CREATE INDEX IF NOT EXISTS idx_strategies_del ON strategies(deleted_at)");
+        }
+        // v1.9 (db v4→v5): users.approved — OWNER GATE. DEFAULT 1 = pehle se maujood
+        // sab accounts (owner included) update ke baad bhi seedha login kar sakte hain;
+        // sirf NAYE registrations approved=0 (PENDING) banenge register() se.
+        if (a < 5) {
+            try { exec(d, "ALTER TABLE users ADD COLUMN approved INTEGER DEFAULT 1"); } catch (Throwable ignored) { }
         }
     }
 

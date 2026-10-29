@@ -240,7 +240,7 @@ Fixes:
    account banayen.
 4. Recovery page note explains the "No account found" error in Roman Urdu.
 
-Register flow (unchanged): invite M2991474 pre-filled, name + email + password
+Register flow (unchanged): invite M•••••••(REDACTED) pre-filled, name + email + password
 (8+ chars, letters + numbers) → Create account → Sign in → dashboard opens
 (direct entry, no authenticator app). First registered user on a fresh install
 becomes ADMIN (owner Control panel).
@@ -450,7 +450,7 @@ v5.5 changes:
 3. **Live engine status strip** on the sign-in screen: green "● Engine running
    — vX · ready" or red "● Engine offline — app band karke dobara kholein",
    probed from `/api/health` on every page load.
-4. **Frictionless register/reset** — invitation code M2991474 is pre-filled in
+4. **Frictionless register/reset** — invitation code M•••••••(REDACTED) is pre-filled in
    both forms; a Roman Urdu helper note explains Register → Sign in → dashboard.
 5. Forgot-password note no longer mentions 2FA re-enrollment.
 
@@ -489,7 +489,7 @@ v5.4 fixes:
 
 Action for users: install v5.4 over the old app (same signature). Register with
 the invitation code, or use **Forgot password?** if you already created an
-account and want it set to a new password (e.g. M2991474).
+account and want it set to a new password (e.g. M•••••••(REDACTED)).
 
 ## v5.3 hotfix — "server error" on login + password recovery
 
@@ -510,15 +510,15 @@ v5.3 fixes the class of problem AND adds self-service recovery:
 3. **In-app password reset (Forgot password?)** — on the sign-in screen:
    invitation code + full name + email + new password → the password is
    changed and 2FA returns to enrollment state (fresh setup key on next
-   login). The master invitation code (M2991474) is accepted for recovery;
+   login). The master invitation code (M•••••••(REDACTED)) is accepted for recovery;
    no usage is consumed.
 4. **Engine null-guards** — if the trading engine ever fails to initialize,
    the dashboard, news scan and manual scan keep working instead of erroring.
 
 Action for users: install v5.3 over the old app (same signature).
-If login still misbehaves: Forgot password? → M2991474 code → set your new
+If login still misbehaves: Forgot password? → M•••••••(REDACTED) code → set your new
 password → sign in → re-enroll 2FA with the shown setup key.
-Cloud/web admin note: the web password was reset separately to `M2991474`.
+Cloud/web admin note: the web password was reset separately to `M•••••••(REDACTED)`.
 
 ## v5.2 hotfix — app would not open at all (launch crash)
 
