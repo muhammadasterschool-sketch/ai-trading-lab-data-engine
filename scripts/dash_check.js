@@ -1,0 +1,893 @@
+var TOKEN = localStorage.getItem('atl_token') || '';
+var USER = null, TAB = 'dash';
+
+function api(path, opts) {
+  opts = opts || {};
+  return fetch(path, {
+    method: opts.method || 'GET',
+    headers: Object.assign({'Content-Type': 'application/json'},
+      TOKEN ? {'Authorization': 'Bearer ' + TOKEN} : {}),
+    body: opts.body ? JSON.stringify(opts.body) : undefined
+  }).then(function(r){ return r.json().then(function(j){ return {status: r.status, data: j}; }); })
+  .catch(function(e){
+    // v5.5: NO silent failures — every network problem becomes a visible message
+    return {status: 0, data: {error: 'Engine tak request nahi pahunchi (connection failed). App band karke dobara kholein — engine background me chal raha hoga.'}};
+  });
+}
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+function fmtTime(ts){ if(!ts) return '—'; var d = new Date(ts); return d.toLocaleDateString(undefined,{month:'short',day:'numeric'}) + ' ' + d.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'}); }
+function msg(id, text, cls){ var el = document.getElementById(id); el.innerHTML = text ? '<div class="'+cls+'">'+text+'</div>' : ''; }
+
+/* ---------------- auth flow ---------------- */
+function showTab(t){
+  document.getElementById('signin').classList.toggle('hidden', t!=='signin' && t!=='twofa');
+  document.getElementById('register').classList.toggle('hidden', t!=='register');
+  /* v1.0 BUGFIX: the old toggle logic REVEALED the change-password panel whenever the
+     Sign in tab was clicked (force=false removed the hidden class) — users saw the
+     recovery form on the login screen and thought their account was missing. The
+     reset panel must ONLY appear via the "Forgot password?" button (showReset). */
+  document.getElementById('resetpw').classList.add('hidden');
+  document.getElementById('tabSignin').classList.toggle('on', t==='signin');
+  document.getElementById('tabRegister').classList.toggle('on', t==='register');
+  if(t==='signin'){ document.getElementById('twofa').classList.add('hidden'); document.getElementById('signin').classList.remove('hidden'); }
+}
+function showReset(){
+  document.getElementById('signin').classList.add('hidden');
+  document.getElementById('twofa').classList.add('hidden');
+  document.getElementById('register').classList.add('hidden');
+  document.getElementById('resetpw').classList.remove('hidden');
+  msg('signinMsg','');
+}
+function doReset(){
+  var b = {invitationCode:rsInvite.value.trim(), name:rsName.value.trim(), email:rsEmail.value.trim(), newPassword:rsPass.value};
+  if(!b.invitationCode||!b.name||!b.email||!b.newPassword){ msg('resetMsg','Fill all fields','err'); return; }
+  api('/api/auth/reset',{method:'POST',body:b}).then(function(r){
+    if(r.status===200){ msg('resetMsg', r.data.message, 'ok'); setTimeout(function(){ showTab('signin'); liName.value=b.name; liEmail.value=b.email; },1600); }
+    else msg('resetMsg', r.data.error||'failed','err');
+  });
+}
+function doRegister(){
+  var b = {name:rgName.value.trim(), email:rgEmail.value.trim(), password:rgPass.value, invitationCode:rgInvite.value.trim()};
+  if(!b.invitationCode){ msg('regMsg','Invitation code likhein — ye sirf owner se milta hai (kahin pre-written nahi hota)','err'); return; }
+  if(!b.name||!b.email||!b.password){ msg('regMsg','Fill all fields','err'); return; }
+  api('/api/auth/register',{method:'POST',body:b}).then(function(r){
+    if(r.status===200){ msg('regMsg', r.data.message, 'ok'); setTimeout(function(){ showTab('signin'); liName.value=b.name; liEmail.value=b.email; },2500); }
+    else msg('regMsg', r.data.error||'failed','err');
+  });
+}
+function doLogin(){
+  msg('signinMsg',''); var email = liEmail.value.trim().toLowerCase();
+  var b = {name:liName.value.trim(), email:email, password:liPass.value};
+  if(!b.name||!b.email||!b.password){ msg('signinMsg','Fill all fields','err'); return; }
+  msg('signinMsg','Signing in…','ok');
+  api('/api/auth/login',{method:'POST',body:b}).then(function(r){
+    if(r.status!==200){ msg('signinMsg', r.data.error||'failed','err'); return; }
+    if(r.data.token){ /* v5.5 direct entry — dashboard opens instantly */
+      TOKEN = r.data.token; USER = r.data.user;
+      localStorage.setItem('atl_token', TOKEN);
+      enterApp(); return;
+    }
+    if(r.data.stage==='ENROLL_2FA'){
+      showTab('twofa');
+      document.getElementById('signin').classList.add('hidden');
+      document.getElementById('enrollBox').classList.remove('hidden');
+      document.getElementById('faMsg').textContent = r.data.message;
+      document.getElementById('faSecret').textContent = r.data.secret;
+      window._faEmail = email;
+    } else {
+      showTab('twofa');
+      document.getElementById('signin').classList.add('hidden');
+      document.getElementById('enrollBox').classList.add('hidden');
+      document.getElementById('faMsg').textContent = r.data.message;
+      window._faEmail = email;
+    }
+  });
+}
+function doVerify(){
+  api('/api/auth/verify2fa',{method:'POST',body:{email:window._faEmail, code:faCode.value.trim()}}).then(function(r){
+    if(r.status!==200){ msg('faErr', r.data.error||'invalid code','err'); return; }
+    TOKEN = r.data.token; USER = r.data.user;
+    localStorage.setItem('atl_token', TOKEN);
+    enterApp();
+  });
+}
+function doLogout(){
+  api('/api/auth/logout',{method:'POST'}).then(function(){ localStorage.removeItem('atl_token'); location.reload(); });
+}
+function enterApp(){
+  document.getElementById('auth').style.display='none';
+  document.getElementById('app').style.display='flex';
+  /* v5.7 — admin alerts polling (v1.8: Control Settings ke andar merge ho gaya) */
+  if(USER && USER.role==='ADMIN'){
+    pollAlerts(); setInterval(pollAlerts, 30000);
+  }
+  go('dash'); setInterval(refresh, 15000);
+}
+function pollAlerts(){
+  api('/api/admin/alerts').then(function(r){
+    var n = (r.data && r.data.unreadCount) || 0;
+    UNREAD = n; // v1.8 — Settings > Control section badge ke liye
+    updateNavBadges();
+  });
+  /* v1.9 OWNER GATE — PENDING approvals Home par foran dikhen (admin only) */
+  api('/api/admin/users').then(function(r){
+    PENDING = (r.data && r.data.pendingUsers) || 0;
+    PENDING_NAMES = (r.data.users||[]).filter(function(x){ return !x.approved; })
+      .map(function(x){ return x.name; }).join(', ');
+    updateNavBadges();
+    if(TAB==='dash') renderDash();
+  });
+}
+var UNREAD = 0, PENDING = 0, PENDING_NAMES = '';
+/* v1.9 — Settings nav button par red badge jab unread alerts ya pending approvals hon */
+function updateNavBadges(){
+  var b = document.querySelector('nav button[data-t="set"]');
+  if(!b) return;
+  var n = UNREAD + PENDING;
+  var base = '<span class="ic">⚙️</span>Settings';
+  b.innerHTML = n > 0 ? base + ' <span class="navbadge">' + n + '</span>' : base;
+}
+
+/* ---------------- tabs ---------------- */
+function go(t){
+  TAB = t;
+  var bs = document.querySelectorAll('nav button');
+  for(var i=0;i<bs.length;i++) bs[i].classList.toggle('on', bs[i].getAttribute('data-t')===t);
+  refresh();
+}
+function refresh(){
+  RENDER_TARGET = 'main';
+  if(TAB==='dash') renderDash();
+  else if(TAB==='ins') renderInsights();
+  else if(TAB==='trades') renderTrades();
+  else if(TAB==='lab') renderLab();
+  else if(TAB==='set') renderSettings();
+}
+/* v1.8 — renderer target helper: tabs render into 'main', merged tabs into sub-divs */
+var RENDER_TARGET = 'main';
+function tgt(){ return document.getElementById(RENDER_TARGET); }
+/* v1.8 INSIGHTS — Indicators + News + Instruments + Logs ek hi tab mein (chips se switch) */
+var INS_TAB = 'ind';
+function renderInsights(){
+  var t = tgt();
+  var chips = [['ind','📏 Indicators'],['news','📰 News'],['inst','🗂 Instruments'],['logs','📜 Logs']]
+    .map(function(c){ return '<button class="chip '+(INS_TAB===c[0]?'on':'')+'" onclick="INS_TAB=\''+c[0]+'\';renderInsights()">'+c[1]+'</button>'; }).join('');
+  t.innerHTML = '<div class="sechead"><h2 style="margin:0">📡 Insights</h2></div><div class="chips">'+chips+'</div><div id="insBody"></div>';
+  RENDER_TARGET = 'insBody';
+  if(INS_TAB==='ind') renderInd();
+  else if(INS_TAB==='news') renderNews();
+  else if(INS_TAB==='inst') renderInst();
+  else renderLogs();
+  RENDER_TARGET = 'main';
+}
+/* v1.8 SETTINGS — General + Broker + Control (admin) ek hi tab mein */
+var SET_TAB = 'general';
+function renderSettings(){
+  var t = tgt();
+  var chips = [['general','⚙️ General'],['broker','🔌 Broker']]
+    .concat(USER && USER.role==='ADMIN' ? [['control','🛡️ Control'+(UNREAD>0?' ('+UNREAD+')':'')]] : [])
+    .map(function(c){ return '<button class="chip '+(SET_TAB===c[0]?'on':'')+'" onclick="SET_TAB=\''+c[0]+'\';renderSettings()">'+c[1]+'</button>'; }).join('');
+  t.innerHTML = '<div class="sechead"><h2 style="margin:0">⚙️ Settings</h2></div><div class="chips">'+chips+'</div><div id="setBody"></div>';
+  RENDER_TARGET = 'setBody';
+  if(SET_TAB==='general') renderSet();
+  else if(SET_TAB==='broker') renderBroker();
+  else renderControl();
+  RENDER_TARGET = 'main';
+}
+function renderDash(){
+  api('/api/dashboard').then(function(r){
+    /* v1.0 BUGFIX: only a real 401 ends the session. A transient network hiccup
+       (status 0 while the engine restarts) must NOT wipe the saved token — the old
+       code logged the user out on every engine restart. */
+    if(r.status===401){ doLogout(); return; }
+    if(r.status!==200){ tgt().innerHTML = '<div class="banner warn">Engine busy/restarting — retrying…</div>'; return; }
+    var d = r.data, e = d.engine||{};
+    var ban = '';
+    /* v1.9 OWNER GATE — PENDING approvals sab se upar, admin ko miss nahi honge */
+    if(USER && USER.role==='ADMIN' && PENDING > 0){
+      ban += '<div class="banner red">⏳ <b>'+PENDING+' registration'+(PENDING>1?'s':'')+' PENDING approval</b>'+(PENDING_NAMES?' — <b>'+esc(PENDING_NAMES)+'</b>':'')+' — inlog abhi login NAHI kar sakte. <a href="#" onclick="SET_TAB=\'control\';go(\'set\');return false" style="color:#fbbf24;text-decoration:underline">Settings > Control me APPROVE karein →</a></div>';
+    }
+    /* v1.3 24/7 — battery optimization sab se pehle: yehi engine band hone ki
+       sab se aam wajah hai (OEM battery managers background killers) */
+    if(e.battery_ok === false) ban += '<div class="banner red">🔋 <b>24/7 ke liye zaroori:</b> Battery optimization abhi bhi ON hai — Android engine ko sula dega. App kholte waqt aane wale dialog mein <b>Allow</b> dabayen, ya Settings → Battery → AI Trading Lab → <b>Unrestricted</b> karein.</div>';
+    if(!e.engine_on) ban += '<div class="banner red">Engine is OFF — enable in Settings</div>';
+    else if(e.news_pause) ban += '<div class="banner warn">📰 High-impact news — new entries paused 30 min</div>';
+    else ban += '<div class="banner green">⏱ 24h scanner LIVE — '+e.active_symbols+' instruments on '+(e.timeframe||'1m')+' chart, day & night · 24/7 shield: '+esc(e.watchdog||'watchdog ON')+'</div>';
+    var spark = sparkSvg(d.equity||[]);
+    var chUps = ['BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT','DOGEUSDT'];
+    var chChips = chUps.map(function(s){
+      return '<button class="chip '+(CHART_SYM===s?'on':'')+'" onclick="CHART_SYM=\''+s+'\';renderDash()">'+s.replace('USDT','')+'</button>';
+    }).join('');
+    tgt().innerHTML =
+      ban +
+      '<div class="card full"><div style="display:flex;justify-content:space-between;align-items:baseline"><div class="k">'+esc(CHART_SYM)+' · M5 candlestick</div><div class="chartprice" id="chartPx">—</div></div>' +
+        '<div class="chartwrap"><canvas id="cchart"></canvas></div>' +
+        '<div class="chips" style="margin-top:10px">'+chChips+'</div>' +
+        '<div class="small" style="margin-top:6px">Real Binance 5m candles — engine inhi par 3C setups dhoondta hai. Green = close upar, red = close neeche.</div></div>' +
+      '<div class="grid">' +
+      card('Paper Balance', '$'+d.balance.toFixed(2), d.totalPnl>=0?'green':'red') +
+      card('Total P&L', (d.totalPnl>=0?'+':'')+d.totalPnl.toFixed(2)+' ('+(d.pnlPct>=0?'+':'')+d.pnlPct.toFixed(2)+'%)', d.totalPnl>=0?'green':'red') +
+      card('Open Positions', d.openCount+' <span class="mut" style="font-size:11px">trades</span><br><b style="font-size:15px">'+(d.openPnl>=0?'+':'')+d.openPnl.toFixed(2)+' $ live</b>', d.openPnl>=0?'green':'red') +
+      card('Win Rate', d.winRate.toFixed(1)+'% <span class="mut" style="font-size:11px">'+d.closedCount+' closed</span>', d.winRate>=50?'green':'red') +
+      card('Today', (d.dayPnlPct>=0?'+':'')+d.dayPnlPct.toFixed(2)+'%', d.dayPnlPct>=0?'green':'red') +
+      card('Drawdown', d.drawdownPct.toFixed(2)+'%', d.drawdownPct>-5?'green':'red') +
+      '<div class="card full"><div class="k">Equity (last 12h)</div><div id="sparkwrap">'+spark+'</div></div>' +
+      '<div class="card full"><div class="k">Engine Status</div>' +
+        '<table style="margin-top:6px"><tr><td class="mut">Consensus</td><td>'+esc(e.consensus||'')+'</td></tr>' +
+        '<tr><td class="mut">Strategy</td><td><b>'+(e.strategy_name||'3C Breakout (M5) — MASTER')+'</b> + PRO FILTER PACK (EMA200 trend · ATR floor · volume · zone-size) · risk '+(e.risk_pct!=null?e.risk_pct:'2')+'%/trade</td></tr>' +
+        '<tr><td class="mut">Market scanner</td><td>'+(e.scanner||'24h')+' nonstop · scan #'+(e.scan_count||0)+(e.fear_greed>=0?' · F&G '+e.fear_greed:'')+(e.threec_armed&&e.threec_armed.length?' · <b>'+e.threec_armed.length+' 3C setup(s) armed</b>':'')+'</td></tr>' +
+        '<tr><td class="mut">Instruments trading</td><td>'+e.active_symbols+' · '+(e.indicator_count||82)+' indicators · 10s scan · live stop-order entries</td></tr>' +
+        '<tr><td class="mut">Data feed</td><td>'+esc((e.data_host||'').replace('https://',''))+' · live Binance market data (real, not simulated) · fees 0.05%/side modeled</td></tr></table></div>' +
+      '</div>';
+    document.getElementById('hdrSub').textContent = USER ? (USER.name + (USER.role==='ADMIN'?' · ADMIN':'')) : '';
+    drawCandles();
+  });
+}
+/* ================= v1.8 CANDLESTICK CHART (dependency-free canvas) ================= */
+var CHART_SYM = 'BTCUSDT';
+function drawCandles(){
+  var cv = document.getElementById('cchart');
+  if(!cv) return;
+  api('/api/candles?symbol='+CHART_SYM+'&n=60').then(function(r){
+    if(TAB!=='dash') return;
+    var cv2 = document.getElementById('cchart');
+    if(!cv2) return;
+    if(r.status!==200 || !r.data.candles || r.data.candles.length<2){
+      var m = document.getElementById('chartPx');
+      if(m) m.textContent = 'warming up…';
+      return;
+    }
+    var ks = r.data.candles;
+    var dpr = window.devicePixelRatio || 1;
+    var W = cv2.clientWidth || 340, H = cv2.clientHeight || 260;
+    cv2.width = W*dpr; cv2.height = H*dpr;
+    var ctx = cv2.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, W, H);
+    var padR = 46, padT = 8, padB = 18, padL = 4;
+    var plotW = W - padR - padL, plotH = H - padT - padB;
+    var lo = Infinity, hi = -Infinity;
+    ks.forEach(function(k){ if(k.l<lo) lo=k.l; if(k.h>hi) hi=k.h; });
+    var pad = (hi-lo)*0.06 || hi*0.001;
+    lo -= pad; hi += pad;
+    var Y = function(p){ return padT + (hi-p)/(hi-lo)*plotH; };
+    var cw = plotW/ks.length;
+    var bw = Math.max(2, cw*0.62);
+    // grid + price labels
+    ctx.font = '9px -apple-system, sans-serif';
+    ctx.textAlign = 'left';
+    for(var g=0; g<=4; g++){
+      var p = lo + (hi-lo)*g/4;
+      var y = Y(p);
+      ctx.strokeStyle = 'rgba(139,149,168,.12)';
+      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL+plotW, y); ctx.stroke();
+      ctx.fillStyle = '#8b95a8';
+      ctx.fillText(fmtPx(p), padL+plotW+5, y+3);
+    }
+    // candles
+    ks.forEach(function(k, i){
+      var x = padL + i*cw + cw/2;
+      var up = k.c >= k.o;
+      var col = up ? '#10b981' : '#f87171';
+      ctx.strokeStyle = col; ctx.fillStyle = col;
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, Y(k.h)); ctx.lineTo(x, Y(k.l)); ctx.stroke();
+      var yo = Y(k.o), yc = Y(k.c);
+      var top = Math.min(yo, yc), hgt = Math.max(1.2, Math.abs(yc-yo));
+      if(up){ ctx.globalAlpha = 0.55; ctx.fillRect(x-bw/2, top, bw, hgt); ctx.globalAlpha = 1; ctx.strokeRect(x-bw/2+0.5, top+0.5, bw-1, hgt-1); }
+      else ctx.fillRect(x-bw/2, top, bw, hgt);
+    });
+    // last price line + tag
+    var last = ks[ks.length-1];
+    var lp = last.c, ly = Y(lp);
+    var lup = last.c >= last.o;
+    ctx.strokeStyle = lup ? 'rgba(52,211,153,.55)' : 'rgba(248,113,113,.55)';
+    ctx.setLineDash([4,3]);
+    ctx.beginPath(); ctx.moveTo(padL, ly); ctx.lineTo(padL+plotW, ly); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = lup ? '#10b981' : '#f87171';
+    ctx.fillRect(padL+plotW+2, ly-8, padR-4, 16);
+    ctx.fillStyle = '#06120c';
+    ctx.font = 'bold 9px -apple-system, sans-serif';
+    ctx.fillText(fmtPx(lp), padL+plotW+5, ly+3);
+    // time labels
+    ctx.fillStyle = '#5b6577';
+    ctx.font = '8.5px -apple-system, sans-serif';
+    var step = Math.ceil(ks.length/6);
+    for(var i2=0; i2<ks.length; i2+=step){
+      var t = new Date(ks[i2].ts);
+      ctx.fillText(('0'+t.getHours()).slice(-2)+':'+('0'+t.getMinutes()).slice(-2), padL+i2*cw+2, H-5);
+    }
+    // header price + change
+    var px = document.getElementById('chartPx');
+    if(px){
+      var first = ks[0].o;
+      var chg = (lp-first)/first*100;
+      px.className = 'chartprice '+(chg>=0?'up':'dn');
+      px.textContent = fmtPx(lp)+' ('+(chg>=0?'+':'')+chg.toFixed(2)+'%)';
+    }
+  });
+}
+function fmtPx(p){
+  if(p>=1000) return p.toLocaleString('en-US',{maximumFractionDigits:1});
+  if(p>=100) return p.toFixed(2);
+  if(p>=1) return p.toFixed(3);
+  return p.toFixed(5);
+}
+function card(k,v,cls){ return '<div class="card"><div class="k">'+k+'</div><div class="v '+(cls||'')+'">'+v+'</div></div>'; }
+function sparkSvg(a){
+  if(!a||a.length<2) return '<div class="empty">collecting data…</div>';
+  var w=320, h=80, min=Math.min.apply(null,a), max=Math.max.apply(null,a), rng=(max-min)||1;
+  var pts = a.map(function(v,i){ return (i/(a.length-1)*w).toFixed(1)+','+((h-6)-(v-min)/rng*(h-12)).toFixed(1); });
+  var up = a[a.length-1] >= a[0];
+  var col = up ? '#22c55e' : '#ef4444';
+  return '<svg id="spark" viewBox="0 0 '+w+' '+h+'" preserveAspectRatio="none"><polyline points="'+pts.join(' ')+'" fill="none" stroke="'+col+'" stroke-width="2.2" stroke-linejoin="round"/></svg>';
+}
+function renderInst(){
+  api('/api/instruments').then(function(r){
+    var d = r.data, rows = '';
+    var classes = [];
+    (d.instruments||[]).forEach(function(i){ if(classes.indexOf(i.assetClass)<0) classes.push(i.assetClass); });
+    classes.sort();
+    var chips = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin:10px 0">' +
+      ['ALL'].concat(classes).map(function(c){
+        var on = INST_CLASS===c;
+        return '<button class="btn '+(on?'':'sec')+'" style="padding:5px 10px;font-size:12px" onclick="filterInst(\''+c+'\')">'+c+'</button>';
+      }).join('') + '</div>';
+    var shown = 0;
+    (d.instruments||[]).forEach(function(i){
+      if (INST_CLASS !== 'ALL' && i.assetClass !== INST_CLASS) return;
+      shown++;
+      rows += '<tr><td><b>'+esc(i.symbol)+'</b><br><span class="mut" style="font-size:10px">'+esc(i.exchange)+' · '+esc(i.assetClass)+'</span>' +
+        '<br><span class="mut" style="font-size:10px">'+esc((i.note||'').substring(0,46))+'</span></td>' +
+        '<td><span class="pill '+i.status+'">'+i.status.replace('PENDING_BROKER','PENDING').replace('_',' ')+'</span>' +
+        (i.lastDataAt? '<br><span class="mut" style="font-size:10px">'+fmtTime(i.lastDataAt)+'</span>':'') + '</td></tr>';
+    });
+    tgt().innerHTML =
+      '<div class="banner green">Auto-discovery ON — new instruments register themselves and trading starts automatically.<br>' +
+      '<b>'+d.active+'</b> trading · <b>'+d.watching+'</b> watching · <b>'+d.pending+'</b> pending broker · total <b>'+d.total+'</b> (PDF encyclopedia universe)</div>' +
+      '<button class="btn sec" onclick="scanNow()">🔍 Scan for new instruments now</button>' +
+      chips +
+      '<h2>Instruments Ledger ('+shown+')</h2>' +
+      (rows ? '<table>'+rows+'</table>' : '<div class="empty">First discovery scan running — refresh in a minute</div>');
+  });
+}
+function scanNow(){
+  api('/api/instruments/scan',{method:'POST'}).then(function(r){ alert(r.data.message||'scan started'); });
+}
+/* ---- v5.9 Indicators tab — full PDF encyclopedia library + live values ---- */
+function renderInd(){
+  api('/api/indicators').then(function(r){
+    var d = r.data || {};
+    var lib = d.library || [];
+    var groups = {};
+    lib.forEach(function(row){ var g = row[0]; if(!groups[g]) groups[g] = []; groups[g].push(row); });
+    var v = d.values || {};
+    function fnum(x, dig){ return (typeof x === 'number' && isFinite(x)) ? x.toFixed(dig===undefined?2:dig) : '—'; }
+    function line(name, val){
+      if (val === null || val === undefined) return '';
+      var s;
+      if (Array.isArray(val)) s = val.map(function(z){ return typeof z === 'number' && isFinite(z) ? z.toFixed(4) : esc(z); }).join(' / ');
+      else if (typeof val === 'number') s = fnum(val, 4);
+      else s = esc(val);
+      return '<tr><td class="mut">'+esc(name)+'</td><td style="text-align:right"><b>'+s+'</b></td></tr>';
+    }
+    var live = '';
+    if (d.ok) {
+      live = '<div class="banner green">Live 1m indicator snapshot — <b>'+esc(d.symbol)+'</b>'+(v.candlePattern?' · pattern: <b>'+esc(v.candlePattern)+'</b>':'')+(v.harmonic?' · harmonic: <b>'+esc(v.harmonic)+'</b>':'')+'</div>' +
+        '<table>' +
+        line('Price', v.price) +
+        line('RSI 14', v.rsi14) + line('Stochastic K/D', v.stoch) + line('StochRSI K/D', v.stochRsi) +
+        line('MACD line/signal', v.macd) + line('ADX / +DI / -DI', v.adx ? [v.adx, v.plusDi, v.minusDi] : null) +
+        line('Bollinger L/M/U', v.bb) + line('Keltner', v.keltner) + line('Donchian U/M/L', v.donchian) +
+        line('EMA 9 / 21 / 50', [v.ema9, v.ema21, v.ema50]) + line('HMA 21', v.hma21) + line('KAMA', v.kama) +
+        line('ALMA 9', v.alma9) + line('T3', v.t3) + line('ZLEMA 20', v.zlema20) + line('McGinley 14', v.mcginley14) +
+        line('PSAR (dir)', v.psar) + line('Supertrend (dir)', v.supertrend) +
+        line('Ichimoku T/K/A/B', v.ichimoku) + line('Aroon Up/Down', v.aroon) + line('Vortex VI+/VI-', v.vortex) +
+        line('Alligator J/T/L', v.alligator) +
+        line('CCI 20', v.cci20) + line('Williams %R', v.williamsR) + line('ROC 9', v.roc9) +
+        line('TSI', v.tsi) + line('CMO 14', v.cmo14) + line('Fisher', v.fisher) + line('DeMarker', v.deMarker) +
+        line('SMI', v.smi) + line('BOP', v.bop14) + line('Laguerre RSI', v.laguerreRsi) + line('RVI 10', v.rvi10) +
+        line('Awesome Osc', v.awesomeOsc) + line('Schaff TC', v.schaff) + line('KST', v.kst) + line('Coppock', v.coppock) +
+        line('TRIX 15', v.trix15) + line('Mass Index', v.massIndex) + line('Choppiness', v.choppiness14) + line('DPO 20', v.dpo20) +
+        line('ATR 14', v.atr14) + line('StDev 20', v.stdev20) + line('Chandelier Exit', v.chandelier22) +
+        line('MFI 14', v.mfi14) + line('OBV slope', v.obvSlope) + line('A/D slope', v.adSlope) +
+        line('CMF 20', v.cmf20) + line('Chaikin Osc', v.chaikinOsc) + line('Force Index', v.forceIndex) +
+        line('EOM 14', v.eom14) + line('Klinger', v.klinger) + line('PVT slope', v.pvtSlope) + line('Volume Osc', v.volumeOsc) +
+        line('VWAP', v.vwap) + line('Pivots PP/R1/S1', v.pivots ? [v.pivots[0], v.pivots[1], v.pivots[4]] : null) +
+        line('Fib 50 / 61.8', v.fib ? [v.fib[2], v.fib[3]] : null) + line('Fractals up/dn', v.fractals) +
+        line('FVG / BOS / Sweep', [v.fvg, v.bos, v.sweep]) + line('Fear & Greed', v.fearGreed) +
+        '</table>';
+    } else {
+      live = '<div class="empty">'+esc(d.reason || 'warming up — first 5m candles loading...')+'</div>';
+    }
+    var html = '<div class="banner green">📏 Complete Trading Encyclopedia — <b>'+lib.length+' indicators</b> live on the 5m chart · Engine 3C MASTER strategy (M5) chala raha hai</div>';
+    html += live;
+    html += '<h2>Indicator Library</h2>';
+    Object.keys(groups).forEach(function(g){
+      html += '<h3 style="margin:14px 0 6px;font-size:14px;color:#8b9cff">'+esc(g)+' <span class="mut" style="font-size:11px">('+groups[g].length+')</span></h3><table>';
+      groups[g].forEach(function(row){
+        html += '<tr><td><b>'+esc(row[1])+'</b></td><td style="text-align:right"><span class="mut" style="font-size:11px">'+esc(row[2])+'</span></td></tr>';
+      });
+      html += '</table>';
+    });
+    tgt().innerHTML = html;
+  });
+}
+/* ---- v5.9 instruments asset-class filter ---- */
+var INST_CLASS = 'ALL';
+function filterInst(cls){ INST_CLASS = cls; renderInst(); }
+function renderNews(){
+  api('/api/news').then(function(r){
+    var d = r.data, rows = '';
+    (d.news||[]).forEach(function(n){
+      rows += '<div class="logline"><span class="pill '+n.sentiment+'">'+n.sentiment+'</span> '+
+        (n.impact==='HIGH'?'<span class="pill HIGH">HIGH IMPACT</span> ':'')+
+        '<b>'+esc(n.headline)+'</b><br><span class="mut">'+esc(n.source)+' · '+fmtTime(n.ts)+'</span></div>';
+    });
+    tgt().innerHTML =
+      (d.pauseActive? '<div class="banner warn">High-impact news active — new entries paused 30 min</div>' : '') +
+      '<h2>News Feed (auto-ingested)</h2>' +
+      (rows || '<div class="empty">Fetching news…</div>') +
+      '<div class="small" style="margin-top:14px">Every headline is scored for sentiment (bullish/bearish) and impact. High-impact news pauses new entries for 30 minutes to protect paper trades.</div>';
+  });
+}
+function renderTrades(){
+  if(TAB!=='trades') return;   /* v1.6 — stale auto-refresh timer guard */
+  api('/api/trades').then(function(r){
+    var open='', closed='';
+    (r.data.trades||[]).forEach(function(t){
+      /* v1.6 — LIVE floating P/L: abhi ka price + unrealized plus/minus + R multiple */
+      var liveCell='';
+      if(t.status==='OPEN' && t.price!=null){
+        var pl=t.pnlLive||0;
+        liveCell='<br><span class="mut" style="font-size:10px">abhi '+t.price.toFixed(4)+'</span> '+
+          '<b style="font-size:12px;color:'+(pl>=0?'#4ade80':'#f87171')+'">'+(pl>=0?'+':'')+pl.toFixed(2)+' $</b>'+
+          (t.rNow!=null?' <span class="mut" style="font-size:10px">('+(t.rNow>=0?'+':'')+t.rNow.toFixed(2)+'R)</span>':'');
+      }
+      var row = '<tr><td><b>'+esc(t.symbol)+'</b> <span class="pill '+t.side+'">'+t.side+'</span><br><span class="mut" style="font-size:10px">'+esc(t.strategy)+' · '+(t.consensus*100).toFixed(0)+'% · '+fmtTime(t.openedAt)+'</span></td>' +
+        '<td style="text-align:right">qty '+t.qty.toFixed(5)+'<br>entry '+t.entry.toFixed(4)+liveCell+'</td>' +
+        (t.status==='OPEN'
+          ? '<td style="text-align:right"><button class="pill ACTIVE" style="border:0" onclick="closeTrade('+t.id+')">CLOSE</button></td>'
+          : '<td style="text-align:right"><b style="color:'+(t.pnl>=0?'#4ade80':'#f87171')+'">'+(t.pnl>=0?'+':'')+t.pnl.toFixed(2)+'</b><br><span class="mut" style="font-size:10px">'+t.status+' '+fmtTime(t.closedAt)+'</span></td>') +
+        '</tr>';
+      if(t.status==='OPEN') open += row; else closed += row;
+    });
+    /* v1.6 — total floating P/L banner: sab open trades ka combined unrealized P/L */
+    var f=r.data.floating||0, fc=r.data.floatingCount||0;
+    var flBanner = open? '<div class="banner '+(f>=0?'green':'red')+'">⚡ <b>LIVE P/L: '+(f>=0?'+':'')+f.toFixed(2)+' $</b> — '+fc+' open trade(s) is waqt is plus/minus mein chal rahi hain · har 5s update</div>' : '';
+    tgt().innerHTML =
+      flBanner +
+      '<h2>Open Positions</h2>' + (open? '<table>'+open+'</table>' : '<div class="empty">No open positions — 24h scanner is watching the market on 5m candles</div>') +
+      '<h2>History</h2>' + (closed? '<table>'+closed+'</table>' : '<div class="empty">No closed trades yet</div>') +
+      '<div id="histWrap"><div class="empty">Archive load ho raha hai…</div></div>' +
+      '<div class="small" style="margin-top:14px">Archive <b>permanent</b> hai — trades kabhi delete nahi hoti, page refresh par gayab nahi hotin. Year → Month → Day kholein, ya kisi bhi month ki CSV file download karein.</div>';
+    api('/api/history').then(function(h){
+      var el = document.getElementById('histWrap'); if(!el) return;
+      el.innerHTML = histHtml((h.data&&h.data.years)||[]);
+    });
+    /* v1.6 — trades tab active rahe to har 5s live P/L refresh */
+    if(TAB==='trades') setTimeout(renderTrades, 5000);
+  });
+}
+/* v1.2 — permanent archive: Year → Month → Day accordion + per-month CSV download */
+function histHtml(years){
+  if(!years.length) return '<h2>Archive — Year → Month → Day</h2><div class="empty">Abhi koi closed trade nahi — archive khud bharta jayega</div>';
+  var out = '<h2>Archive — Year → Month → Day <span class="mut" style="font-size:11px">(permanent)</span></h2>';
+  years.forEach(function(y){
+    out += '<div class="logline" style="cursor:pointer" onclick="histTog(\'hy'+y.y+'\')"><b>📅 '+esc(y.y)+'</b> — '+y.trades+' trades · '+y.wins+' wins · PnL <b style="color:'+(y.pnl>=0?'#4ade80':'#f87171')+'">'+(y.pnl>=0?'+':'')+y.pnl.toFixed(2)+'</b><span class="mut"> (tap kholein)</span></div><div id="hy'+y.y+'" class="hidden" style="padding-left:10px">';
+    (y.months||[]).forEach(function(m){
+      out += '<div class="logline" style="cursor:pointer" onclick="histTog(\'hm'+y.y+m.m+'\')"><b>🗓 '+esc(y.y)+'-'+esc(m.m)+'</b> — '+m.trades+' trades · '+m.wins+' wins · '+(m.pnl>=0?'+':'')+m.pnl.toFixed(2)+' <button class="pill INFO" style="border:0;margin-left:6px" onclick="event.stopPropagation();histCsv('+y.y+','+m.m+')">CSV ⬇</button></div><div id="hm'+y.y+m.m+'" class="hidden" style="padding-left:10px">';
+      (m.days||[]).forEach(function(d){
+        out += '<div class="logline"><span class="mut">Day '+esc(d.d)+'</span> — '+d.trades+' trades · '+d.wins+' wins · '+(d.pnl>=0?'+':'')+d.pnl.toFixed(2)+' · vol $'+d.vol.toFixed(0)+'</div>';
+      });
+      out += '</div>';
+    });
+    out += '</div>';
+  });
+  return out;
+}
+function histTog(id){ var el=document.getElementById(id); if(el) el.classList.toggle('hidden'); }
+function histCsv(y,m){
+  fetch('/api/history/csv?y='+y+'&m='+m, {headers: TOKEN?{'Authorization':'Bearer '+TOKEN}:{}})
+  .then(function(r){ return r.text(); })
+  .then(function(t){
+    var blob = new Blob([t], {type:'text/csv'});
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'atl-trades-'+y+'-'+(m<10?'0'+m:m)+'.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+  });
+}
+/* ================== v1.2 STRATEGY LAB ================== */
+var LAB = null;
+var INP = 'width:100%;padding:11px;border-radius:10px;border:1px solid #27272a;background:#09090b;color:#e4e4e7;font-size:14px;font-family:inherit';
+function renderLab(){
+  api('/api/strategies').then(function(r){
+    if(r.status!==200){ tgt().innerHTML='<div class="banner warn">'+esc((r.data&&r.data.error)||'Lab load failed')+'</div>'; return; }
+    LAB = r.data;
+    var d = LAB, rows='';
+    (d.custom||[]).forEach(function(s){ rows += customRow(s); });
+    var ch = d.ytChannel||{};
+    var builtin='';
+    (d.builtin||[]).forEach(function(s){
+      builtin += '<tr><td><b>'+esc(s.name)+'</b><br><span class="mut" style="font-size:10px">'+esc(s.group)+'</span></td>' +
+        '<td style="text-align:right"><span class="pill '+(s.vote>0?'BUY':(s.vote<0?'SELL':'INFO'))+'">'+(s.vote>0?'BUY':(s.vote<0?'SELL':'—'))+'</span></td></tr>';
+    });
+    tgt().innerHTML =
+      '<div class="banner green">🧪 Strategy Lab — AI pipeline: <b>likho / YouTube video do → AI banati hai → Backtest (1000 real candles) → Paper chalao → aap LIVE approve karo → engine khud trade karta hai</b></div>' +
+      '<h2>1 · AI se strategy banao (kisi bhi zubaan mein)</h2>' +
+      '<div class="card full"><textarea id="aiText" rows="4" placeholder="e.g. Jab RSI 30 se neeche ho aur price EMA50 ke upar ho to BUY — aur jab RSI 70 se upar ho to SELL karo" style="'+INP+'"></textarea>' +
+      '<div class="row" style="margin-top:8px"><button class="btn" onclick="labAdd()">🤖 AI COMPILE</button><button class="btn sec" onclick="labLoad()">🔄 Refresh</button></div>' +
+      '<div class="small" style="margin-top:6px">AI aapki baat ko machine rules banata hai — phir backtest se prove hota hai. Backtest symbol: <b>'+esc(d.symbol||'BTCUSDT')+'</b> <input id="labSym" placeholder="BTCUSDT" style="'+INP+';width:110px;padding:6px;margin-left:4px"><button class="pill INFO" style="border:0" onclick="labSym()">SET</button></div>' +
+      '<div id="aiMsg"></div></div>' +
+      '<h2>2 · YouTube — video dekho, strategy adopt karo</h2>' +
+      '<div class="card full">' +
+      '<input id="ytUrl" placeholder="Video link: https://youtube.com/watch?v=..." style="'+INP+'">' +
+      '<button class="btn" style="margin-top:8px" onclick="labYt()">🎬 VIDEO WATCH KARO</button>' +
+      '<div class="small" style="margin:10px 0 4px"><b>Channel watcher</b> — YouTuber ki HAR nayi video + live stream khud process hogi (engine har 15 min check karta hai):</div>' +
+      '<input id="ytCh" placeholder="Channel link: https://youtube.com/@name" style="'+INP+'">' +
+      '<div class="row" style="margin-top:8px"><button class="btn sec" onclick="labCh()">📺 SUBSCRIBE</button>' +
+      (ch.id? '<button class="btn sec" onclick="labChStop()">🛑 STOP watcher ('+esc(ch.name||'watching')+')</button>' : '') + '</div>' +
+      '<div id="ytMsg"></div></div>' +
+      '<h2>3 · Meri Lab strategies ('+((d.custom||[]).length)+')</h2>' +
+      (rows || '<div class="empty">Abhi koi custom strategy nahi — upar AI se banao ya YouTube video do</div>') +
+      // v1.7 TRASH — deleted strategies, 7 din tak UNDO
+      '<div id="trashSec"></div>' +
+      '<h2>4 · 3C MASTER strategy (M5)</h2>' +
+      '<table>'+builtin+'</table>' +
+      '<div class="small" style="margin-top:10px">'+esc(d.masterNote||'3C MASTER')+' — vote: +1 BUY setup armed, -1 SELL setup armed (last scanned symbol: '+esc(d.lastVoteSym||'-')+').</div>';
+    var ts = d.trashCount||0;
+    if(ts>0){
+      api('/api/strategies',{method:'POST',body:{action:'trash'}}).then(function(t){
+        var el = document.getElementById('trashSec');
+        if(!el) return;
+        if(t.status!==200){ el.innerHTML=''; return; }
+        var trows='';
+        (t.data.trash||[]).forEach(function(s){
+          trows += '<tr><td><b>'+esc(s.name)+'</b> <span class="pill ERROR">TRASH</span><br><span class="mut" style="font-size:10px">'+esc(s.status)+' · '+s.daysLeft+' din baaki</span></td>'+
+            '<td style="text-align:right"><button class="pill BUY" style="border:0" onclick="labRestore('+s.id+')">↩ RESTORE</button></td></tr>';
+        });
+        el.innerHTML = '<h2>🗑 Trash ('+ts+') — 7 din tak wapas la sakte ho</h2><table>'+trows+'</table>';
+      });
+    }
+  });
+}
+function labMsg(id, txt, ok){ var el=document.getElementById(id); if(el) el.innerHTML = txt? '<div class="banner '+(ok?'green':'red')+'" style="margin-top:8px">'+txt+'</div>' : ''; }
+function customRow(s){
+  var stCls = {ACTIVE:'BUY', PAPER:'INFO', BACKTESTED:'WARN', CANDIDATE:'INFO', REJECTED:'ERROR'}[s.status]||'INFO';
+  var st = s.stats||{};
+  var stats = st.trades>0 ? '<span class="mut" style="font-size:10px">'+st.trades+' trades · win '+st.winrate+'% · PF '+st.pf+' · net '+st.netPct+'% · maxDD '+st.maxDD+'% ('+esc(st.symbol||'')+')</span>' : '';
+  var btns = '';
+  if(s.status==='CANDIDATE') btns += '<button class="pill INFO" style="border:0" onclick="labAct(\'backtest\','+s.id+')">▶ BACKTEST</button> ';
+  if(s.status==='BACKTESTED'){ btns += '<button class="pill INFO" style="border:0" onclick="labAct(\'paper\','+s.id+')">🧪 PAPER</button> <button class="pill BUY" style="border:0" onclick="labAct(\'approve\','+s.id+')">✅ LIVE</button> '; }
+  if(s.status==='PAPER'){ btns += '<button class="pill BUY" style="border:0" onclick="labAct(\'approve\','+s.id+')">✅ LIVE</button> '; }
+  if(s.status!=='REJECTED') btns += '<button class="pill ERROR" style="border:0" onclick="labAct(\'reject\','+s.id+')">✖</button> ';
+  btns += '<button class="pill WARN" style="border:0" onclick="labAct(\'delete\','+s.id+')">🗑</button>';
+  var vid = s.video&&s.video.id? '<a class="mut" style="font-size:10px;color:#8b9cff" href="https://youtube.com/watch?v='+esc(s.video.id)+'">🎬 '+esc((s.video.title||'').slice(0,50))+'</a><br>' : '';
+  return '<tr><td><b>'+esc(s.name)+'</b> <span class="pill '+stCls+'">'+s.status+'</span><br>'+vid+
+    '<span class="mut" style="font-size:10px">'+esc(s.source)+' · '+esc(s.rules||'')+'</span><br>'+stats+'</td>' +
+    '<td style="text-align:right">'+btns+'</td></tr>';
+}
+function labLoad(){ renderLab(); }
+function labAdd(){
+  var t = document.getElementById('aiText').value.trim();
+  if(!t){ labMsg('aiMsg', 'Pehle strategy likhein', false); return; }
+  labMsg('aiMsg', '🤖 AI soch raha hai… (10–30 sec)', true);
+  api('/api/strategies',{method:'POST',body:{action:'add',text:t}}).then(function(r){
+    if(r.status===200){ labMsg('aiMsg', '✅ Bani: <b>'+esc(r.data.strategy.name)+'</b> — ab BACKTEST dabayein', true); renderLab(); }
+    else labMsg('aiMsg', esc((r.data&&r.data.error)||'AI fail — dobara try karein'), false);
+  });
+}
+function labYt(){
+  var u = document.getElementById('ytUrl').value.trim();
+  if(!u){ labMsg('ytMsg', 'Video link dein', false); return; }
+  labMsg('ytMsg', '🎬 Video ka transcript parh kar AI strategy nikal rahi hai… (20–60 sec)', true);
+  api('/api/strategies',{method:'POST',body:{action:'yt_add',url:u}}).then(function(r){
+    if(r.status===200){ labMsg('ytMsg', '✅ Video se strategy bani: <b>'+esc(r.data.strategy.name)+'</b> — ab BACKTEST karein', true); renderLab(); }
+    else labMsg('ytMsg', esc((r.data&&r.data.error)||'Video process fail'), false);
+  });
+}
+function labCh(){
+  var u = document.getElementById('ytCh').value.trim();
+  if(!u){ labMsg('ytMsg', 'Channel link dein', false); return; }
+  labMsg('ytMsg', '📺 Channel resolve ho raha hai…', true);
+  api('/api/strategies',{method:'POST',body:{action:'yt_channel',url:u}}).then(function(r){
+    if(r.status===200){ labMsg('ytMsg', '✅ Subscribe ho gaya — ab har nayi video + live stream khud AI se process hogi', true); renderLab(); }
+    else labMsg('ytMsg', esc((r.data&&r.data.error)||'Channel fail'), false);
+  });
+}
+function labChStop(){
+  api('/api/strategies',{method:'POST',body:{action:'yt_stop'}}).then(function(){ renderLab(); });
+}
+function labSym(){
+  var v = document.getElementById('labSym').value.trim().toUpperCase();
+  if(!v) return;
+  api('/api/strategies',{method:'POST',body:{action:'set_symbol',symbol:v}}).then(function(){ renderLab(); });
+}
+function labAct(action, id){
+  if(action==='delete' && !confirm('Strategy Trash mein jayegi — 7 din tak UNDO possible. Continue?')) return;
+  if(action==='approve' && !confirm('LIVE approve? Ye strategy ab apne aap trades kholégi (paper money).')) return;
+  if(action==='backtest') labMsg('aiMsg', '📊 Backtest chal raha hai — 1000 real candles… (5–15 sec)', true);
+  api('/api/strategies',{method:'POST',body:{action:action,id:id}}).then(function(r){
+    if(r.status===200 && r.data.stats){
+      var s = r.data.stats;
+      labMsg('aiMsg', '📊 Result: '+s.trades+' trades · win '+s.winrate+'% · PF '+s.pf+' · net '+s.netPct+'% · maxDD '+s.maxDD+'% — pasand aaye to PAPER/LIVE dabayein', s.netPct>=0);
+      renderLab();
+    } else if(r.status!==200) labMsg('aiMsg', esc((r.data&&r.data.error)||'Action fail'), false);
+    else {
+      renderLab();
+      // v1.7 UNDO — delete ke baad 8 sec tak wapas lene ka mauka (Gmail-style undo)
+      if(action==='delete' && r.data && r.data.message) labUndoToast(r.data.message, id);
+    }
+  });
+}
+/* v1.7 UNDO toast — galti se delete? Ek click mein wapas */
+function labUndoToast(msg, id){
+  var el = document.getElementById('aiMsg');
+  if(!el) return;
+  el.innerHTML = '<div class="banner warn" style="margin-top:8px">🗑 '+esc(msg)+' <button class="pill BUY" style="border:0;margin-left:6px" onclick="labRestore('+id+')">↩ UNDO</button></div>';
+  clearTimeout(labUndoToast._t);
+  labUndoToast._t = setTimeout(function(){
+    var e2 = document.getElementById('aiMsg');
+    if(e2 && e2.innerHTML.indexOf('labRestore('+id+')')>=0) e2.innerHTML='';
+  }, 8000);
+}
+function labRestore(id){
+  api('/api/strategies',{method:'POST',body:{action:'restore',id:id}}).then(function(r){
+    labMsg('aiMsg', r.status===200 ? '✅ '+(r.data.message||'Strategy restore ho gayi') : esc((r.data&&r.data.error)||'Restore fail'), r.status===200);
+    renderLab();
+  });
+}
+function closeTrade(id){
+  if(confirm('Close this paper position at market?'))
+    api('/api/trades/close',{method:'POST',body:{id:id}}).then(function(){ renderTrades(); });
+}
+function renderLogs(){
+  api('/api/logs').then(function(r){
+    var rows = '';
+    (r.data.logs||[]).forEach(function(l){
+      rows += '<div class="logline"><span class="mut">'+fmtTime(l.ts)+'</span> <span class="pill '+l.level+'">'+l.level+'</span> <span class="cmp">'+esc(l.component)+'</span> — '+esc(l.event)+'<br><span class="mut" style="font-size:11px">'+esc(l.details)+'</span></div>';
+    });
+    tgt().innerHTML = '<h2>System Ledger (all history)</h2>' +
+      (rows || '<div class="empty">No logs yet</div>') +
+      '<div class="small" style="margin-top:14px">Every engine action is recorded permanently: discovery, data, signals, executions, risk, news, auth, brokers.</div>';
+  });
+}
+function renderBroker(){
+  api('/api/brokers').then(function(r){
+    var rows = '';
+    (r.data.brokers||[]).forEach(function(b){
+      rows += '<tr><td><b>'+esc(b.name)+'</b><br><span class="mut" style="font-size:10px">'+esc(b.kind)+' · added '+fmtTime(b.addedAt)+'</span></td>' +
+        '<td style="text-align:right"><span class="pill SAVED">'+b.status+'</span><br><button class="pill ERROR" style="border:0;margin-top:6px" onclick="delBroker('+b.id+')">REMOVE</button></td></tr>';
+    });
+    tgt().innerHTML =
+      '<div class="banner green">Add any broker with API key + login credentials. They are stored safely on this device and auto-connect when you enable live trading (v5 live phase).</div>' +
+      '<h2>Add Custom Broker</h2>' +
+      '<div class="field"><label>BROKER NAME</label><input id="bkName" placeholder="e.g. My Binance / OANDA / My Broker"></div>' +
+      '<div class="field"><label>BROKER TYPE</label><select id="bkKind"><option>CUSTOM</option><option>BINANCE</option><option>OANDA</option><option>MT4/MT5</option><option>INTERACTIVE_BROKERS</option></select></div>' +
+      '<div class="field"><label>API KEY</label><input id="bkKey" placeholder="API key from broker"></div>' +
+      '<div class="field"><label>API SECRET</label><input id="bkSecret" type="password" placeholder="API secret"></div>' +
+      '<div class="field"><label>LOGIN / ACCOUNT ID</label><input id="bkLogin" placeholder="Login or account number"></div>' +
+      '<div class="field"><label>BROKER PASSWORD</label><input id="bkPass" type="password" placeholder="Account password"></div>' +
+      '<button class="btn" onclick="addBroker()">Save broker credentials</button><div id="bkMsg"></div>' +
+      '<h2>Saved Brokers</h2>' + (rows? '<table>'+rows+'</table>' : '<div class="empty">No brokers added yet</div>');
+  });
+}
+function addBroker(){
+  var b = {name:bkName.value.trim(), kind:bkKind.value, apiKey:bkKey.value.trim(), apiSecret:bkSecret.value, login:bkLogin.value.trim(), password:bkPass.value};
+  if(!b.name||!b.apiKey){ msg('bkMsg','Broker name and API key are required','err'); return; }
+  api('/api/brokers',{method:'POST',body:b}).then(function(r){
+    if(r.status===200){ msg('bkMsg',r.data.message,'ok'); setTimeout(renderBroker,800); }
+    else msg('bkMsg', r.data.error,'err');
+  });
+}
+function delBroker(id){
+  if(confirm('Remove this broker?'))
+    api('/api/brokers/'+id,{method:'DELETE'}).then(function(){ renderBroker(); });
+}
+function renderSet(){
+  api('/api/settings').then(function(r){
+    var on = r.data.engineOn;
+    var cd = r.data.cooldownMin != null ? r.data.cooldownMin : 15;
+    var cl = r.data.consecLoss != null ? r.data.consecLoss : 3;
+    var dk = r.data.dailyKillPct != null ? r.data.dailyKillPct : 0;
+    api('/api/dashboard').then(function(d){
+      var bal = d.data && d.data.balance != null ? d.data.balance : 0;
+      tgt().innerHTML =
+        '<h2>Paper Balance</h2>' +
+        '<div class="card full"><div class="k">Apna paper amount — jitna chaho</div>' +
+        '<div class="v">$'+Number(bal).toFixed(2)+'</div>' +
+        '<div class="row" style="margin-top:8px"><input id="balAmt" type="number" min="10" max="100000000" step="any" inputmode="decimal" placeholder="Naya amount, e.g. 100" style="flex:1;min-width:0;padding:11px;border-radius:10px;border:1px solid #27272a;background:#09090b;color:#e4e4e7;font-size:15px"><button class="btn" onclick="setBalance()">💵 SET</button></div>' +
+        '<div class="small" style="margin-top:10px"><b>$10 se $100,000,000</b> tak koi bhi amount set karo. Default naya account: <b>$100</b>. Amount badalne par open trades cancel hoti hain (naye balance par dobara size hongi) aur PnL%/drawdown naye base se count hota hai. Risk per trade = <b>2% default (aap 0.1%–20% tak set kar sakte ho, Settings > Risk)</b> — v1.8 se risk badaya gaya hai aapki request par.</div></div>' +
+        '<h2>Engine</h2>' +
+        '<div class="card full"><div class="k">Paper trading engine</div>' +
+        '<div class="row"><button class="btn '+(on?'sec':'')+'" onclick="setEngine(true)">▶ START</button>' +
+        '<button class="btn '+(on?'':'sec')+'" onclick="setEngine(false)">⏸ STOP</button></div>' +
+        '<div class="small" style="margin-top:10px">Engine runs in background via Android foreground service. It survives app close and phone reboot. Fees realistic model hoti hain: <b>0.05% per side</b> (Binance futures taker) — paper P/L real jaisa.</div></div>' +
+        '<h2>🛡️ PRO GUARD — protections (freqtrade-style)</h2>' +
+        '<div class="card full">' +
+        '<div class="k">1 · Loss cooldown — SL loss ke baad us symbol par naya entry kitni der band</div>' +
+        '<div class="row" style="margin-top:8px"><input id="cdMin" type="number" min="0" max="240" step="1" value="'+cd+'" style="'+INP+';width:110px;padding:8px"><button class="btn" onclick="setGuard(\'cooldownMin\')">SET</button></div>' +
+        '<div class="small" style="margin-top:6px">Default <b>15 minutes</b> (freqtrade CooldownPeriod). 0 = off. Loss ke baad thanda waqt — revenge trading se bachao.</div>' +
+        '<div class="k" style="margin-top:14px">2 · Consecutive-loss pause — lagatar kitne SL losses par 1 ghanta pause</div>' +
+        '<div class="row" style="margin-top:8px"><input id="clN" type="number" min="0" max="10" step="1" value="'+cl+'" style="'+INP+';width:110px;padding:8px"><button class="btn" onclick="setGuard(\'consecLoss\')">SET</button></div>' +
+        '<div class="small" style="margin-top:6px">Default <b>3 losses</b> (freqtrade StoplossGuard). 0 = off. Market aapke setup ke khilaf hai — ruk jao.</div>' +
+        '<div class="k" style="margin-top:14px">3 · Daily kill switch — aaj ka total loss is % se neeche gaya to aaj ke naye entries band</div>' +
+        '<div class="row" style="margin-top:8px"><input id="dkPct" type="number" min="0" max="90" step="any" value="'+dk+'" style="'+INP+';width:110px;padding:8px"><button class="btn" onclick="setGuard(\'dailyKillPct\')">SET</button></div>' +
+        '<div class="small" style="margin-top:6px">Abhi <b>'+(dk>0?('ON — daily -'+dk+'% par ruk jayega'):'OFF — unlimited (aapki purani request)')+'</b>. 0 = off. Open trades ka SL/TP/breakeven kill switch ke baad bhi normal chalta hai — sirf NAYE entries rukti hain. Kal UTC reset.</div>' +
+        '<div id="guardMsg" style="margin-top:8px"></div></div>' +
+        '<h2>🎯 PRO FILTER PACK — 92-din backtest proved (v1.8)</h2>' +
+        '<div class="card full">' +
+        '<div class="small" style="margin-bottom:10px">Ye filters <b>bina backtest proof ke</b> nahi lage: purane rules se 92 din mein PF 0.07 (gobra hua loss) — filters ke saath PF 0.83 aur drawdown 175x kam. Losses ka asli sabab: chhote zones par fees risk se zyada + trend ke khilaf entries + dead chop.</div>' +
+        '<div class="k">1 · Min zone size (risk-distance % of price)</div>' +
+        '<div class="row" style="margin-top:8px"><input id="fRd" type="number" min="0" max="2" step="0.05" value="'+(r.data.proRdMin!=null?r.data.proRdMin:0.25)+'" style="'+INP+';width:110px;padding:8px"><button class="btn" onclick="setFilter(\'proRdMin\')">SET</button></div>' +
+        '<div class="small" style="margin-top:6px">Default <b>0.25%</b> — fee-bomb fix: chhota zone = fees risk se zyada. 0 = off.</div>' +
+        '<div class="k" style="margin-top:14px">2 · EMA200 trend filter</div>' +
+        '<div class="row" style="margin-top:8px"><button class="btn '+(r.data.proEmaFilter?'':'sec')+'" onclick="setFilter(\'proEmaFilter\',true)">ON</button><button class="btn '+(r.data.proEmaFilter?'sec':'')+'" onclick="setFilter(\'proEmaFilter\',false)">OFF</button></div>' +
+        '<div class="small" style="margin-top:6px">BUY sirf EMA200 ke upar, SELL sirf neeche — trend ke khilaf trading band (default ON).</div>' +
+        '<div class="k" style="margin-top:14px">3 · ATR floor (% of price)</div>' +
+        '<div class="row" style="margin-top:8px"><input id="fAtr" type="number" min="0" max="2" step="0.01" value="'+(r.data.proAtrFloor!=null?r.data.proAtrFloor:0.08)+'" style="'+INP+';width:110px;padding:8px"><button class="btn" onclick="setFilter(\'proAtrFloor\')">SET</button></div>' +
+        '<div class="small" style="margin-top:6px">Default <b>0.08%</b> — dead chop mein entries band. 0 = off.</div>' +
+        '<div class="k" style="margin-top:14px">4 · Volume participation</div>' +
+        '<div class="row" style="margin-top:8px"><button class="btn '+(r.data.proVolFilter?'':'sec')+'" onclick="setFilter(\'proVolFilter\',true)">ON</button><button class="btn '+(r.data.proVolFilter?'sec':'')+'" onclick="setFilter(\'proVolFilter\',false)">OFF</button></div>' +
+        '<div class="small" style="margin-top:6px">Setup candle ka volume 1.2× average se zyada ho — weak breakouts band (default ON).</div>' +
+        '<div id="filterMsg" style="margin-top:8px"></div></div>' +
+        '<h2>Version</h2><div class="card full"><div class="k">AI Trading Lab</div><div class="v">'+r.data.version+' · Phone Server</div>' +
+        '<div class="small" style="margin-top:8px">Full system on this device: instruments ledger, news engine, system logs ledger, paper executor, broker vault'+(USER&&USER.role==='ADMIN'?', owner Control panel (Settings > Control)':'')+'. No PC needed.</div></div>';
+    });
+  });
+}
+function setGuard(key){
+  var id = {cooldownMin:'cdMin', consecLoss:'clN', dailyKillPct:'dkPct'}[key];
+  var v = parseFloat(document.getElementById(id).value);
+  if(isNaN(v) || v < 0){ alert('Number dein (0 ya zyada)'); return; }
+  var b = {}; b[key] = v;
+  api('/api/settings',{method:'POST',body:b}).then(function(r){
+    var el = document.getElementById('guardMsg');
+    if(el) el.innerHTML = '<div class="banner green">✅ '+key+' = '+v+' set ho gaya</div>';
+    setTimeout(renderSettings, 1200);
+  });
+}
+function setFilter(key, boolVal){
+  var b = {};
+  if(boolVal === true || boolVal === false) b[key] = boolVal;
+  else {
+    var id = {proRdMin:'fRd', proAtrFloor:'fAtr'}[key];
+    var v = parseFloat(document.getElementById(id).value);
+    if(isNaN(v) || v < 0){ alert('Number dein (0 ya zyada)'); return; }
+    b[key] = v;
+  }
+  api('/api/settings',{method:'POST',body:b}).then(function(r){
+    var el = document.getElementById('filterMsg');
+    if(el) el.innerHTML = '<div class="banner green">✅ Filter set — naye setups par foran apply</div>';
+    setTimeout(renderSettings, 1200);
+  });
+}
+function setBalance(){
+  var el = document.getElementById('balAmt');
+  var v = parseFloat(el && el.value);
+  if(!v || isNaN(v) || v < 10){ alert('$10 se kam nahi ho sakta — amount likhein (e.g. 100)'); return; }
+  if(v > 100000000){ alert('Maximum $100,000,000'); return; }
+  api('/api/balance',{method:'POST',body:{amount:v}}).then(function(r){
+    if(r.status===200){ alert(r.data.message||('Paper balance set: $'+v)); renderSettings(); }
+    else alert(r.data.error||'Balance set failed — dobara try karein');
+  });
+}
+function setEngine(on){
+  api('/api/settings',{method:'POST',body:{engineOn:on}}).then(function(){ renderSettings(); });
+}
+
+/* --------- v5.7 FULL MOBILE CONTROL — owner ki poori taqat, ek tab me --------- */
+function renderControl(){
+  if(!USER || USER.role!=='ADMIN'){
+    tgt().innerHTML = '<div class="banner red">Owner account required — ye section sirf owner ke liye hai</div>';
+    return;
+  }
+  api('/api/admin/alerts').then(function(a){
+    if(a.status!==200){ tgt().innerHTML = '<div class="banner red">'+esc(a.data.error||'Control load failed')+'</div>'; return; }
+    api('/api/admin/users').then(function(u){
+      api('/api/admin/invites').then(function(iv){ paintControl(a.data, u.data, iv.data); });
+    });
+  });
+}
+function paintControl(al, us, iv){
+  var alerts = al.alerts||[], unread = al.unreadCount||0, users = us.users||[], invites = iv.invites||[];
+  var alHtml = '';
+  alerts.forEach(function(n){
+    alHtml += '<div class="logline'+(n.read?'':' unread')+'"><b>'+esc(n.title)+'</b><br>'+esc(n.body)+
+      '<br><span class="mut" style="font-size:10px">'+fmtTime(n.createdAt)+' · '+(n.read?'read':'<b style="color:#fbbf24">NEW</b>')+'</span></div>';
+  });
+  var uHtml = '';
+  users.forEach(function(x){
+    var self = (USER && USER.id===x.id);
+    var pend = !x.approved; /* v1.9 OWNER GATE — approved=0 = PENDING, login blocked */
+    uHtml += '<tr><td><b>'+esc(x.name)+'</b>'+(x.role==='ADMIN'?' <span class="pill ADMIN">ADMIN</span>':'')+
+      (pend?' <span class="pill WARN">PENDING</span>':'')+
+      '<br><span class="mut" style="font-size:10px">'+esc(x.email)+' · joined '+fmtTime(x.createdAt)+' · '+x.sessions+' session(s)</span></td>'+
+      '<td style="text-align:right">'+(pend?'<span class="pill WARN">LOGIN BLOCKED</span><br>':'')+
+      '<span class="pill '+(!pend&&x.active?'ACTIVE':'ERROR')+'">'+(pend?'PENDING':(x.active?'ACTIVE':'OFF'))+'</span><br>'+
+      (pend? '<button class="pill ACTIVE pillbtn" onclick="userAction('+x.id+',\'approve\')">✓ APPROVE</button> ' : '')+
+      (self? '<span class="mut" style="font-size:10px">you</span>' :
+        '<button class="pill '+(!pend&&!x.active?'ACTIVE':'WARN')+' pillbtn" onclick="userAction('+x.id+',\''+(!pend&&x.active?'deactivate':'activate')+'\')">'+(!pend&&x.active?'DISABLE':'ENABLE')+'</button> '+
+        '<button class="pill ERROR pillbtn" onclick="userAction('+x.id+',\'delete\')">DEL</button>')+
+      '</td></tr>';
+  });
+  var iHtml = '';
+  invites.forEach(function(c){
+    iHtml += '<tr><td><b style="letter-spacing:.06em">'+esc(c.code)+'</b><br><span class="mut" style="font-size:10px">'+esc(c.label||'')+' · '+c.uses+' uses / '+(c.maxUses>0?c.maxUses:'unlimited')+'</span></td>'+
+      '<td style="text-align:right"><span class="pill '+(c.active?'ACTIVE':'ERROR')+'">'+(c.active?'ACTIVE':'OFF')+'</span><br>'+
+      '<button class="pill '+(c.active?'ERROR':'ACTIVE')+' pillbtn" onclick="inviteAction(\''+esc(c.code)+'\',\''+(c.active?'revoke':'activate')+'\')">'+(c.active?'REVOKE':'ENABLE')+'</button>'+
+      '</td></tr>';
+  });
+  tgt().innerHTML =
+    '<div class="banner green">🛡️ Owner Control — users, invites, alerts sab aapke control me. Naya registration hote hi status-bar alert + yahan NEW entry + Home par red banner. <b>Approval ke baad hi user login kar sakta hai</b> · sirf 1 ADMIN (aap) — baaki sab TRADER.</div>'+
+    '<div class="grid">'+
+    card('Total Users', us.total!=null?us.total:'—','')+
+    card('Active Users', us.activeUsers!=null?us.activeUsers:'—','green')+
+    card('Pending Approval', us.pendingUsers>0?'<span style="color:#fbbf24">'+us.pendingUsers+'</span>':'0', us.pendingUsers>0?'':'green')+
+    card('Invite Codes', iv.total!=null?iv.total:'—','')+
+    '</div>'+
+    (us.pendingUsers>0 ? '<div class="banner red">⏳ '+us.pendingUsers+' user(s) approval ka intezar kar rahe hain — neeche Users list me <b>✓ APPROVE</b> dabayen, tabhi wo login kar sakenge.</div>' : '')+
+    '<h2>🔔 Registration Alerts '+(unread>0?'<span class="navbadge" style="vertical-align:middle">'+unread+'</span>':'')+'</h2>'+
+    '<div class="row"><button class="btn sec" onclick="alertAction(\'read-all\')">✓ Mark all read</button><button class="btn sec" onclick="alertAction(\'clear\')">🧹 Clear read</button></div>'+
+    (alHtml || '<div class="empty">Koi alert nahi — naya registration hote hi yahan + status-bar me foran aayega</div>')+
+    '<h2>👥 Users</h2>'+
+    (uHtml ? '<table>'+uHtml+'</table>' : '<div class="empty">No users yet</div>')+
+    '<h2>🎟️ Invitation Codes</h2>'+
+    '<div class="card full"><div class="k">Naya code banayen</div>'+
+    '<div class="small" style="margin-bottom:8px">Code <b>kahin display nahi hota</b> — aap khud user ko bhejen (WhatsApp etc). Revoked code se registration fail hoti hai.</div>'+
+    '<div class="field" style="margin-top:8px"><label>LABEL (optional)</label><input id="ivLabel" placeholder="e.g. Bhai ke liye"></div>'+
+    '<div class="field"><label>MAX USES (0 = unlimited)</label><input id="ivMax" inputmode="numeric" value="0"></div>'+
+    '<button class="btn" onclick="inviteCreate()">Generate new invite code</button></div>'+
+    (iHtml ? '<table>'+iHtml+'</table>' : '<div class="empty">No invite codes</div>')+
+    '<div class="small" style="margin-top:14px">Disabled user foran sign-out ho jata hai. PENDING user login nahi kar sakta jab tak aap APPROVE na dabayen. Delete = user + uska paper data permanently remove.</div>';
+}
+
+function userAction(id, action){
+  if(action==='delete' && !confirm('Delete this user permanently? Their sessions, paper account and trades are removed.')) return;
+  api('/api/admin/users',{method:'POST',body:{id:id,action:action}}).then(function(r){
+    if(r.status===200 && action==='approve') alert(r.data.message||'User approved');
+    else if(r.status!==200) alert(r.data.error||'action failed');
+    renderControl(); pollAlerts();
+  });
+}
+function inviteAction(code, action){
+  api('/api/admin/invites',{method:'POST',body:{code:code,action:action}}).then(function(r){
+    if(r.status!==200) alert(r.data.error||'action failed');
+    renderControl();
+  });
+}
+function inviteCreate(){
+  var b = {action:'create', label:document.getElementById('ivLabel').value.trim(), maxUses:parseInt(document.getElementById('ivMax').value||'0',10)||0};
+  api('/api/admin/invites',{method:'POST',body:b}).then(function(r){
+    if(r.status===200){ alert(r.data.message||('Naya code: '+r.data.code)); renderControl(); }
+    else alert(r.data.error||'code generate failed');
+  });
+}
+function alertAction(action){
+  api('/api/admin/alerts',{method:'POST',body:{action:action}}).then(function(){ renderControl(); pollAlerts(); });
+}
+
+/* ---------------- boot ---------------- */
+(function(){
+  /* v5.5 engine status strip on the sign-in screen — engine state is always visible */
+  api('/api/health').then(function(r){
+    var el = document.getElementById('engStrip');
+    if(el && r.status===200 && r.data.ok){
+      el.innerHTML = '● Engine running — v' + (r.data.version||'5.7') + ' · ready';
+      el.className = 'eng ok';
+    } else if(el){
+      el.innerHTML = '● Engine offline — app band karke dobara kholein';
+      el.className = 'eng bad';
+    }
+  });
+  if(TOKEN){
+    /* v1.0 BUGFIX: clear the stored token ONLY on an auth rejection (401) — a
+       transient engine restart (status 0) must keep the session alive. */
+    api('/api/dashboard').then(function(r){
+      if(r.status===200){ if(!USER && r.data.user) USER = r.data.user; enterApp(); }
+      else if(r.status===401){ localStorage.removeItem('atl_token'); TOKEN=''; }
+    });
+  }
+})();
