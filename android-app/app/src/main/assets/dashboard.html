@@ -433,7 +433,7 @@ function tgt(){ return document.getElementById(RENDER_TARGET); }
 var INS_TAB = 'ind';
 function renderInsights(){
   var t = tgt();
-  var chips = [['edge','📊 Edge Analytics'],['seas','🗓 Seasonality'],['ind','📏 Indicators'],['news','📰 News'],['inst','🗂 Instruments'],['logs','📜 Logs']]
+  var chips = [['edge','📊 Edge Analytics'],['seas','🗓 Seasonality'],['mkt','🌐 Markets'],['ind','📏 Indicators'],['news','📰 News'],['inst','🗂 Instruments'],['logs','📜 Logs']]
     .map(function(c){ return '<button class="chip '+(INS_TAB===c[0]?'on':'')+'" onclick="INS_TAB=\''+c[0]+'\';renderInsights()">'+c[1]+'</button>'; }).join('');
   t.innerHTML = '<div class="sechead"><h2 style="margin:0">📡 Insights</h2></div><div class="chips">'+chips+'</div><div id="insBody"></div>';
   RENDER_TARGET = 'insBody';
@@ -442,6 +442,7 @@ function renderInsights(){
   else if(INS_TAB==='inst') renderInst();
   else if(INS_TAB==='edge') renderEdge();
   else if(INS_TAB==='seas') renderSeason();
+  else if(INS_TAB==='mkt') renderMkt();
   else renderLogs();
   RENDER_TARGET = 'main';
 }
@@ -786,6 +787,112 @@ function renderInst(){
 }
 function scanNow(){
   api('/api/instruments/scan',{method:'POST'}).then(function(r){ alert(r.data.message||'scan started'); });
+}
+/* ===== v3.1 MARKETS — Binance SPOT registry + broker registry (READ-ONLY, honest labels) ===== */
+var MKT_Q = '', MKT_PAGE = 1, MKT_REJ = 'all';
+function mstat(label, v, warn){
+  var vStr = (v===null||v===undefined)?'—':String(v);
+  return '<div style="flex:1;min-width:86px;background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:9px;padding:7px 9px">' +
+    '<div style="font-size:16px;font-weight:800;color:'+(warn?'#fbbf24':'#4ade80')+'">'+esc(vStr)+'</div>' +
+    '<div class="mut" style="font-size:9px;line-height:1.3">'+esc(label)+'</div></div>';
+}
+function mpill(txt, color){
+  var map = {green:['rgba(16,185,129,.15)','#4ade80'],red:['rgba(248,113,113,.15)','#f87171'],
+             amber:['rgba(240,180,41,.15)','#fbbf24'],grey:['rgba(148,163,184,.12)','#94a3b8']};
+  var c = map[color]||map.grey;
+  return '<span class="pill" style="background:'+c[0]+';color:'+c[1]+'">'+esc(txt)+'</span>';
+}
+function renderMkt(){
+  var t = tgt();
+  t.innerHTML = '<div class="sechead"><h2 style="margin:0">🌐 Markets — data sources (READ-ONLY)</h2></div>' +
+    '<div id="mktSrc"><div class="empty">Loading…</div></div><div id="mktUni"></div><div id="mktReg"><div class="empty">Loading…</div></div>';
+  api('/api/binance/coverage').then(function(r){
+    var el = document.getElementById('mktSrc'); if(!el) return;
+    if(r.status!==200){ el.innerHTML='<div class="banner warn">Binance coverage unavailable — '+esc((r.data&&r.data.error)||'engine off')+'</div>'; return; }
+    var c = r.data;
+    var state = c.in_backoff ? mpill('RATE_LIMIT_BACKOFF','amber') : (c.last_error ? mpill('LAST_ERROR','amber') : mpill('READ_ONLY','green'));
+    var skew = (c.server_skew_ms==='UNKNOWN'||c.server_skew_ms==='null') ? 'UNKNOWN' : c.server_skew_ms+'ms';
+    el.innerHTML = '<div class="card" style="margin-bottom:12px"><h3 style="margin:4px 0">🅑 Binance SPOT — official public market data '+state+'</h3>' +
+      '<div class="mut" style="font-size:11px">host '+esc(c.host)+' · category '+esc(c.category)+' · tf '+esc(c.tf)+' · <b>order path: NONE</b> · unofficial-ban protection: Retry-After + budget '+c.weight_budget+'/min</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:9px 0">' +
+      mstat('Eligible symbols', c.eligible) + mstat('Rejected (reasons kept)', c.rejected) + mstat('Watchlist', c.watchlist_size) +
+      mstat('Fresh (sampled)', c.fresh) + mstat('Stale (sampled)', c.stale, true) + mstat('No data yet', c.no_data_yet) +
+      mstat('Suspected gaps', c.suspected_gaps, true) + mstat('Used weight 1m', c.used_weight_1m) + '</div>' +
+      '<div class="mut" style="font-size:11px">last discovery '+fmtTime(Number(c.last_discovery_at))+' · last watchlist sync '+fmtTime(Number(c.last_watchlist_sync))+' · clock skew '+esc(skew)+' · stale threshold '+esc(c.stale_after_min)+' min</div>' +
+      (c.last_error ? '<div class="banner warn" style="margin-top:7px;margin-bottom:0">last provider error: '+esc(c.last_error)+'</div>' : '') +
+      '<div class="note" style="margin-top:9px">Binance data sirf research ke liye — 3C MASTER strategy feed UNTOUCHED (koi provider substitution nahi). Unfinished candles <b>closed=false</b> mark hoti hain — kabhi final nahi maani jati.</div>' +
+      '<details style="margin-top:9px"><summary class="mut" style="cursor:pointer;font-size:12px">⚙️ Binance pipeline settings (owner/admin)</summary>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">' +
+      mset('bin_enabled','enabled (1/0)', c) + mset('bin_quotes','quotes (USDT / *)', c) + mset('bin_disc_h','discovery hours', c) +
+      mset('bin_sync_s','sync seconds', c) + mset('bin_bf','backfill batch', c) + mset('bin_stale_m','stale min', c) + mset('bin_w','weight budget', c) + '</div>' +
+      '<button class="btn" style="margin-top:8px" onclick="saveMkt()">Save Binance settings (admin)</button></details></div>';
+  });
+  renderMktUniverse();
+  api('/api/brokers/registry').then(function(r){
+    var el = document.getElementById('mktReg'); if(!el) return;
+    if(r.status!==200){ el.innerHTML='<div class="banner warn">Broker registry unavailable</div>'; return; }
+    var rows = '';
+    (r.data.adapters||[]).forEach(function(a){
+      var caps = (a.capabilities||[]).map(function(cap){
+        var dis = cap.indexOf(':disabled')>=0; var name = dis?cap.replace(':disabled',''):cap;
+        return '<span style="display:inline-block;margin:1px;padding:1px 6px;border-radius:5px;font-size:9px;font-weight:700;background:'+(dis?'rgba(148,163,184,.1)':'rgba(16,185,129,.12)')+';color:'+(dis?'#64748b':'#4ade80')+'">'+esc(name)+(dis?' ✕':'')+'</span>';
+      }).join(' ');
+      rows += '<tr><td><b>'+esc(a.name)+'</b><br><span class="mut" style="font-size:10px">id '+esc(a.id)+' · adapter '+esc(a.adapter_version)+'</span><br><span class="mut" style="font-size:10px">'+esc(a.limitations)+'</span></td>' +
+        '<td>'+mpill(a.status, a.status.indexOf('DISABLED')===0?'grey':(a.status.indexOf('CONNECTED')===0?'green':(a.status.indexOf('NOT_AUTH')===0?'red':'amber'))) +
+        '<div style="margin-top:5px">'+caps+'</div>' +
+        (a.order_path_active ? '<div style="margin-top:4px">'+mpill('ORDER PATH ACTIVE — OWNER GATED','red')+'</div>' : '') +
+        '<div class="mut" style="font-size:9.5px;margin-top:4px">approval: '+esc(a.source_approval)+'</div></td></tr>';
+    });
+    el.innerHTML = '<h2>Broker / source registry</h2><table>'+rows+'</table>' +
+      '<div class="note">Registry rule: jo capability declare NAHI hui wo DISABLED hai. Order placement sirf MT5 bridge mirror me hai — default OFF, sirf owner on kar sakta hai.</div>';
+  });
+}
+function mset(id, label, c){
+  var map = {bin_enabled:['binanceEnabled','binance_enabled'],bin_quotes:['binanceQuotes','binance_quotes'],bin_disc_h:['binanceDiscoveryHours','binance_discovery_hours'],
+             bin_sync_s:['binanceSyncSec','binance_sync_sec'],bin_bf:['binanceBackfillBatch','binance_backfill_batch'],bin_stale_m:['binanceStaleMin','binance_stale_min'],bin_w:['binanceWeightBudget','binance_weight_budget']};
+  var m = map[id];
+  return '<div style="flex:1;min-width:120px"><div class="mut" style="font-size:9.5px;margin-bottom:3px">'+esc(label)+'</div>' +
+    '<input id="'+id+'" value="'+esc(String(c[m[1]]))+'" style="width:100%;background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:8px;color:var(--tx);padding:7px 9px;font-size:12px"></div>';
+}
+function saveMkt(){
+  var body = {};
+  var g = function(id){ var e = document.getElementById(id); return e ? e.value : null; };
+  var en = g('bin_enabled');
+  if(en!==null) body.binanceEnabled = (en==='1'||en==='true');
+  if(g('bin_quotes')!==null) body.binanceQuotes = g('bin_quotes');
+  if(g('bin_disc_h')!==null) body.binanceDiscoveryHours = Number(g('bin_disc_h'));
+  if(g('bin_sync_s')!==null) body.binanceSyncSec = Number(g('bin_sync_s'));
+  if(g('bin_bf')!==null) body.binanceBackfillBatch = Number(g('bin_bf'));
+  if(g('bin_stale_m')!==null) body.binanceStaleMin = Number(g('bin_stale_m'));
+  if(g('bin_w')!==null) body.binanceWeightBudget = Number(g('bin_w'));
+  api('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){
+    alert(r.status===200 ? 'Binance settings saved' : ('Save failed ('+r.status+'): '+((r.data&&r.data.error)||'admin-only')));
+    renderMkt();
+  });
+}
+function renderMktUniverse(){
+  var el = document.getElementById('mktUni'); if(!el) return;
+  el.innerHTML = '<div class="card" style="margin-bottom:12px"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+    '<input id="mktQ" placeholder="Search symbol / base (e.g. BTC)" value="'+esc(MKT_Q)+'" style="flex:1;min-width:160px;background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:8px;color:var(--tx);padding:8px 10px;font-size:12px" onkeydown="if(event.key===\'Enter\'){MKT_Q=this.value;MKT_PAGE=1;renderMktUniverse();}">' +
+    '<button class="btn sec" onclick="MKT_Q=document.getElementById(\'mktQ\').value;MKT_PAGE=1;renderMktUniverse()">Search</button>' +
+    ['all','eligible','rejected'].map(function(x){ return '<button class="btn '+(MKT_REJ===x?'':'sec')+'" onclick="MKT_REJ=\''+x+'\';MKT_PAGE=1;renderMktUniverse()">'+x+'</button>'; }).join('') + '</div><div id="mktUniBody" style="margin-top:9px"><div class="empty">Loading…</div></div></div>';
+  var q = '/api/binance/universe?ps=25&page='+MKT_PAGE+(MKT_REJ!=='all'?'&rej='+MKT_REJ:'')+(MKT_Q?'&q='+encodeURIComponent(MKT_Q):'');
+  api(q).then(function(r){
+    var b = document.getElementById('mktUniBody'); if(!b) return;
+    if(r.status!==200){ b.innerHTML = '<div class="banner warn">Registry load failed</div>'; return; }
+    var d = r.data, rows = '';
+    (d.symbols||[]).forEach(function(s){
+      rows += '<tr><td><b>'+esc(s.symbol)+'</b><br><span class="mut" style="font-size:10px">'+esc(s.base)+'/'+esc(s.quote)+' · '+esc(s.status)+'</span></td>' +
+        '<td><span class="mut" style="font-size:10px">tick '+esc(s.tick_size||'—')+' · step '+esc(s.step_size||'—')+' · minQty '+esc(s.min_qty||'—')+' · minNotional '+esc(s.min_notional||'—')+'</span>' +
+        (s.rejected ? '<br>'+mpill(s.reject_reason||'REJECTED','red') : mpill('ELIGIBLE','green')) +
+        '<br><span class="mut" style="font-size:9px">verified '+fmtTime(Number(s.last_verified))+'</span></td></tr>';
+    });
+    var pages = Math.max(1, Math.ceil(d.total/d.page_size));
+    b.innerHTML = '<div class="mut" style="font-size:11px;margin-bottom:6px">'+d.total+' symbols match · page '+d.page+'/'+pages+' (dynamic universe — exchangeInfo se discover hua, koi hardcoded list nahi)</div>' +
+      (rows ? '<table>'+rows+'</table>' : '<div class="empty">Koi symbol nahi mila — engine pehli discovery kar raha hoga (12h cadence, start par ek baar chalti hai)</div>') +
+      '<div style="display:flex;gap:8px;margin-top:8px"><button class="btn sec" onclick="if(MKT_PAGE>1){MKT_PAGE--;renderMktUniverse();}">← Prev</button>' +
+      '<button class="btn sec" onclick="if(MKT_PAGE<'+pages+'){MKT_PAGE++;renderMktUniverse();}">Next →</button></div>';
+  });
 }
 /* ---- v5.9 Indicators tab — full PDF encyclopedia library + live values ---- */
 function renderInd(){
