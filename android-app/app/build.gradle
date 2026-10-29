@@ -37,6 +37,8 @@ android {
     }
 }
 
-// Zero external dependencies — pure platform widgets (fastest, most reliable build)
+// Runtime: zero external dependencies — pure platform widgets (fastest, most reliable build)
+// Test scope only (v3.0.2): JUnit for the P0 loopback-binding regression test. Not packaged in the APK.
 dependencies {
+    testImplementation 'junit:junit:4.13.2'
 }

@@ -142,7 +142,7 @@ public class Api {
             db.log("INFO", "DISCOVERY", "MANUAL_SCAN", "user triggered discovery + news scan");
             return Res.json(200, new JSONObject().put("ok", true).put("message", "Discovery + news scan started"));
         }
-        if ("/api/settings".equals(path)) return saveSettings(body);
+        if ("/api/settings".equals(path)) return saveSettings(uid, body);
         // v1.2 — owner ka apna paper amount: set ANY paper balance
         if ("/api/balance".equals(path)) return setBalance(uid, body);
         // v1.2 Strategy Lab — add/compile/watch/backtest/paper/approve
@@ -1024,8 +1024,21 @@ public class Api {
         return r;
     }
 
-    private Res saveSettings(String body) throws Exception {
+    private Res saveSettings(long uid, String body) throws Exception {
         JSONObject o = HttpServer.jObj(body);
+        // v3.0.2 GOVERNANCE: the MT5 bridge is the ONLY live-order surface in the app
+        // (EngineCore.bridgeOrder/bridgeClose POST real orders to the bridge when
+        // bridge_live=1). Until v3.0.2 ANY authenticated TRADER could enable it here.
+        // All three bridge settings are now OWNER(ADMIN)-only; unauthorized attempts
+        // are rejected AND logged to the audit ledger.
+        boolean admin = isAdmin(uid);
+        if (o.has("mt5Bridge") || o.has("bridgeLive") || o.has("bridgeLots")) {
+            if (!admin) {
+                db.log("WARN", "GUARD", "SETTINGS_ADMIN_BLOCKED",
+                        "user #" + uid + " (non-admin) ne MT5 bridge setting change ki koshish — REJECT (live-order surface owner-only hai)");
+                return Res.error(403, "MT5 bridge settings sirf owner (ADMIN) change kar sakta hai");
+            }
+        }
         if (o.has("engineOn")) {
             boolean on = o.optBoolean("engineOn");
             db.setSetting("engine_on", on ? "1" : "0");

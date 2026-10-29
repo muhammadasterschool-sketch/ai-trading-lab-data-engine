@@ -4,6 +4,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
@@ -22,7 +23,33 @@ public class HttpServer {
     public HttpServer(Api api) { this.api = api; }
 
     public void start() throws IOException {
-        server = new ServerSocket(PORT);
+        // v3.0.2 P0 SECURITY FIX: bind ONLY to the IPv4 loopback interface.
+        // The previous `new ServerSocket(PORT)` bound the wildcard address (all
+        // interfaces), which exposed the dashboard + JSON API to every device on the
+        // phone's network (home LAN, cafe/hotel WiFi included). Explicit 127.0.0.1
+        // creates an IPv4-only socket — this class creates no separate IPv6 listener.
+        // Note: on Android, 127.0.0.1 is device-global (other on-device apps could
+        // still connect) — the session-token auth in Api.route() remains the second
+        // gate; this fix removes the network-reachable surface entirely.
+        // Bounded retry (5 x 300ms): quick service restarts (watchdog/START_STICKY)
+        // can arrive while the previous listener's closed connections still linger in
+        // TIME_WAIT on 127.0.0.1:8788 — a single bind attempt could fail with
+        // BindException and leave the engine dashboardless for a full watchdog cycle.
+        IOException last = null;
+        for (int attempt = 0; attempt < 5; attempt++) {
+            try {
+                server = new ServerSocket();
+                server.setReuseAddress(true);
+                server.bind(new java.net.InetSocketAddress(InetAddress.getByName("127.0.0.1"), PORT), 50);
+                last = null;
+                break;
+            } catch (IOException e) {
+                last = e;
+                try { if (server != null) server.close(); } catch (IOException ignored) { }
+                try { Thread.sleep(300); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+            }
+        }
+        if (last != null) throw last;
         running = true;
         Thread acceptor = new Thread(() -> {
             while (running) {
@@ -92,7 +119,11 @@ public class HttpServer {
         head.append("Content-Type: ").append(res.contentType).append("\r\n");
         head.append("Content-Length: ").append(body.length).append("\r\n");
         head.append("Cache-Control: no-store\r\n");
-        head.append("Access-Control-Allow-Origin: *\r\n");
+        // v3.0.2 P0: Access-Control-Allow-Origin: * REMOVED. The dashboard is served
+        // same-origin from this server, so it never needed CORS. A wildcard ACAO made
+        // the OPTIONS preflight succeed for ANY website opened in the phone's browser,
+        // letting that page read the local API cross-origin. Without the header the
+        // browser blocks those reads; the on-device WebView app is unaffected.
         head.append("Connection: close\r\n\r\n");
         out.write(head.toString().getBytes(StandardCharsets.UTF_8));
         out.write(body);
