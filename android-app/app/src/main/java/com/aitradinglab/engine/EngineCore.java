@@ -58,15 +58,15 @@ import org.json.JSONObject;
  */
 public class EngineCore implements Runnable {
     // v2.1 — Binance retired: MT5 halal commodities feed (DATA section neeche).
-    private static final String TF = "5m";                 // 3C strategy timeframe (MASTER PROMPT: M5)
-    private static final long TF_MS = 5L * 60 * 1000;
+    private static final String TF = "1m";                 // v4.1 BINANCE timeframe (owner: 1m candles)
+    private static final long TF_MS = 60L * 1000;
     /** public for StrategyLab backtester */ public static final long TF_MS_PUB = TF_MS;
     private static final int ACTIVE_TOP = 30;      // halal universe (27) — cap sirf safety
     // ==== 3C STRATEGY CONSTANTS (MASTER PROMPT — kabhi change nahi without owner approval) ====
     public static final double THREEC_BODY_MIN = 0.70;  // C1 & C2 body >= 70% of High-Low range
     public static final int THREEC_WINDOW = 5;          // breakout window: next 5 M5 candles
     public static final double THREEC_TP_R = 3.0;       // take profit at +3R, whole position
-    private static final double RISK_DEFAULT_PCT = 2.0; // v1.8: owner "risk increase karoo" (was 1.0)
+    private static final double RISK_DEFAULT_PCT = 1.0; // v4.1: owner "risk should be 1 percent on a trade" (was 2.0)
     // ==== v1.7 PRO GUARD — professional protections (freqtrade-inspired) ====
     /** Commodity futures/CFD taker fee per side (0.05%) — paper P/L ab realistic.
      *  freqtrade/production bots hamesha fees model karte hain warna paper results
@@ -78,7 +78,7 @@ public class EngineCore implements Runnable {
 
     private final Db db;
     private volatile boolean running = true;
-    private String dataHost = "PUBLIC-FUTURES";   // v2.1: PUBLIC-FUTURES ya MT5-BRIDGE (status ke liye)
+    private String dataHost = "BINANCE-SPOT";      // v4.1: BINANCE-SPOT ya MT5-BRIDGE (status ke liye)
     private long lastDiscovery = 0, lastNews = 0, lastLoop = 0, lastEvolve = 0;
     private String lastConsensus = "";
     private int activeSymbols = 0;
@@ -132,6 +132,46 @@ public class EngineCore implements Runnable {
             if (v > 20) v = 20;
             return v;
         } catch (Exception e) { return RISK_DEFAULT_PCT; }
+    }
+
+    /** v4.1 OWNER RULE: "min trades 25 ho phir consensus percentage par increase ho jaye
+     *  aur risk should be 1 percent on a trade".
+     *  - har trade ka base risk = riskPct() (default 1%)
+     *  - jab tak strategy ke 25 CLOSED trades nahi, size base par hi rehta hai
+     *  - 25 ke baad scale = winPct / 50 (50% WR = 1x, 75% WR = 1.5x), cap 2x
+     *  Loss-heavy strategy (winPct < 25) par scale < 1 — size khud kam ho jata hai. */
+    public static final int MIN_TRADES_BEFORE_SCALING = 25;
+
+    public double dynamicRiskPct(String strategyKey) {
+        double base = riskPct();
+        int n = 0, w = 0;
+        try {
+            Cursor c = db.getReadableDatabase().rawQuery(
+                    "SELECT COUNT(*), IFNULL(SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END),0) FROM trades WHERE strategy=? AND status='CLOSED'",
+                    new String[]{strategyKey});
+            if (c.moveToFirst()) { n = c.getInt(0); w = c.getInt(1); }
+            c.close();
+        } catch (Throwable ignored) { }
+        if (n < MIN_TRADES_BEFORE_SCALING) return base;
+        double winPct = w * 100.0 / n;
+        double scale = Math.max(0.5, Math.min(2.0, winPct / 50.0));
+        return Math.min(20.0, base * scale);
+    }
+
+    /** Lab/trade UI ke liye: current scaling state (trades done, win%, scale). */
+    public String scalingInfo(String strategyKey) {
+        int n = 0, w = 0;
+        try {
+            Cursor c = db.getReadableDatabase().rawQuery(
+                    "SELECT COUNT(*), IFNULL(SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END),0) FROM trades WHERE strategy=? AND status='CLOSED'",
+                    new String[]{strategyKey});
+            if (c.moveToFirst()) { n = c.getInt(0); w = c.getInt(1); }
+            c.close();
+        } catch (Throwable ignored) { }
+        if (n < MIN_TRADES_BEFORE_SCALING) return "base risk " + riskPct() + "% (" + n + "/" + MIN_TRADES_BEFORE_SCALING + " trades — scaling baad mein)";
+        double winPct = n > 0 ? w * 100.0 / n : 0;
+        double scale = Math.max(0.5, Math.min(2.0, winPct / 50.0));
+        return "consensus " + Math.round(winPct) + "% → " + Math.round(scale * 100) + "% size (" + n + " trades)";
     }
 
     /** Configurable entry/SL buffer as percent of price (settings, default 0 = pure levels). */
@@ -423,46 +463,24 @@ public class EngineCore implements Runnable {
     // daily loss/profit is UNLIMITED. rollDay() stays only to keep the dashboard's
     // dayPnlPct counter honest (it no longer halts anything).
 
-    // ================== DATA (v2.1 HALAL MT5 FEED) ==================
+    // ================== DATA (v4.1 BINANCE SPOT FEED) ==================
     public static class Candle { long ts; double o, h, l, c, v; }
 
-    /** v2.1 — MT5-style halal commodity universe: MT5 symbol -> public futures feed
-     *  (Yahoo Finance chart API, 5m interval). Ye REAL exchange candles hain (CME/CBOT
-     *  futures) — MT5 broker ke spot quote se chhota basis hota hai, paper trading ke
-     *  liye bilkul theek. Optional MT5 bridge (settings mt5_bridge) set ho to candles
-     *  seedha user ke MetaTrader5 terminal se aati hain (real MT5 data — PC par
-     *  mt5-bridge.py chalana hota hai, script downloads page par mojood hai). */
-    static final java.util.Map<String, String> MT5_FEED = new java.util.LinkedHashMap<>();
+    /** v4.0+ — BINANCE SPOT universe (owner request: crypto 7 pairs, 1m candles).
+     *  REAL exchange candles — api.binance.com/api/v3/klines, 24/7 market (band nahi hota).
+     *  Optional MT5 bridge ab fallback nahi — sirf Binance public feed primary hai;
+     *  bridge setting abhi bhi kaam karta hai agar owner khud set kare. */
+    static final java.util.Map<String, String> BINANCE_PAIRS = new java.util.LinkedHashMap<>();
     static {
-        MT5_FEED.put("XAUUSD",  "GC=F");    // Gold
-        MT5_FEED.put("XAGUSD",  "SI=F");    // Silver
-        MT5_FEED.put("XPTUSD",  "PL=F");    // Platinum
-        MT5_FEED.put("XPDUSD",  "PA=F");    // Palladium
-        MT5_FEED.put("XCUUSD",  "HG=F");    // Copper
-        MT5_FEED.put("ALUUSD",  "ALI=F");   // Aluminium
-        MT5_FEED.put("USOIL",   "CL=F");    // WTI Crude Oil
-        MT5_FEED.put("UKOIL",   "BZ=F");    // Brent Crude Oil
-        MT5_FEED.put("NGAS",    "NG=F");    // Natural Gas
-        MT5_FEED.put("GASOLINE","RB=F");    // RBOB Gasoline
-        MT5_FEED.put("HEATOIL", "HO=F");    // Heating Oil / ULSD
-        MT5_FEED.put("WHEAT",   "ZW=F");    // Wheat
-        MT5_FEED.put("CORN",    "ZC=F");    // Corn
-        MT5_FEED.put("SOYBEAN", "ZS=F");    // Soybeans
-        MT5_FEED.put("SOYMEAL", "ZM=F");    // Soybean Meal
-        MT5_FEED.put("SOYOIL",  "ZL=F");    // Soybean Oil
-        MT5_FEED.put("RICE",    "ZR=F");    // Rough Rice
-        MT5_FEED.put("OATS",    "ZO=F");    // Oats
-        MT5_FEED.put("COFFEE",  "KC=F");    // Coffee Arabica
-        MT5_FEED.put("COCOA",   "CC=F");    // Cocoa
-        MT5_FEED.put("SUGAR",   "SB=F");    // Sugar #11
-        MT5_FEED.put("COTTON",  "CT=F");    // Cotton #2
-        MT5_FEED.put("ORANGEJ", "OJ=F");    // Orange Juice
-        MT5_FEED.put("CATTLE",  "LE=F");    // Live Cattle
-        MT5_FEED.put("FEEDER",  "GF=F");    // Feeder Cattle
-        MT5_FEED.put("HOGS",    "HE=F");    // Lean Hogs
-        MT5_FEED.put("LUMBER",  "LBR=F");   // Lumber
+        BINANCE_PAIRS.put("BTCUSDT", "BTC/USDT — Bitcoin (MAJOR)");
+        BINANCE_PAIRS.put("ETHUSDT", "ETH/USDT — Ethereum (MAJOR)");
+        BINANCE_PAIRS.put("BNBUSDT", "BNB/USDT — BNB (MAJOR)");
+        BINANCE_PAIRS.put("SOLUSDT", "SOL/USDT — Solana (MAJOR)");
+        BINANCE_PAIRS.put("XRPUSDT", "XRP/USDT — XRP (RETAIL)");
+        BINANCE_PAIRS.put("DOGEUSDT", "DOGE/USDT — Dogecoin (RETAIL)");
+        BINANCE_PAIRS.put("ADAUSDT", "ADA/USDT — Cardano (RETAIL)");
     }
-    private static final String YAHOO_HOST = "https://query1.finance.yahoo.com";
+    private static final String BINANCE_HOST = "https://api.binance.com";
     /** Per-symbol last fetch attempt (rate-limit guard — M5 candles 60s refresh kaafi). */
     private final java.util.Map<String, Long> lastFetchAt = new HashMap<>();
 
@@ -485,15 +503,15 @@ public class EngineCore implements Runnable {
             Long bo = backoffUntil.get(symbol);
             if (bo != null && System.currentTimeMillis() < bo) return new ArrayList<>();
         }
-        List<Candle> out = fetchFromBridge(symbol, limit);
+        List<Candle> out = fetchFromBinance(symbol, limit);
         if (out == null || out.isEmpty()) {
-            List<Candle> y = fetchFromYahoo(symbol, limit);
+            List<Candle> y = fetchFromBridge(symbol, limit);
             if (y != null && !y.isEmpty()) out = y;
         }
-        // v3.0 — one immediate retry (bridge ↔ yahoo cross-fallback), phir backoff
+        // v4.1 — one immediate retry (binance ↔ bridge cross-fallback), phir backoff
         if (out == null || out.isEmpty()) {
-            List<Candle> retry = fetchFromYahoo(symbol, limit);
-            if (retry == null || retry.isEmpty()) retry = fetchFromBridge(symbol, limit);
+            List<Candle> retry = fetchFromBridge(symbol, limit);
+            if (retry == null || retry.isEmpty()) retry = fetchFromBinance(symbol, limit);
             if (retry != null && !retry.isEmpty()) {
                 out = retry;
                 backoffUntil.remove(symbol);
@@ -531,33 +549,42 @@ public class EngineCore implements Runnable {
         } catch (Exception e) { return null; }
     }
 
-    /** Built-in feed: public commodity futures candles (Yahoo chart API, 5m, 5d). */
-    private List<Candle> fetchFromYahoo(String symbol, int limit) {
-        String y = MT5_FEED.get(symbol);
-        if (y == null) return null;
+    /** BINANCE klines fetch (v4.1 primary feed). Response:
+     *  [[openTime, open, high, low, close, volume, closeTime, ...], ...] — last row
+     *  in-progress candle hota hai (Binance live deta hai). */
+    private List<Candle> fetchFromBinance(String symbol, int limit) {
+        if (!BINANCE_PAIRS.containsKey(symbol)) return null;
         try {
-            String body = httpGetUrl(YAHOO_HOST + "/v8/finance/chart/" + y + "?interval=5m&range=5d", 12000);
+            String body = httpGetUrl(BINANCE_HOST + "/api/v3/klines?symbol=" + symbol
+                    + "&interval=" + TF + "&limit=" + Math.min(limit, 1000), 12000);
             if (body == null) return null;
-            JSONObject res = new JSONObject(body).getJSONObject("chart").getJSONArray("result").getJSONObject(0);
-            JSONArray ts = res.getJSONArray("timestamp");
-            JSONObject q = res.getJSONObject("indicators").getJSONArray("quote").getJSONObject(0);
-            JSONArray oA = q.getJSONArray("open"), hA = q.getJSONArray("high"), lA = q.getJSONArray("low");
-            JSONArray cA = q.getJSONArray("close"), vA = q.getJSONArray("volume");
-            List<Candle> out = new ArrayList<>();
-            for (int i = 0; i < ts.length(); i++) {
-                if (oA.isNull(i) || hA.isNull(i) || lA.isNull(i) || cA.isNull(i)) continue;   // session gaps
-                double o = oA.getDouble(i), h = hA.getDouble(i), l = lA.getDouble(i), c = cA.getDouble(i);
-                if (o <= 0 || h <= 0 || l <= 0 || c <= 0) continue;
-                Candle cd = new Candle();
-                cd.ts = ts.getLong(i) * 1000L;                    // Yahoo seconds -> ms
-                cd.o = o; cd.h = h; cd.l = l; cd.c = c;
-                cd.v = vA.isNull(i) ? 0 : vA.getDouble(i);
-                out.add(cd);
-            }
-            if (out.size() > limit) out = new ArrayList<>(out.subList(out.size() - limit, out.size()));
-            return out;
+            return parseBinanceKlines(body);
         } catch (Exception e) { return null; }
     }
+
+    /** v4.1 — Binance klines JSON → Candle list (public static — host-JVM tests ke liye).
+     *  Valid OHLC guard (o/h/l/c > 0), ts = openTime ms. */
+    public static List<Candle> parseBinanceKlines(String body) {
+        List<Candle> out = new ArrayList<>();
+        try {
+            JSONArray arr = new JSONArray(body);
+            for (int i = 0; i < arr.length(); i++) {
+                JSONArray k = arr.getJSONArray(i);
+                double o = k.getDouble(1), h = k.getDouble(2), l = k.getDouble(3), c = k.getDouble(4);
+                if (o <= 0 || h <= 0 || l <= 0 || c <= 0) continue;
+                Candle cd = new Candle();
+                cd.ts = k.getLong(0);                       // openTime ms
+                cd.o = o; cd.h = h; cd.l = l; cd.c = c;
+                cd.v = k.getDouble(5);
+                out.add(cd);
+            }
+        } catch (Exception ignored) { }
+        return out;
+    }
+
+    /** Optional MT5 bridge mode (fallback only): user ke PC par chalte MetaTrader5
+     *  terminal se REAL MT5 candles. Protocol: GET {bridge}/candles?symbol=X&tf=5m&limit=200
+     *  Response: JSON array [[ts_ms, open, high, low, close, volume], ...] */
 
     /** Full-URL HTTP GET (v2.1 MT5 feed) — failure par null (caller skip karta hai). */
     private String httpGetUrl(String url, int timeoutMs) {
@@ -2172,7 +2199,7 @@ public class EngineCore implements Runnable {
                 return;
             }
         }
-        double risk = bal * riskPct() / 100.0;
+        double risk = bal * dynamicRiskPct("3C_MASTER") / 100.0;
         double qty = risk / riskDist;
         if (qty * fillSlip > bal * 0.95) qty = bal * 0.95 / fillSlip;
         if (qty <= 0) return;
@@ -2194,7 +2221,7 @@ public class EngineCore implements Runnable {
         db.getWritableDatabase().execSQL(
                 "INSERT INTO trades(user_id, symbol, side, qty, entry, sl, tp, status, strategy, consensus, opened_at, risk, risk_amt, decision, council, win_prob, features) VALUES(?,?,?,?,?,?,?,'OPEN',?,?,?,?,?,?,?,?,?)",
                 new Object[]{uid, sym, s.side, qty, fillSlip, s.slPrice, tp, "3C_MASTER", 0, System.currentTimeMillis(),
-                        riskPct() / 100.0, riskAmt, decision, council, winProb, features.toString()});
+                        dynamicRiskPct("3C_MASTER") / 100.0, riskAmt, decision, council, winProb, features.toString()});
         // order lifecycle row + bridge mirror
         long tradeId = 0;
         Cursor ti = db.getReadableDatabase().rawQuery("SELECT MAX(id) FROM trades", null);
@@ -2284,7 +2311,7 @@ public class EngineCore implements Runnable {
         double tp = "BUY".equals(side) ? price + 2.5 * a : price - 2.5 * a;
         double bal = balanceOf(uid);
         if (bal <= 0) return;
-        double risk = bal * 0.01;
+        double risk = bal * dynamicRiskPct(tier) / 100.0;   // v4.1: min-25 → consensus scaling, base 1%
         double qty = risk / (1.5 * a);
         if (qty * price > bal * 0.95) qty = bal * 0.95 / price;
         if (qty <= 0) return;
@@ -2300,7 +2327,7 @@ public class EngineCore implements Runnable {
         double winProb = mlWinProb(features);
         db.getWritableDatabase().execSQL(
                 "INSERT INTO trades(user_id, symbol, side, qty, entry, sl, tp, status, strategy, consensus, opened_at, risk, risk_amt, decision, council, win_prob, features) VALUES(?,?,?,?,?,?,?,'OPEN',?,?,?,?,?,?,?,?,?)",
-                new Object[]{uid, sym, side, qty, price, sl, tp, tier, 0.65, System.currentTimeMillis(), 0.01, riskAmt, decision, council, winProb, features.toString()});
+                new Object[]{uid, sym, side, qty, price, sl, tp, tier, 0.65, System.currentTimeMillis(), dynamicRiskPct(tier) / 100.0, riskAmt, decision, council, winProb, features.toString()});
         long tradeId = 0;
         Cursor ti = db.getReadableDatabase().rawQuery("SELECT MAX(id) FROM trades", null);
         if (ti.moveToFirst()) tradeId = ti.getLong(0);
@@ -2564,59 +2591,39 @@ public class EngineCore implements Runnable {
         } catch (Throwable ignored) { }
     }
 
-    // ================== INSTRUMENT UNIVERSE (v2.1 HALAL COMMODITIES) ==================
-    /** v2.1 HALAL MODE — owner request: "binance ke bajaye MT5 connect karo, sare halal
-     *  commodities add karo baki delete". Universe = 27 halal physical commodities
-     *  (metals, energy, agriculture) — sab LIVE (public futures feed / MT5 bridge).
-     *  Crypto, forex, indices, stocks, bonds, ETFs hata diye gaye. */
-    static final String[][] HALAL_COMMODITIES = {
-            {"XAUUSD", "METAL", "Gold spot (MT5 XAUUSD)"},
-            {"XAGUSD", "METAL", "Silver spot (MT5 XAGUSD)"},
-            {"XPTUSD", "METAL", "Platinum spot"},
-            {"XPDUSD", "METAL", "Palladium spot"},
-            {"XCUUSD", "METAL", "Copper (Dr. Copper)"},
-            {"ALUUSD", "METAL", "Aluminium"},
-            {"USOIL", "ENERGY", "WTI Crude Oil"},
-            {"UKOIL", "ENERGY", "Brent Crude Oil"},
-            {"NGAS", "ENERGY", "Natural Gas (Henry Hub)"},
-            {"GASOLINE", "ENERGY", "RBOB Gasoline"},
-            {"HEATOIL", "ENERGY", "Heating Oil / ULSD"},
-            {"WHEAT", "AGRI", "Wheat (Chicago)"},
-            {"CORN", "AGRI", "Corn (CBOT)"},
-            {"SOYBEAN", "AGRI", "Soybeans"},
-            {"SOYMEAL", "AGRI", "Soybean Meal"},
-            {"SOYOIL", "AGRI", "Soybean Oil"},
-            {"RICE", "AGRI", "Rough Rice"},
-            {"OATS", "AGRI", "Oats"},
-            {"COFFEE", "AGRI", "Coffee Arabica"},
-            {"COCOA", "AGRI", "Cocoa"},
-            {"SUGAR", "AGRI", "Sugar #11"},
-            {"COTTON", "AGRI", "Cotton #2"},
-            {"ORANGEJ", "AGRI", "Orange Juice (FCOJ)"},
-            {"CATTLE", "AGRI", "Live Cattle"},
-            {"FEEDER", "AGRI", "Feeder Cattle"},
-            {"HOGS", "AGRI", "Lean Hogs"},
-            {"LUMBER", "AGRI", "Lumber"}
+    // ================== INSTRUMENT UNIVERSE (v4.1 BINANCE 7 PAIRS) ==================
+    /** v4.0+ owner request: MT5 commodities retired — BINANCE SPOT 7 pairs (1m).
+     *  Bucket model: MAJOR (BTC/ETH/BNB/SOL — deep liquidity) vs RETAIL (XRP/DOGE/ADA).
+     *  Crypto 24/7 chalta hai — market band nahi hota. */
+    static final String[][] BINANCE_UNIVERSE = {
+            {"BTCUSDT", "MAJOR", "Bitcoin — Binance spot"},
+            {"ETHUSDT", "MAJOR", "Ethereum — Binance spot"},
+            {"BNBUSDT", "MAJOR", "BNB — Binance spot"},
+            {"SOLUSDT", "MAJOR", "Solana — Binance spot"},
+            {"XRPUSDT", "RETAIL", "XRP — Binance spot"},
+            {"DOGEUSDT", "RETAIL", "Dogecoin — Binance spot"},
+            {"ADAUSDT", "RETAIL", "Cardano — Binance spot"}
     };
 
     private void seedStaticInstruments() {
         android.database.sqlite.SQLiteDatabase d = db.getWritableDatabase();
         long now = System.currentTimeMillis();
-        for (String[] s : HALAL_COMMODITIES) {
-            d.execSQL("INSERT OR IGNORE INTO instruments(symbol, base, quote, exchange, asset_class, status, priority, discovered_at, note) VALUES(?,?,'USD','MT5',?,'ACTIVE',5000,?,?)",
+        for (String[] s : BINANCE_UNIVERSE) {
+            d.execSQL("INSERT OR IGNORE INTO instruments(symbol, base, quote, exchange, asset_class, status, priority, discovered_at, note) VALUES(?,?, 'USDT','BINANCE',?,'ACTIVE',5000,?,?)",
                     new Object[]{s[0], s[0], s[1], now, s[2]});
         }
-        // upgrade path: halal universe force-ACTIVE (purane install par bhi trade-ready)
+        // upgrade path: Binance universe force-ACTIVE + purane MT5 symbols RETIRED
         StringBuilder in = new StringBuilder();
-        for (String[] s : HALAL_COMMODITIES) {
+        for (String[] s : BINANCE_UNIVERSE) {
             if (in.length() > 0) in.append(',');
             in.append('\'').append(s[0]).append('\'');
         }
-        d.execSQL("UPDATE instruments SET status='ACTIVE', exchange='MT5' WHERE symbol IN (" + in + ")");
-        if (!"1".equals(db.setting("seeded_v21", "0"))) {
-            db.setSetting("seeded_v21", "1");
-            db.log("INFO", "DISCOVERY", "HALAL_SEED", "v2.1 HALAL MT5 universe: " + HALAL_COMMODITIES.length
-                    + " commodities (metals/energy/agri) — crypto, forex, indices, stocks, bonds, ETFs removed by owner request. Feed: public futures ya MT5 bridge.");
+        d.execSQL("UPDATE instruments SET status='ACTIVE', exchange='BINANCE' WHERE symbol IN (" + in + ")");
+        try { d.execSQL("UPDATE instruments SET status='RETIRED' WHERE symbol NOT IN (" + in + ")"); } catch (Throwable ignored) { }
+        if (!"1".equals(db.setting("seeded_v41", "0"))) {
+            db.setSetting("seeded_v41", "1");
+            db.log("INFO", "DISCOVERY", "BINANCE_SEED", "v4.1 BINANCE universe: " + BINANCE_UNIVERSE.length
+                    + " spot pairs (MAJOR: BTC/ETH/BNB/SOL — RETAIL: XRP/DOGE/ADA), 1m candles, 24/7. MT5/Yahoo feed retired.");
         }
     }
 
@@ -2643,14 +2650,14 @@ public class EngineCore implements Runnable {
     }
 
     // ================== NEWS ENGINE ==================
-    // v2.1 HALAL MODE — commodities news sources (crypto RSS retired)
+    // v4.1 BINANCE MODE — crypto news sources (commodities RSS retired)
     private static final String[] FEEDS = {
-            "https://www.investing.com/rss/news_25.rss",    // commodities market news
-            "https://oilprice.com/rss/main"                 // energy / crude
+            "https://www.coindesk.com/arc/outboundfeeds/rss/",   // crypto market news
+            "https://cointelegraph.com/rss"                      // crypto / bitcoin
     };
     private static final String[] BULL = {"surge", "rally", "gain", "record", "adopt", "approval", "approved", "bullish", "soar", "jump", "rise", "up", "inflow", "upgrade", "breakout"};
     private static final String[] BEAR = {"crash", "plunge", "ban", "hack", "lawsuit", "drop", "fall", "bearish", "sink", "loss", "outflow", "downgrade", "sell-off", "fear"};
-    private static final String[] HIGH_IMPACT = {"fed", "fomc", "rate", "cpi", "inflation", "opec", "war", "sanction", "tariff", "default", "emergency", "drought", "frost", "strike"};
+    private static final String[] HIGH_IMPACT = {"fed", "fomc", "rate", "cpi", "inflation", "sec", "etf", "binance", "hack", "war", "sanction", "tariff", "default", "emergency"};
 
     private void fetchNews() {
         for (String feed : FEEDS) {
@@ -2749,9 +2756,9 @@ public class EngineCore implements Runnable {
     // Roadmap: v2.2 PRO RISK + v2.3 HONEST LAB support + v2.5 AI QUANT CORE + v3.0 LIVE READY.
     // 3C MASTER rules untouched — ye sab strategy ke AAS PAAS ki discipline hai.
 
-    /** symbol -> correlated bucket (METAL/ENERGY/AGRI) — LEAN sector-exposure parity. */
+    /** symbol -> correlated bucket (MAJOR/RETAIL) — LEAN sector-exposure parity. */
     private static final java.util.Map<String, String> BUCKET = new HashMap<>();
-    static { for (String[] s : HALAL_COMMODITIES) BUCKET.put(s[0], s[1]); }
+    static { for (String[] s : BINANCE_UNIVERSE) BUCKET.put(s[0], s[1]); }
 
     /** Latest price for a symbol (most recent candle close incl. live candle) — heat/DD ke liye. */
     private double livePrice(String sym) {
@@ -2763,7 +2770,7 @@ public class EngineCore implements Runnable {
         return p;
     }
 
-    static String bucketOf(String sym) { return BUCKET.getOrDefault(sym, "AGRI"); }
+    static String bucketOf(String sym) { return BUCKET.getOrDefault(sym, "MAJOR"); }   // v4.1: fallback MAJOR (Binance universe)
 
     /** Adverse slippage on ENTRY: BUY thoda zyada par khareedta hai, SELL thoda kam par. */
     private double slipEntry(double p, String side) {
@@ -2837,7 +2844,7 @@ public class EngineCore implements Runnable {
             safeMode = true;
             safeModeSince = System.currentTimeMillis();
             db.log("WARN", "FEED", "SAFE_MODE_ON",
-                    sym + " candle stale (>" + (bars * 5) + " min, market OPEN hai) — SAFE MODE: naye entries band, open trades ka SL/TP freeze (stale prices par false trigger nahi). Feed recover hote hi auto-clear.");
+                    sym + " candle stale (>" + (bars * TF_MS / 60000) + " min, market OPEN hai) — SAFE MODE: naye entries band, open trades ka SL/TP freeze (stale prices par false trigger nahi). Feed recover hote hi auto-clear.");
             try { Notifier.post(appContext(), "SAFE MODE", "Feed outage — " + sym + " stale. Naye entries band, khuli trades protected."); } catch (Throwable ignored) { }
         } else if (fresh && safeMode) {
             // sab symbols fresh ho tabhi clear — conservative: is symbol ki freshness se
@@ -2850,22 +2857,10 @@ public class EngineCore implements Runnable {
 
     public boolean isSafeMode() { return safeMode; }
 
-    /** v3.0.1 — CME commodities market abhi BAND hai? (weekend ya daily 17:00-17:59 ET
-     *  maintenance halt, America/New_York timezone). Ye stale-data se mukhtalif cheez
-     *  hai: band market par candle age barhti rehti hai lekin wo feed failure NAHI —
-     *  is liye SAFE MODE alarm nahi, sirf entries naturally trigger nahi hoti (live
-     *  candle hi nahi banti). Dashboard bhi "market closed" dikhata hai. */
+    /** v4.1 — CRYPTO market 24/7 chalta hai (Binance band nahi hota) — hamesha false.
+     *  Method naam compatibility ke liye rakha hai (status + SAFE MODE call karte hain). */
     private boolean marketClosedET() {
-        try {
-            java.util.Calendar cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("America/New_York"));
-            int dow = cal.get(java.util.Calendar.DAY_OF_WEEK);
-            int h = cal.get(java.util.Calendar.HOUR_OF_DAY);
-            if (h == 17) return true;                                     // daily maintenance halt
-            if (dow == java.util.Calendar.SATURDAY) return true;
-            if (dow == java.util.Calendar.SUNDAY && h < 18) return true;   // Sunday reopen 18:00 ET
-            if (dow == java.util.Calendar.FRIDAY && h >= 18) return true;  // Friday close (17x halt upar pakda)
-            return false;
-        } catch (Throwable t) { return false; }
+        return false;   // crypto 24/7
     }
 
     public boolean isMarketClosed() { return marketClosedET(); }
@@ -2953,30 +2948,42 @@ public class EngineCore implements Runnable {
         return Math.max(0, Math.min(100, score));
     }
 
-    /** SEASONALITY (seasonality.ai pattern): 5y daily data → avg % by month + hit rate.
-     *  Cache 24h. force=true API refresh ke liye. Commodities (coffee/frost, oil/heating
-     *  season, wheat/harvest) mein ye professional traders ka core edge hai. */
+    /** SEASONALITY (seasonality.ai pattern): ~5y daily data → avg % by month + hit rate.
+     *  Cache 24h. force=true API refresh ke liye. v4.1: Binance daily klines
+     *  (2× pagination — limit 1000/call → ~5.4 years). Crypto 24/7 hai — months clean. */
     public JSONObject seasonality(String sym, boolean force) {
         JSONObject cached = seasonCache.get(sym);
         long now = System.currentTimeMillis();
         if (!force && cached != null && now - cached.optLong("fetched", 0) < 24L * 3600_000) return cached;
-        String y = MT5_FEED.get(sym);
-        if (y == null) return cached;
+        if (!BINANCE_PAIRS.containsKey(sym)) return cached;
         try {
-            String body = httpGetUrl(YAHOO_HOST + "/v8/finance/chart/" + y + "?interval=1d&range=5y", 15000);
-            if (body == null) return cached;
-            JSONObject res = new JSONObject(body).getJSONObject("chart").getJSONArray("result").getJSONObject(0);
-            org.json.JSONArray ts = res.getJSONArray("timestamp");
-            JSONObject q = res.getJSONObject("indicators").getJSONArray("quote").getJSONObject(0);
-            org.json.JSONArray cA = q.getJSONArray("close");
+            List<Candle> daily = new ArrayList<>();
+            long end = now, start = now - 5L * 365 * 24 * 3600_000L;
+            for (long from = start; from < end; ) {
+                long to = Math.min(from + 999L * 24 * 3600_000L, end);
+                String body = httpGetUrl(BINANCE_HOST + "/api/v3/klines?symbol=" + sym
+                        + "&interval=1d&startTime=" + from + "&endTime=" + to + "&limit=1000", 15000);
+                if (body == null) break;
+                org.json.JSONArray arr = new org.json.JSONArray(body);
+                int before = daily.size();
+                for (int i = 0; i < arr.length(); i++) {
+                    org.json.JSONArray k = arr.getJSONArray(i);
+                    Candle cd = new Candle();
+                    cd.ts = k.getLong(0); cd.o = k.getDouble(1); cd.h = k.getDouble(2);
+                    cd.l = k.getDouble(3); cd.c = k.getDouble(4); cd.v = k.getDouble(5);
+                    daily.add(cd);
+                }
+                if (arr.length() == 0 || daily.size() == before) break;
+                from = arr.getJSONArray(arr.length() - 1).getLong(0) + 24L * 3600_000L;
+            }
+            if (daily.size() < 100) return cached;
             java.util.Calendar cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"));
             double[] sum = new double[12]; int[] n = new int[12]; int[] up = new int[12];
             double prev = 0; long prevMon = -1, prevYear = -1;
-            for (int i = 0; i < ts.length(); i++) {
-                if (cA.isNull(i)) continue;
-                double c = cA.getDouble(i);
+            for (Candle cd : daily) {
+                double c = cd.c;
                 if (c <= 0) continue;
-                cal.setTimeInMillis(ts.getLong(i) * 1000L);
+                cal.setTimeInMillis(cd.ts);
                 long mon = cal.get(java.util.Calendar.MONTH), yr = cal.get(java.util.Calendar.YEAR);
                 if (prev > 0 && (mon != prevMon || yr != prevYear)) {   // month-close-to-month-close % change
                     double chg = (c - prev) / prev * 100.0;
@@ -2990,8 +2997,9 @@ public class EngineCore implements Runnable {
                 avg.put(n[m] > 0 ? Math.round(sum[m] / n[m] * 100.0) / 100.0 : 0);
                 hit.put(n[m] > 0 ? Math.round(up[m] * 100.0 / n[m]) : 0);
             }
+            int yrs = Math.max(1, (int) Math.round(daily.size() / 365.0));
             JSONObject out = new JSONObject().put("symbol", sym).put("avg", avg).put("hit", hit)
-                    .put("n", new org.json.JSONArray(n)).put("years", 5).put("fetched", now);
+                    .put("n", new org.json.JSONArray(n)).put("years", yrs).put("fetched", now);
             seasonCache.put(sym, out);
             return out;
         } catch (Throwable t) { return cached; }
@@ -3256,8 +3264,9 @@ public class EngineCore implements Runnable {
         t.start();
     }
 
-    /** Deep backtest candles (HONEST LAB): bridge limit=8000 ya Yahoo range=1mo (5m).
-     *  DB me upsert NAHI hota (4-day rolling window clean rehta hai) — in-memory only. */
+    /** Deep backtest candles (HONEST LAB): bridge limit=8000 ya Binance 1m paginated
+     *  (3× 1000 = ~50 hours of 1m data — 3C window ke liye kaafi).
+     *  DB me upsert NAHI hota (rolling window clean rehta hai) — in-memory only. */
     public List<Candle> deepCandles(String sym, int days) {
         String base = mt5Bridge();
         if (!base.isEmpty()) {
@@ -3278,31 +3287,30 @@ public class EngineCore implements Runnable {
                 }
             } catch (Throwable ignored) { }
         }
-        String y = MT5_FEED.get(sym);
-        if (y == null) return loadCandles(sym);
+        if (!BINANCE_PAIRS.containsKey(sym)) return loadCandles(sym);
         try {
-            String body = httpGetUrl(YAHOO_HOST + "/v8/finance/chart/" + y + "?interval=5m&range=1mo", 20000);
-            if (body != null) {
-                JSONObject res = new JSONObject(body).getJSONObject("chart").getJSONArray("result").getJSONObject(0);
-                org.json.JSONArray ts = res.getJSONArray("timestamp");
-                JSONObject q = res.getJSONObject("indicators").getJSONArray("quote").getJSONObject(0);
-                org.json.JSONArray oA = q.getJSONArray("open"), hA = q.getJSONArray("high"), lA = q.getJSONArray("low");
-                org.json.JSONArray cA = q.getJSONArray("close"), vA = q.getJSONArray("volume");
-                List<Candle> out = new ArrayList<>();
-                for (int i = 0; i < ts.length(); i++) {
-                    if (oA.isNull(i) || hA.isNull(i) || lA.isNull(i) || cA.isNull(i)) continue;
-                    double o = oA.getDouble(i), h = hA.getDouble(i), l = lA.getDouble(i), c = cA.getDouble(i);
-                    if (o <= 0 || h <= 0 || l <= 0 || c <= 0) continue;
+            List<Candle> out = new ArrayList<>();
+            long end = System.currentTimeMillis();
+            long from = end - 3L * 1000 * 60_000;          // ~3000 minutes
+            while (from < end && out.size() < 2900) {
+                String body = httpGetUrl(BINANCE_HOST + "/api/v3/klines?symbol=" + sym
+                        + "&interval=" + TF + "&startTime=" + from + "&endTime=" + end + "&limit=1000", 15000);
+                if (body == null) break;
+                org.json.JSONArray arr = new org.json.JSONArray(body);
+                int before = out.size();
+                for (int i = 0; i < arr.length(); i++) {
+                    org.json.JSONArray k = arr.getJSONArray(i);
                     Candle cd = new Candle();
-                    cd.ts = ts.getLong(i) * 1000L;
-                    cd.o = o; cd.h = h; cd.l = l; cd.c = c;
-                    cd.v = vA.isNull(i) ? 0 : vA.getDouble(i);
+                    cd.ts = k.getLong(0); cd.o = k.getDouble(1); cd.h = k.getDouble(2);
+                    cd.l = k.getDouble(3); cd.c = k.getDouble(4); cd.v = k.getDouble(5);
                     out.add(cd);
                 }
-                if (out.size() >= 500) return out;
+                if (arr.length() == 0 || out.size() == before) break;
+                from = arr.getJSONArray(arr.length() - 1).getLong(0) + TF_MS;
             }
+            if (out.size() >= 500) return out;
         } catch (Throwable ignored) { }
-        return loadCandles(sym);   // fallback: 4-day DB window
+        return loadCandles(sym);   // fallback: rolling DB window
     }
 
     // ================== STATUS for API ==================
@@ -3311,18 +3319,20 @@ public class EngineCore implements Runnable {
         m.put("engine_on", "1".equals(db.setting("engine_on", "1")));
         m.put("active_symbols", activeSymbols);
         m.put("consensus", lastConsensus.isEmpty() ? "warming up" : lastConsensus);
-        m.put("data_host", mt5Bridge().isEmpty() ? dataHost : "MT5-BRIDGE");
-        m.put("feed", "MT5 commodities — 27 halal (metals/energy/agri)");
+        m.put("data_host", mt5Bridge().isEmpty() ? "BINANCE (api.binance.com)" : "MT5-BRIDGE");
+        m.put("feed", "Binance spot — 7 pairs (MAJOR: BTC/ETH/BNB/SOL, RETAIL: XRP/DOGE/ADA) 1m");
         m.put("timeframe", TF);
-        m.put("scanner", "24h");
+        m.put("scanner", "24/7");
         m.put("scan_count", scanCount);
         m.put("last_scan_at", lastScanAt);
         m.put("strategy_count", 1);
-        m.put("strategy_name", "3C Breakout (M5) — MASTER + QUANT PRO stack");
+        m.put("strategy_name", "3C Breakout (M1 Binance) — MASTER + QUANT PRO + SHAAKUNI SUITE");
         m.put("risk_pct", riskPct());
+        m.put("risk_scaling", scalingInfo("3C_MASTER"));
+        m.put("min_trades_scaling", MIN_TRADES_BEFORE_SCALING);
         m.put("limits", "UNLIMITED daily P/L (owner) — heat/bucket/event/session caps default OFF opt-in");
-        // v3.0 QUANT PRO status
-        m.put("version", "3.0.1");
+        // v4.1 status
+        m.put("version", "4.1.0");
         boolean mktClosed = marketClosedET();
         m.put("safe_mode", safeMode && !mktClosed);   // v3.0.1 — band market par SAFE MODE jhoota lagta tha
         m.put("market_closed", mktClosed);            // v3.0.1 — weekend / CME halt indicator
@@ -3336,7 +3346,8 @@ public class EngineCore implements Runnable {
         JSONObject mw = mlWeights();
         m.put("ml", mw != null ? "trained n=" + mw.optInt("n") + " acc=" + mw.optInt("acc") + "% (experimental)" : "warming up (40+ feature-tagged trades chahiye)");
         m.put("degraded_check", "30-min rolling PF monitor + ML drift check");
-        m.put("indicator_count", INDICATOR_LIBRARY.length);
+        m.put("indicator_count", SHAAKUNI_SUITE.length);
+        m.put("indicator_suite", "SHAAKUNI TRAP (liquidity/OB/MSS/killzones) — PDF encyclopedia retired");
         m.put("fear_greed", fngValue);
         m.put("last_pattern", lastPattern);
         org.json.JSONArray armed = new org.json.JSONArray();
@@ -3376,119 +3387,284 @@ public class EngineCore implements Runnable {
     }
 
     /** v5.9 — the full PDF indicator library exposed to the dashboard/API. */
-    public static final String[][] INDICATOR_LIBRARY = {
-        // group, name, default settings
-        {"Moving Averages", "SMA", "50/100/200"}, {"Moving Averages", "EMA", "9/12/21/50/200"},
-        {"Moving Averages", "WMA", "fast response"}, {"Moving Averages", "SMMA/RMA (Wilder)", "14"},
-        {"Moving Averages", "HMA (Hull)", "9/21"}, {"Moving Averages", "DEMA", "20"},
-        {"Moving Averages", "TEMA", "20"}, {"Moving Averages", "KAMA (Kaufman)", "10,2,30"},
-        {"Moving Averages", "ALMA", "9,0.85,6"}, {"Moving Averages", "T3 (Tillson)", "5,0.7"},
-        {"Moving Averages", "ZLEMA", "20"}, {"Moving Averages", "LSMA (LinReg)", "25"},
-        {"Moving Averages", "VWMA", "20"}, {"Moving Averages", "McGinley Dynamic", "14"},
-        {"Moving Averages", "Golden/Death Cross", "50x200"}, {"Moving Averages", "MA Ribbon (Guppy)", "3-60"},
-        {"Bands & Channels", "Bollinger Bands", "20,2"}, {"Bands & Channels", "Keltner Channel", "20,10,2"},
-        {"Bands & Channels", "Donchian Channel", "20 (Turtle 20/55)"}, {"Bands & Channels", "Envelopes", "20,2.5%"},
-        {"Bands & Channels", "Standard Deviation", "20"}, {"Bands & Channels", "Chandelier Exit", "22,3"},
-        {"Trend", "MACD", "12,26,9"}, {"Trend", "ADX + DMI", "14 (ADX>25)"},
-        {"Trend", "Parabolic SAR", "0.02,0.2"}, {"Trend", "Supertrend", "10,3"},
-        {"Trend", "Ichimoku Cloud", "9,26,52"}, {"Trend", "Aroon", "25"},
-        {"Trend", "Vortex", "14"}, {"Trend", "TRIX", "15"},
-        {"Trend", "Mass Index", "25 (bulge 27)"}, {"Trend", "Alligator + Gator", "13/8/5"},
-        {"Trend", "Schaff Trend Cycle", "23,50,10"}, {"Trend", "Choppiness Index", "14 (61.8)"},
-        {"Trend", "KST", "10-15-20-30"}, {"Trend", "Coppock Curve", "14,11,10"},
-        {"Trend", "APO/PPO", "12,26"}, {"Trend", "DPO", "20"},
-        {"Trend", "Williams Fractals", "5 bar"}, {"Trend", "ZigZag swings", "auto"},
-        {"Momentum", "RSI", "14 (70/30)"}, {"Momentum", "Stochastic", "14,3,3"},
-        {"Momentum", "Stochastic RSI", "14,14,3,3"}, {"Momentum", "CCI", "20 (+/-100)"},
-        {"Momentum", "Williams %R", "14 (-20/-80)"}, {"Momentum", "ROC / Momentum", "9/12"},
-        {"Momentum", "Awesome Oscillator", "5,34"}, {"Momentum", "Ultimate Oscillator", "7,14,28"},
-        {"Momentum", "TSI", "25,13"}, {"Momentum", "CMO (Chande)", "14"},
-        {"Momentum", "Fisher Transform", "9"}, {"Momentum", "DeMarker", "14 (0.7/0.3)"},
-        {"Momentum", "SMI", "10,3,3"}, {"Momentum", "Balance of Power", "14"},
-        {"Momentum", "Laguerre RSI", "gamma 0.5"}, {"Momentum", "RVI (Vigor)", "10"},
-        {"Momentum", "Elder Ray (Bull/Bear Power)", "13"},
-        {"Volatility", "ATR", "14"},
-        {"Volume & Flow", "Volume + Volume MA", "20"}, {"Volume & Flow", "OBV", "slope 20"},
-        {"Volume & Flow", "Accumulation/Distribution", "slope 20"}, {"Volume & Flow", "Chaikin Money Flow", "20"},
-        {"Volume & Flow", "Chaikin Oscillator", "3,10"}, {"Volume & Flow", "MFI", "14 (80/20)"},
-        {"Volume & Flow", "VWAP", "session"}, {"Volume & Flow", "Force Index", "13"},
-        {"Volume & Flow", "Ease of Movement", "14"}, {"Volume & Flow", "Klinger Oscillator", "34,55,13"},
-        {"Volume & Flow", "PVT", "slope 20"}, {"Volume & Flow", "Volume Oscillator", "5,10"},
-        {"Support/Resistance", "Pivot Points (Classic)", "PP,R1-R3,S1-S3"}, {"Support/Resistance", "Fibonacci Retracement", "23.6-78.6"},
-        {"Support/Resistance", "Swing S/R + Trendlines", "fractal-based"},
-        {"Candlestick Patterns", "Engulfing / Piercing / Dark Cloud", "2-candle"},
-        {"Candlestick Patterns", "Hammer / Shooting Star", "wick ratio"},
-        {"Candlestick Patterns", "Doji / Marubozu", "body ratio"},
-        {"Candlestick Patterns", "Morning / Evening Star", "3-candle"},
-        {"Candlestick Patterns", "Three Soldiers / Crows", "3-candle"},
-        {"Candlestick Patterns", "Inside / Outside Bar", "range"},
-        {"Harmonic Patterns", "Gartley / Bat", "fib ratios"}, {"Harmonic Patterns", "Butterfly / Crab", "fib ratios"},
-        {"SMC (Smart Money)", "Break of Structure (BOS)", "swing close"},
-        {"SMC (Smart Money)", "Fair Value Gap (FVG)", "3-candle"},
-        {"SMC (Smart Money)", "Liquidity Sweep / Stop Hunt", "wick+close"},
-        {"Sentiment", "Crypto Fear & Greed", "contrarian 20/80"}
+    // ================== SHAAKUNI TRAP SUITE (v4.1) ==================
+    // OWNER REQUEST: "sare indicators delete karo — Shaakuni Trap Trader jo indicators
+    // use karta hai unko add kardo". Purana 82-indicator PDF encyclopedia POORA hata
+    // diya gaya. Naya suite = Shaakuni ke APNE tools — uske open-source TradingView
+    // script "Shaakuni - Liquidity Levels & Order Blocks" + masterclasses se EXACT:
+    // liquidity levels (PDH/PDL/PWH/PWL), equilibrium 50% (premium/discount), order
+    // blocks (ATR-impulse + structure-break), MSS, liquidity sweeps, killzones.
+    public static final String[][] SHAAKUNI_SUITE = {
+            // group, name, default settings
+            {"Liquidity", "PDH / PDL (prev day high-low)", "stop-cluster levels"},
+            {"Liquidity", "PWH / PWL (prev week high-low)", "HTF stop-cluster"},
+            {"Liquidity", "Liquidity Sweep (stop hunt)", "wick beyond + close back inside"},
+            {"Liquidity", "EQ Equilibrium 50%", "premium above / discount below"},
+            {"Structure", "MSS (Market Structure Shift)", "close beyond N=10 swing, swing >= 3 bars old"},
+            {"Structure", "BOS (Break of Structure)", "continuation break (same direction)"},
+            {"POI", "Order Block (OB)", "last opposite candle before impulse >= 0.7x ATR(14); untouched only"},
+            {"POI", "Mitigation Block", "OB revisit after MSS — sniper entry zone"},
+            {"POI", "FVG (Fair Value Gap)", "3-candle imbalance, unfilled"},
+            {"Session", "Killzones (New York time)", "Asian 20-00 / London 02-05 / NY 07-10 / LDN Close 10-12"},
+            {"Session", "Sweep Status Panel", "Sweep! / Broken / Active per liquidity level"},
+            {"Filter", "Premium / Discount", "buy in discount (below EQ), sell in premium (above EQ)"},
+            {"Candle", "OHLC + Inside Bar OB + 3-Candle", "Shaakuni shorts setups (candlePattern)"}
     };
 
-    /** Live indicator snapshot for one symbol — powers /api/indicators in the dashboard. */
+    /** Back-compat alias (dashboard/API indicator_count isi se aata hai). */
+    public static final String[][] INDICATOR_LIBRARY = SHAAKUNI_SUITE;
+
+    // ================== SHAAKUNI ENGINE (v4.1 — pure static, testable) ==================
+    // Uske TradingView script ke EXACT rules: OB lookback 10, swing >= 3 bars old,
+    // impulse body >= 0.7 x ATR(14), closest opposite candle before impulse, zone
+    // untouched-only (touch = mitigated), sessions NY time, sweep statuses.
+
+    /** Order Block zone (Shaakuni definition). */
+    public static class ObZone {
+        public int idx; public double top, bottom; public boolean bullish; public boolean mitigated;
+        ObZone(int idx, double top, double bottom, boolean bullish, boolean mitigated) {
+            this.idx = idx; this.top = top; this.bottom = bottom; this.bullish = bullish; this.mitigated = mitigated;
+        }
+    }
+
+    /** Structure event: MSS (shift against prior break) ya BOS (continuation). */
+    public static class StructEvent {
+        public String kind = "", dir = ""; public int idx = -1; public double level;
+    }
+
+    /** Previous day high/low (UTC days) — [pdh, pdl] ya null agar data kam. */
+    public static double[] prevDayHighLow(List<Candle> k) {
+        java.util.LinkedHashMap<Long, double[]> days = new java.util.LinkedHashMap<>();
+        for (Candle c : k) {
+            long day = c.ts / 86400000L;
+            double[] d = days.get(day);
+            if (d == null) days.put(day, new double[]{c.h, c.l});
+            else { if (c.h > d[0]) d[0] = c.h; if (c.l < d[1]) d[1] = c.l; }
+        }
+        if (days.size() < 2) return null;
+        Long prev = null, cur = null;
+        for (Long key : days.keySet()) { prev = cur; cur = key; }
+        return prev == null ? null : days.get(prev);   // last FULL day (aakhri bucket aaj chal raha hai)
+    }
+
+    /** Previous week high/low (UTC weeks, week = day/7) — [pwh, pwl] ya null. */
+    public static double[] prevWeekHighLow(List<Candle> k) {
+        java.util.LinkedHashMap<Long, double[]> weeks = new java.util.LinkedHashMap<>();
+        for (Candle c : k) {
+            long wk = c.ts / 86400000L / 7L;
+            double[] d = weeks.get(wk);
+            if (d == null) weeks.put(wk, new double[]{c.h, c.l});
+            else { if (c.h > d[0]) d[0] = c.h; if (c.l < d[1]) d[1] = c.l; }
+        }
+        if (weeks.size() < 2) return null;
+        Long prev = null, cur = null;
+        for (Long key : weeks.keySet()) { prev = cur; cur = key; }
+        return prev == null ? null : weeks.get(prev);
+    }
+
+    /** Sweep status ek liquidity level ka — "SWEEP" (wick beyond + close back inside),
+     *  "BROKEN" (latest close beyond), "ACTIVE" (neither). high=true level upper hai. */
+    public static String sweepStatus(List<Candle> k, double level, boolean high) {
+        if (level <= 0 || Double.isNaN(level) || k.isEmpty()) return "NONE";
+        long lastDay = k.get(k.size() - 1).ts / 86400000L;
+        boolean tradedBeyond = false;
+        for (int i = k.size() - 1; i >= 0; i--) {
+            Candle c = k.get(i);
+            if (c.ts / 86400000L != lastDay) break;         // sirf aaj ka session
+            if (high ? c.h > level : c.l < level) tradedBeyond = true;
+        }
+        if (!tradedBeyond) return "ACTIVE";
+        double close = k.get(k.size() - 1).c;
+        if (high ? close > level : close < level) return "BROKEN";
+        return "SWEEP";                                     // wick beyond + close back inside = Shaakuni trap
+    }
+
+    /** ORDER BLOCKS — uske script ka exact algorithm (bull + bear, latest pehle).
+     *  Bull: lookback window me highest high (swing, >= 3 bars old) → close beyond =
+     *  structure break → swing ke baad impulse candle (body >= 0.7xATR14, up) →
+     *  impulse se pehle closest DOWN candle (swing extreme se purani nahi) = OB box.
+     *  Zone untouched rehta hai; koi baad ki candle touch kare = mitigated. */
+    public static List<ObZone> orderBlocks(List<Candle> k, int lookback) {
+        List<ObZone> out = new ArrayList<>();
+        int n = k.size();
+        if (n < lookback + 5) return out;
+        double atr = atr(k, 14);
+        if (Double.isNaN(atr) || atr <= 0) return out;
+        double impulseMin = 0.7 * atr;
+        java.util.LinkedHashSet<Integer> seen = new java.util.LinkedHashSet<>();
+        for (int i = n - 1; i >= lookback && out.size() < 8; i--) {
+            Candle cur = k.get(i);
+            int from = Math.max(0, i - lookback);
+            // ---- bullish case: highest high before i
+            int hIdx = -1; double hVal = -Double.MAX_VALUE;
+            int lIdx = -1; double lVal = Double.MAX_VALUE;
+            for (int j = from; j < i; j++) {
+                if (k.get(j).h > hVal) { hVal = k.get(j).h; hIdx = j; }
+                if (k.get(j).l < lVal) { lVal = k.get(j).l; lIdx = j; }
+            }
+            if (hIdx < 0 || lIdx < 0) continue;
+            if (i - hIdx >= 3 && cur.c > hVal) {            // bullish structure break, swing >= 3 bars old
+                // impulse: swing ke baad se i tak, up-candle body >= impulseMin
+                int impIdx = -1;
+                for (int j = hIdx + 1; j <= i; j++) {
+                    if (k.get(j).c > k.get(j).o && (k.get(j).c - k.get(j).o) >= impulseMin) { impIdx = j; break; }
+                }
+                if (impIdx > 0) {
+                    // closest down-candle before impulse (>= hIdx)
+                    for (int j = impIdx - 1; j >= hIdx; j--) {
+                        if (k.get(j).c < k.get(j).o) {
+                            if (seen.add(j)) {
+                                double top = k.get(j).h, bot = k.get(j).l;
+                                boolean mitigated = false;
+                                for (int m = i + 1; m < n; m++) if (k.get(m).l <= top) { mitigated = true; break; }
+                                out.add(new ObZone(j, top, bot, true, mitigated));
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+            // ---- bearish case: lowest low before i
+            if (i - lIdx >= 3 && cur.c < lVal) {            // bearish structure break
+                int impIdx = -1;
+                for (int j = lIdx + 1; j <= i; j++) {
+                    if (k.get(j).c < k.get(j).o && (k.get(j).o - k.get(j).c) >= impulseMin) { impIdx = j; break; }
+                }
+                if (impIdx > 0) {
+                    for (int j = impIdx - 1; j >= lIdx; j--) {
+                        if (k.get(j).c > k.get(j).o) {
+                            if (seen.add(j)) {
+                                double top = k.get(j).h, bot = k.get(j).l;
+                                boolean mitigated = false;
+                                for (int m = i + 1; m < n; m++) if (k.get(m).h >= bot) { mitigated = true; break; }
+                                out.add(new ObZone(j, top, bot, false, mitigated));
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        out.sort((a, b) -> b.idx - a.idx);
+        return out;
+    }
+
+    /** MSS/BOS walk — uske "Advance Structure Mapping": close beyond N=10 swing;
+     *  direction PRIOR break ke against = MSS (shift), same = BOS (continuation).
+     *  Pehla break hamesha MSS. Latest event return hota hai. */
+    public static StructEvent structureWalk(List<Candle> k, int lookback) {
+        int n = k.size();
+        if (n < lookback + 5) return null;
+        StructEvent last = null;
+        for (int i = lookback; i < n; i++) {
+            int from = Math.max(0, i - lookback);
+            int hIdx = -1; double hVal = -Double.MAX_VALUE;
+            int lIdx = -1; double lVal = Double.MAX_VALUE;
+            for (int j = from; j < i; j++) {
+                if (k.get(j).h > hVal) { hVal = k.get(j).h; hIdx = j; }
+                if (k.get(j).l < lVal) { lVal = k.get(j).l; lIdx = j; }
+            }
+            if (hIdx < 0 || lIdx < 0) continue;
+            Candle cur = k.get(i);
+            if (i - hIdx >= 3 && cur.c > hVal) {
+                StructEvent e = new StructEvent();
+                e.dir = "BULL"; e.idx = i; e.level = hVal;
+                e.kind = (last != null && "BULL".equals(last.dir)) ? "BOS" : "MSS";
+                last = e;
+            } else if (i - lIdx >= 3 && cur.c < lVal) {
+                StructEvent e = new StructEvent();
+                e.dir = "BEAR"; e.idx = i; e.level = lVal;
+                e.kind = (last != null && "BEAR".equals(last.dir)) ? "BOS" : "MSS";
+                last = e;
+            }
+        }
+        return last;
+    }
+
+    /** Latest UNFILLED Fair Value Gap (3-candle imbalance). bull: low[i] > high[i-2]. */
+    public static double[] latestFvg(List<Candle> k) {
+        int n = k.size();
+        for (int i = n - 1; i >= 2; i--) {
+            Candle a = k.get(i - 2), c = k.get(i);
+            if (c.l > a.h) {                                 // bull FVG (gap up)
+                boolean filled = false;
+                for (int m = i + 1; m < n; m++) if (k.get(m).l <= a.h) { filled = true; break; }
+                if (!filled) return new double[]{a.h, c.l, 1};
+            }
+            if (c.h < a.l) {                                 // bear FVG (gap down)
+                boolean filled = false;
+                for (int m = i + 1; m < n; m++) if (k.get(m).h >= a.l) { filled = true; break; }
+                if (!filled) return new double[]{a.l, c.h, -1};
+            }
+        }
+        return null;
+    }
+
+    /** Abhi kaunsa session chal raha hai (New York time) — uske panel jaisa.
+     *  Asian 20:00-00:00, London 02:00-05:00, New York 07:00-10:00, London Close 10:00-12:00. */
+    public static String[] sessionNow(long tsMs) {
+        java.util.Calendar cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("America/New_York"));
+        cal.setTimeInMillis(tsMs);
+        int m = cal.get(java.util.Calendar.HOUR_OF_DAY) * 60 + cal.get(java.util.Calendar.MINUTE);
+        if (m >= 20 * 60 || m < 0) return new String[]{"ASIAN", "no"};
+        if (m >= 2 * 60 && m < 5 * 60) return new String[]{"LONDON", "yes"};
+        if (m >= 7 * 60 && m < 10 * 60) return new String[]{"NEW YORK", "yes"};
+        if (m >= 10 * 60 && m < 12 * 60) return new String[]{"LONDON CLOSE", "no"};
+        return new String[]{"OFF-SESSION", "no"};
+    }
+
+    /** Live indicator snapshot for one symbol — v4.1: SHAAKUNI SUITE (purana 82-indicator
+     *  PDF snapshot hata diya gaya — owner request). */
     public Map<String, Object> indicatorSnapshot(String symbol) {
         Map<String, Object> out = new HashMap<>();
         List<Candle> k = loadCandles(symbol);
         if (k.size() < 60) {
             out.put("ok", false);
-            out.put("reason", "not enough 5m candles for " + symbol + " (need 60, have " + k.size() + ")");
+            out.put("reason", "not enough 1m candles for " + symbol + " (need 60, have " + k.size() + ")");
             return out;
         }
         Map<String, Object> v = new HashMap<>();
-        double c = k.get(k.size() - 1).c;
-        v.put("price", c);
-        v.put("ema9", ema(k, 9)); v.put("ema21", ema(k, 21)); v.put("ema50", ema(k, 50));
-        v.put("sma200", ema(k, 200));
-        v.put("wma20", wma(k, 20)); v.put("hma21", hma(k, 21)); v.put("dema20", dema(k, 20));
-        v.put("tema20", tema(k, 20)); v.put("kama", kama(k)); v.put("alma9", alma(k, 9, 0.85, 6));
-        v.put("t3", t3(k, 5, 0.7)); v.put("zlema20", zlema(k, 20)); v.put("lsma25", lsma(k, 25));
-        v.put("vwma20", vwma(k, 20)); v.put("mcginley14", mcginley(k, 14));
-        double[] bb = bollinger(k, 20); if (bb != null) v.put("bb", bb);
-        double[] kc = keltner(k, 20, 2); if (kc != null) v.put("keltner", kc);
-        double[] dc = donchian(k, 20); if (dc != null) v.put("donchian", dc);
-        double[] env = envelopes(k, 20, 2.5); if (env != null) v.put("envelopes", env);
-        v.put("stdev20", stdev(k, 20)); v.put("atr14", atr(k, 14)); v.put("chandelier22", chandelier(k, 22, 3));
-        double[] mac = macd(k); if (mac != null) v.put("macd", mac);
-        double[] ad = adx(k, 14); if (ad != null) { v.put("adx", ad[0]); v.put("plusDi", ad[1]); v.put("minusDi", ad[2]); }
-        double[] ps = psar(k); if (ps != null) { v.put("psar", ps[0]); v.put("psarBull", ps[1]); }
-        double[] st = supertrend(k); if (st != null) { v.put("supertrend", st[0]); v.put("stDir", st[1]); }
-        double[] ich = ichimoku(k); if (ich != null) v.put("ichimoku", ich);
-        double[] ar = aroon(k, 14); if (ar != null) v.put("aroon", ar);
-        double[] vx = vortex(k, 14); if (vx != null) v.put("vortex", vx);
-        v.put("trix15", trix(k)); v.put("massIndex", massIndex(k));
-        double[] alli = alligator(k); if (alli != null) v.put("alligator", alli);
-        v.put("choppiness14", choppiness(k, 14)); v.put("schaff", schaff(k)); v.put("kst", kst(k));
-        v.put("coppock", coppock(k));
-        double[] ap = apoPpo(k); if (ap != null) v.put("ppo", ap[1]);
-        v.put("dpo20", dpo(k, 20)); v.put("awesomeOsc", awesomeOsc(k));
-        v.put("rsi14", rsi(k, 14));
-        double[] stoch = stochastic(k, 14); if (stoch != null) v.put("stoch", stoch);
-        double[] srsi = stochRsi(k); if (srsi != null) v.put("stochRsi", srsi);
-        v.put("cci20", cci(k, 20)); v.put("williamsR", williamsR(k, 14)); v.put("roc9", roc(k, 9));
-        v.put("tsi", tsi(k)); v.put("cmo14", cmo(k, 14)); v.put("fisher", fisher(k));
-        v.put("deMarker", deMarker(k, 14)); v.put("smi", smi(k)); v.put("bop14", bop(k, 14));
-        v.put("laguerreRsi", laguerreRsi(k)); v.put("rvi10", rvi(k, 10));
-        double[] er = elderRay(k); if (er != null) v.put("elderRay", er);
-        v.put("mfi14", mfi(k, 14)); v.put("obvSlope", obvSlope(k, 20)); v.put("adSlope", adSlope(k, 20));
-        v.put("cmf20", cmf(k, 20)); v.put("chaikinOsc", chaikinOsc(k)); v.put("forceIndex", forceIndex(k, 13));
-        v.put("eom14", eom(k, 14)); v.put("klinger", klinger(k)); v.put("pvtSlope", pvtSlope(k, 20));
-        v.put("volumeOsc", volumeOsc(k)); v.put("vwap", vwap(k));
-        double[] pp = pivotPoints(k); if (pp != null) v.put("pivots", pp);
-        double[] fib = fibLevels(k); if (fib != null) v.put("fib", fib);
-        double[] fr = fractals(k); if (fr != null) v.put("fractals", fr);
-        Object[] candle = candlePattern(k); if (candle != null) { v.put("candlePattern", candle[0]); v.put("candleDir", candle[1]); }
-        Object[] harm = harmonicPattern(k); if (harm != null) { v.put("harmonic", harm[0]); v.put("harmonicDir", harm[1]); }
-        v.put("fvg", fvg(k)); v.put("bos", bosVoteCalc(k)); v.put("sweep", sweepVoteCalc(k));
+        Candle last = k.get(k.size() - 1);
+        v.put("price", last.c);
+        v.put("atr14", atr(k, 14));
+        // --- liquidity levels
+        double[] d = prevDayHighLow(k);
+        if (d != null) {
+            v.put("pdh", d[0]); v.put("pdl", d[1]);
+            v.put("eqD", (d[0] + d[1]) / 2.0);                        // daily equilibrium 50%
+            v.put("pdhStatus", sweepStatus(k, d[0], true));
+            v.put("pdlStatus", sweepStatus(k, d[1], false));
+            v.put("premiumDiscount", last.c > (d[0] + d[1]) / 2.0 ? "PREMIUM" : "DISCOUNT");
+        }
+        double[] w = prevWeekHighLow(k);
+        if (w != null) {
+            v.put("pwh", w[0]); v.put("pwl", w[1]);
+            v.put("eqW", (w[0] + w[1]) / 2.0);
+            v.put("pwhStatus", sweepStatus(k, w[0], true));
+            v.put("pwlStatus", sweepStatus(k, w[1], false));
+        }
+        // --- structure + POI
+        StructEvent se = structureWalk(k, 10);
+        if (se != null) { v.put("structKind", se.kind); v.put("structDir", se.dir); v.put("structLevel", se.level); }
+        List<ObZone> obs = orderBlocks(k, 10);
+        org.json.JSONArray arr = new org.json.JSONArray();
+        for (ObZone z : obs) {
+            try { arr.put(new JSONObject().put("idx", z.idx).put("top", z.top).put("bottom", z.bottom)
+                    .put("bull", z.bullish).put("mitigated", z.mitigated)); } catch (Throwable ignored) { }
+        }
+        v.put("orderBlocks", arr);
+        double[] fvg = latestFvg(k);
+        if (fvg != null) { v.put("fvgTop", fvg[1]); v.put("fvgBottom", fvg[0]); v.put("fvgDir", fvg[2]); }
+        v.put("candlePattern", candlePattern(k) != null ? candlePattern(k)[0] : "");
+        // --- session
+        String[] ses = sessionNow(last.ts);
+        v.put("session", ses[0]); v.put("killzone", ses[1]);
         v.put("fearGreed", fngValue);
         out.put("ok", true);
         out.put("symbol", symbol);
         out.put("timeframe", TF);
         out.put("values", v);
-        out.put("library", INDICATOR_LIBRARY);
+        out.put("library", SHAAKUNI_SUITE);
         return out;
     }
 

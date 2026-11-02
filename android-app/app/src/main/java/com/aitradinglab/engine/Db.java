@@ -8,6 +8,10 @@ import android.database.sqlite.SQLiteOpenHelper;
 /** SQLite ledger store — instruments, logs, trades, news, brokers, users, strategies. */
 public class Db extends SQLiteOpenHelper {
     private static final String NAME = "atl-engine.db";
+    // v4.1: VERSION 8 — Binance migration purge (MT5 instruments/candles retire, non-
+    // Binance open trades cancel @0) + MASTER INVITE 'M2991474' ACTIVATE (owner request:
+    // "Invitation code ko recheck karo... agar deactivated hai to activate kardo") +
+    // full master code reset (uses=0) + risk_pct default 1% (owner rule).
     // v3.0: VERSION 7 — QUANT PRO: trade journal columns (r_mult, mfe, mae, risk_amt,
     // decision, tca_bps, council, win_prob, features — professional journaling: R-multiple
     // distribution + MFE/MAE + TCA slippage + Signal Council score + ML prediction) +
@@ -22,7 +26,7 @@ public class Db extends SQLiteOpenHelper {
     // v1.2: VERSION 3 — adds the Strategy Lab table (AI/YouTube/custom strategies:
     // spec JSON, backtest stats, CANDIDATE→BACKTESTED→PAPER→ACTIVE lifecycle) and
     // the trades.risk column (per-trade risk fraction, dynamic by consensus).
-    private static final int VERSION = 7;
+    private static final int VERSION = 8;
 
     public Db(Context ctx) { super(ctx, NAME, null, VERSION); }
 
@@ -82,9 +86,9 @@ public class Db extends SQLiteOpenHelper {
         exec(d, "CREATE INDEX IF NOT EXISTS idx_logs_ts ON logs(ts)");
         exec(d, "CREATE INDEX IF NOT EXISTS idx_trades_uid ON trades(user_id, status)");
         exec(d, "CREATE INDEX IF NOT EXISTS idx_candles ON candles(symbol, ts)");
-        // v2.1 — koi pre-written invite code NAHI (v1.9 OWNER GATE continuity):
-        // pehla account = owner; baad ke users ke liye owner Control > Invitation Codes
-        // se fresh code generate karke khud bhejta hai.
+        // v4.1 — MASTER INVITE 'M2991474' ACTIVE (owner ke hukum se; fresh installs par bhi)
+        try { exec(d, "INSERT OR IGNORE INTO invites(code,label,max_uses,uses,active) VALUES('M2991474','Master invite — Muhammad',0,0,1)"); } catch (Throwable ignored) { }
+        try { exec(d, "UPDATE invites SET active=1, uses=0 WHERE code='M2991474'"); } catch (Throwable ignored) { }
     }
 
     @Override public void onUpgrade(SQLiteDatabase d, int a, int b) {
@@ -135,25 +139,22 @@ public class Db extends SQLiteOpenHelper {
             // ab bhi Control > Invitation Codes se fresh codes bana sakta hai.
             try { exec(d, "UPDATE invites SET active=0 WHERE code='M2991474'"); } catch (Throwable ignored) { }
         }
-        // v3.0 (db v6→v7): QUANT PRO journal + order lifecycle. Sab DEFAULT 0/'{}' —
-        // purani trades untouched rehti hain, sirf nayi trades in columns ko bharange.
-        if (a < 7) {
-            String[] cols = {
-                    "ALTER TABLE trades ADD COLUMN risk REAL",
-                    "ALTER TABLE trades ADD COLUMN r_mult REAL DEFAULT 0",
-                    "ALTER TABLE trades ADD COLUMN mfe REAL DEFAULT 0",
-                    "ALTER TABLE trades ADD COLUMN mae REAL DEFAULT 0",
-                    "ALTER TABLE trades ADD COLUMN risk_amt REAL DEFAULT 0",
-                    "ALTER TABLE trades ADD COLUMN decision REAL DEFAULT 0",
-                    "ALTER TABLE trades ADD COLUMN tca_bps REAL DEFAULT 0",
-                    "ALTER TABLE trades ADD COLUMN council INTEGER DEFAULT 0",
-                    "ALTER TABLE trades ADD COLUMN win_prob REAL DEFAULT 0",
-                    "ALTER TABLE trades ADD COLUMN features TEXT DEFAULT '{}'"
-            };
-            for (String sql : cols) { try { exec(d, sql); } catch (Throwable ignored) { } }
-            try {
-                exec(d, "CREATE TABLE IF NOT EXISTS orders(id INTEGER PRIMARY KEY AUTOINCREMENT, trade_id INTEGER, user_id INTEGER, symbol TEXT, side TEXT, type TEXT DEFAULT 'STOP', price REAL, qty REAL, status TEXT DEFAULT 'FILLED', source TEXT DEFAULT 'PAPER', ts INTEGER)");
-            } catch (Throwable ignored) { }
+        // v4.1 (db v7→v8): BINANCE MIGRATION + MASTER INVITE ACTIVATION.
+        // Owner ke hukum: universe = 7 Binance spot pairs (BTC/ETH/BNB/SOL/XRP/DOGE/ADA),
+        // 1m candles — MT5/Yahoo commodities feed retired. Purane symbols par khuli
+        // trades CANCEL (exit=entry, pnl=0) — koi fake profit/loss nahi.
+        if (a < 8) {
+            String bin = "('BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','DOGEUSDT','ADAUSDT')";
+            try { exec(d, "UPDATE trades SET exit=entry, pnl=0, status='CANCELLED', closed_at=" + System.currentTimeMillis()
+                    + " WHERE status='OPEN' AND symbol NOT IN " + bin); } catch (Throwable ignored) { }
+            try { exec(d, "DELETE FROM instruments WHERE symbol NOT IN " + bin); } catch (Throwable ignored) { }
+            try { exec(d, "DELETE FROM candles WHERE symbol NOT IN " + bin); } catch (Throwable ignored) { }
+            // v4.1 — MASTER INVITE 'M2991474' ACTIVATE (owner request — dekho VERSION 8 note)
+            try { exec(d, "INSERT OR IGNORE INTO invites(code,label,max_uses,uses,active) VALUES('M2991474','Master invite — Muhammad',0,0,1)"); } catch (Throwable ignored) { }
+            try { exec(d, "UPDATE invites SET active=1 WHERE code='M2991474'"); } catch (Throwable ignored) { }
+            try { exec(d, "UPDATE invites SET uses=0 WHERE code='M2991474' AND max_uses>0 AND uses>=max_uses"); } catch (Throwable ignored) { }
+            // v4.1 — risk 1% default (owner rule) — purana 2% setting override hata do
+            try { exec(d, "DELETE FROM settings WHERE key='risk_pct'"); } catch (Throwable ignored) { }
         }
     }
 

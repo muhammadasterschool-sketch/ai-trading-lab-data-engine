@@ -144,7 +144,7 @@ select{width:100%;background:var(--card);border:1px solid var(--line);border-rad
   <div class="logo"><img src="logo.png" alt="AI Trading Lab"></div>
   <h1>AI Trading Lab</h1>
   <div class="sub">Full trading engine on this device — paper trading</div>
-  <div class="sub" style="color:var(--gold)">v3.0.1 · QUANT PRO · HEAT · COUNCIL · ML · HONEST LAB · TRUE DD</div>
+  <div class="sub" style="color:var(--gold)">v4.1.0 · BINANCE 7 PAIRS · SHAAKUNI SUITE · RISK 1% · MIN-25 SCALING</div>
   <div id="engStrip" class="eng">checking engine…</div>
   <div class="note"><b>Naya install / update?</b> Accounts is device ki local database mein hote hain — app reinstall ya update ke baad purana account <b>transfer nahi hota</b>. Pehla account = <b>OWNER (ADMIN)</b>. Baaki log <b>Register</b> se apply karein — <b>invite code owner se milega</b> (kahin likha hua nahi hota), aur owner ke <b>APPROVE</b> karne ke baad hi sign in possible hoga. Kisi authenticator app ki zaroorat nahi.</div>
 
@@ -217,12 +217,12 @@ select{width:100%;background:var(--card);border:1px solid var(--line);border-rad
   <aside id="drawer">
     <div class="dhead">
       <img src="logo.png" alt="">
-      <div><div class="dt">AI Trading Lab</div><div class="ds" id="drEngine">engine · v3.0.1 QUANT PRO</div></div>
+      <div><div class="dt">AI Trading Lab</div><div class="ds" id="drEngine">engine · v4.1.0 BINANCE + SHAAKUNI</div></div>
       <button class="dclose" onclick="closeDrawer()">✕</button>
     </div>
     <div class="duser" id="drUser"></div>
     <div class="ditems" id="drItems"></div>
-    <div class="dfoot">v3.0.1 · QUANT PRO · paper trading only — engine is device par 24/7 chalta hai</div>
+    <div class="dfoot">v4.1.0 · BINANCE SPOT · paper trading only — engine is device par 24/7 chalta hai</div>
   </aside>
   <main id="main"></main>
   <nav>
@@ -528,10 +528,10 @@ function dlAudit(){
   });
 }
 /* ============ v3.0 SEASONALITY (seasonality.ai pattern — commodities ka asal edge) ============ */
-var SEASON_SYM = 'XAUUSD';
+var SEASON_SYM = 'BTCUSDT';
 function renderSeason(){
   var t = document.getElementById('insBody'); if(!t) return;
-  var chips = ['XAUUSD','XAGUSD','USOIL','UKOIL','NGAS','WHEAT','CORN','COFFEE','COCOA','SUGAR']
+  var chips = ['BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','DOGEUSDT','ADAUSDT']
     .map(function(s){ return '<button class="chip '+(SEASON_SYM===s?'on':'')+'" onclick="SEASON_SYM=\''+s+'\';renderSeason()">'+s+'</button>'; }).join('');
   t.innerHTML = '<h2>🗓 Seasonality — '+esc(SEASON_SYM)+' (5y monthly edge)</h2><div class="chips">'+chips+'</div><div id="seasBody"><div class="empty">Data fetch ho raha hai…</div></div>';
   api('/api/seasonality?symbol='+SEASON_SYM).then(function(r){
@@ -587,28 +587,27 @@ function renderDash(){
     else if(e.safe_mode) ban += '<div class="banner red">🛡 <b>SAFE MODE — feed outage:</b> candle data stale (market OPEN hai lekin candles nahi aa rahi). Naye entries band, khuli trades ka SL/TP freeze hai (false trigger se bachne ke liye). Feed wapas aane par auto-resume.</div>';
     else if(e.market_closed) ban += '<div class="banner warn" style="border-color:#f59e0b;color:#fbbf24">🕐 <b>Market BAND hai</b> (weekend ya CME daily maintenance 17:00-18:00 ET) — 3C sirf chalte market par trade karta hai. Engine 24/7 chal raha hai, market khulte hi scan resume ho jayega. Ye normal hai — ghabraiye nahi.</div>';
     else if(e.news_pause) ban += '<div class="banner warn">📰 High-impact news — new entries paused 30 min</div>';
-    else ban += '<div class="banner green">⏱ 24h scanner LIVE — '+e.active_symbols+' instruments on '+(e.timeframe||'5m')+' chart · QUANT PRO stack: slippage model '+ (e.slip_bps!=null?e.slip_bps:2) +'bps · council '+(e.council_min>0?'GATE ≥'+e.council_min+'%':'tag-only')+' · ML '+(e.ml||'warming up')+'</div>';
+    else ban += '<div class="banner green">⏱ BINANCE MODE · 24/7 scanner LIVE — '+e.active_symbols+' pairs on '+(e.timeframe||'1m')+' chart · risk '+(e.risk_pct!=null?e.risk_pct:'1')+'%/trade · '+esc(e.risk_scaling||'base risk')+' · QUANT PRO: slippage '+ (e.slip_bps!=null?e.slip_bps:2) +'bps · council '+(e.council_min>0?'GATE ≥'+e.council_min+'%':'tag-only')+' · ML '+(e.ml||'warming up')+'</div>';
     var spark = sparkSvg(d.equity||[]);
     var exp = d.exposure||{};
     var nr = e.no_trade_report||{};   /* v3.0.1 why-no-trades 24h counters */
     var heatCell = '<div class="card full"><div class="k">Portfolio Heat + Bucket Exposure (LEAN-style)</div>' +
       '<div style="display:flex;gap:6px;margin-top:8px">' +
         '<div style="flex:1"><div class="mut" style="font-size:10px">TOTAL HEAT</div><b style="font-size:16px;color:'+((d.heat||0)>(d.heatCap||0)&&(d.heatCap||0)>0?'#f87171':'#e5e7eb')+'">'+(d.heat||0).toFixed(1)+'%</b>'+(d.heatCap>0?' <span class="mut" style="font-size:10px">/ cap '+d.heatCap+'%</span>':' <span class="mut" style="font-size:10px">/ UNLIMITED</span>')+'</div>' +
-        '<div style="flex:1"><div class="mut" style="font-size:10px">⛏ METALS</div><b>'+(exp.METAL||0).toFixed(1)+'%</b></div>' +
-        '<div style="flex:1"><div class="mut" style="font-size:10px">🛢 ENERGY</div><b>'+(exp.ENERGY||0).toFixed(1)+'%</b></div>' +
-        '<div style="flex:1"><div class="mut" style="font-size:10px">🌾 AGRI</div><b>'+(exp.AGRI||0).toFixed(1)+'%</b></div>' +
+        '<div style="flex:1"><div class="mut" style="font-size:10px">⛏ MAJOR (BTC/ETH/BNB/SOL)</div><b>'+(exp.MAJOR||0).toFixed(1)+'%</b></div>' +
+        '<div style="flex:1"><div class="mut" style="font-size:10px">🛢 RETAIL (XRP/DOGE/ADA)</div><b>'+(exp.RETAIL||0).toFixed(1)+'%</b></div>' +
       '</div>' +
       '<div class="small" style="margin-top:6px">Heat = khuli trades ka total risk (entry→SL) ÷ equity. Caps Settings > QUANT PRO me (default UNLIMITED — aapka rule).</div></div>';
-    var chUps = ['XAUUSD','XAGUSD','USOIL','UKOIL','NGAS','XPTUSD'];
+    var chUps = ['BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','DOGEUSDT','ADAUSDT'];
     var chChips = chUps.map(function(s){
       return '<button class="chip '+(CHART_SYM===s?'on':'')+'" onclick="CHART_SYM=\''+s+'\';renderDash()">'+s.replace('USDT','')+'</button>';
     }).join('');
     tgt().innerHTML =
       ban +
-      '<div class="card full"><div style="display:flex;justify-content:space-between;align-items:baseline"><div class="k">'+esc(CHART_SYM)+' · M5 candlestick</div><div class="chartprice" id="chartPx">—</div></div>' +
+      '<div class="card full"><div style="display:flex;justify-content:space-between;align-items:baseline"><div class="k">'+esc(CHART_SYM)+' · M1 candlestick</div><div class="chartprice" id="chartPx">—</div></div>' +
         '<div class="chartwrap"><canvas id="cchart"></canvas></div>' +
         '<div class="chips" style="margin-top:10px">'+chChips+'</div>' +
-        '<div class="small" style="margin-top:6px">MT5 halal commodities 5m candles (real futures market data — Gold, Silver, Oil, Gas, Agri) — engine inhi par 3C setups dhoondta hai. Green = close upar, red = close neeche.</div></div>' +
+        '<div class="small" style="margin-top:6px">BINANCE SPOT 1m candles (real exchange data — 7 pairs, 24/7) — engine in par 3C setups dhoondta hai + Shaakuni Suite (PDH/PDL, sweeps, OB, MSS) live. Green = close upar, red = close neeche.</div></div>' +
       '<div class="grid">' +
       card('Paper Balance', '$'+d.balance.toFixed(2), d.totalPnl>=0?'green':'red') +
       card('Total P&L', (d.totalPnl>=0?'+':'')+d.totalPnl.toFixed(2)+' ('+(d.pnlPct>=0?'+':'')+d.pnlPct.toFixed(2)+'%)', d.totalPnl>=0?'green':'red') +
@@ -632,10 +631,10 @@ function renderDash(){
       '<div class="card full"><div class="k">Equity (recent)</div><div id="sparkwrap">'+spark+'</div></div>' +
       '<div class="card full"><div class="k">Engine Status</div>' +
         '<table style="margin-top:6px"><tr><td class="mut">Consensus</td><td>'+esc(e.consensus||'')+'</td></tr>' +
-        '<tr><td class="mut">Strategy</td><td><b>'+(e.strategy_name||'3C Breakout (M5) — MASTER')+'</b> + PRO FILTER PACK (EMA200 trend · ATR floor · volume · zone-size) · risk '+(e.risk_pct!=null?e.risk_pct:'2')+'%/trade</td></tr>' +
+        '<tr><td class="mut">Strategy</td><td><b>'+(e.strategy_name||'3C Breakout (M1 BINANCE) — MASTER')+'</b> + PRO FILTER PACK · risk '+(e.risk_pct!=null?e.risk_pct:'1')+'%/trade · '+esc(e.risk_scaling||'min-25 consensus scaling armed')+'</td></tr>' +
         '<tr><td class="mut">Market scanner</td><td>'+(e.scanner||'24h')+' nonstop · scan #'+(e.scan_count||0)+(e.fear_greed>=0?' · F&G '+e.fear_greed:'')+(e.threec_armed&&e.threec_armed.length?' · <b>'+e.threec_armed.length+' 3C setup(s) armed</b>':'')+'</td></tr>' +
-        '<tr><td class="mut">Instruments trading</td><td>'+e.active_symbols+' · '+(e.indicator_count||82)+' indicators · 10s scan · live stop-order entries</td></tr>' +
-        '<tr><td class="mut">Data feed</td><td>'+esc(e.feed||('MT5 commodities · '+(e.data_host||'')))+' · live halal commodities market data (real, not simulated) · fees 0.05%/side + slippage '+ (e.slip_bps!=null?e.slip_bps:2) +'bps modeled</td></tr>' +
+        '<tr><td class="mut">Instruments trading</td><td>'+e.active_symbols+' · '+(e.indicator_count||13)+' SHAAKUNI indicators · 10s scan · live stop-order entries</td></tr>' +
+        '<tr><td class="mut">Data feed</td><td>'+esc(e.feed||('Binance spot · '+(e.data_host||'')))+' · real exchange market data (not simulated) · fees 0.05%/side + slippage '+ (e.slip_bps!=null?e.slip_bps:2) +'bps modeled</td></tr>' +
         '<tr><td class="mut">QUANT PRO stack</td><td>Signal Council (4 analysts) · ML-lite '+(e.ml||'warming up')+' · degradation monitor 30-min · event gate '+(e.event_gate?'ON':'off')+' · session filter '+(e.session_filter?'ON':'off')+' · bridge live '+(e.bridge_live?'⚠ ON':'off')+'</td></tr></table></div>' +
       '</div>';
     document.getElementById('hdrSub').textContent = USER ? (USER.name + (USER.role==='ADMIN'?' · ADMIN':'')) : '';
@@ -643,7 +642,7 @@ function renderDash(){
   });
 }
 /* ================= v1.8 CANDLESTICK CHART (dependency-free canvas) ================= */
-var CHART_SYM = 'XAUUSD';
+var CHART_SYM = 'BTCUSDT';
 function drawCandles(){
   var cv = document.getElementById('cchart');
   if(!cv) return;
@@ -806,34 +805,28 @@ function renderInd(){
     }
     var live = '';
     if (d.ok) {
-      live = '<div class="banner green">Live 1m indicator snapshot — <b>'+esc(d.symbol)+'</b>'+(v.candlePattern?' · pattern: <b>'+esc(v.candlePattern)+'</b>':'')+(v.harmonic?' · harmonic: <b>'+esc(v.harmonic)+'</b>':'')+'</div>' +
+      var obRows = '';
+      (v.orderBlocks||[]).forEach(function(z){
+        obRows += '<tr><td class="mut">OB @bar '+z.idx+' ('+(z.bull?'BULL':'BEAR')+(z.mitigated?' · mitigated':' · UNTOUCHED')+')</td><td style="text-align:right"><b>'+fnum(z.bottom)+' — '+fnum(z.top)+'</b></td></tr>';
+      });
+      live = '<div class="banner green">🎯 SHAAKUNI TRAP SUITE — <b>'+esc(d.symbol)+'</b> 1m live'+(v.candlePattern?' · candle: <b>'+esc(v.candlePattern)+'</b>':'')+'</div>' +
         '<table>' +
-        line('Price', v.price) +
-        line('RSI 14', v.rsi14) + line('Stochastic K/D', v.stoch) + line('StochRSI K/D', v.stochRsi) +
-        line('MACD line/signal', v.macd) + line('ADX / +DI / -DI', v.adx ? [v.adx, v.plusDi, v.minusDi] : null) +
-        line('Bollinger L/M/U', v.bb) + line('Keltner', v.keltner) + line('Donchian U/M/L', v.donchian) +
-        line('EMA 9 / 21 / 50', [v.ema9, v.ema21, v.ema50]) + line('HMA 21', v.hma21) + line('KAMA', v.kama) +
-        line('ALMA 9', v.alma9) + line('T3', v.t3) + line('ZLEMA 20', v.zlema20) + line('McGinley 14', v.mcginley14) +
-        line('PSAR (dir)', v.psar) + line('Supertrend (dir)', v.supertrend) +
-        line('Ichimoku T/K/A/B', v.ichimoku) + line('Aroon Up/Down', v.aroon) + line('Vortex VI+/VI-', v.vortex) +
-        line('Alligator J/T/L', v.alligator) +
-        line('CCI 20', v.cci20) + line('Williams %R', v.williamsR) + line('ROC 9', v.roc9) +
-        line('TSI', v.tsi) + line('CMO 14', v.cmo14) + line('Fisher', v.fisher) + line('DeMarker', v.deMarker) +
-        line('SMI', v.smi) + line('BOP', v.bop14) + line('Laguerre RSI', v.laguerreRsi) + line('RVI 10', v.rvi10) +
-        line('Awesome Osc', v.awesomeOsc) + line('Schaff TC', v.schaff) + line('KST', v.kst) + line('Coppock', v.coppock) +
-        line('TRIX 15', v.trix15) + line('Mass Index', v.massIndex) + line('Choppiness', v.choppiness14) + line('DPO 20', v.dpo20) +
-        line('ATR 14', v.atr14) + line('StDev 20', v.stdev20) + line('Chandelier Exit', v.chandelier22) +
-        line('MFI 14', v.mfi14) + line('OBV slope', v.obvSlope) + line('A/D slope', v.adSlope) +
-        line('CMF 20', v.cmf20) + line('Chaikin Osc', v.chaikinOsc) + line('Force Index', v.forceIndex) +
-        line('EOM 14', v.eom14) + line('Klinger', v.klinger) + line('PVT slope', v.pvtSlope) + line('Volume Osc', v.volumeOsc) +
-        line('VWAP', v.vwap) + line('Pivots PP/R1/S1', v.pivots ? [v.pivots[0], v.pivots[1], v.pivots[4]] : null) +
-        line('Fib 50 / 61.8', v.fib ? [v.fib[2], v.fib[3]] : null) + line('Fractals up/dn', v.fractals) +
-        line('FVG / BOS / Sweep', [v.fvg, v.bos, v.sweep]) + line('Fear & Greed', v.fearGreed) +
+        line('Price', v.price) + line('ATR 14', v.atr14) +
+        line('PDH (prev day high)', v.pdh) + line('PDH status', v.pdhStatus) +
+        line('PDL (prev day low)', v.pdl) + line('PDL status', v.pdlStatus) +
+        line('PWH (prev week high)', v.pwh) + line('PWH status', v.pwhStatus) +
+        line('PWL (prev week low)', v.pwl) + line('PWL status', v.pwlStatus) +
+        line('EQ daily 50% / zone', v.eqD!=null?[v.eqD, v.premiumDiscount] : null) + line('EQ weekly 50%', v.eqW) +
+        line('Structure ('+(v.structKind||'—')+' '+(v.structDir||'')+' @ '+fnum(v.structLevel)+')', v.structKind ? (v.structKind+' / '+v.structDir) : null) +
+        obRows +
+        line('FVG zone (bottom-top)', v.fvgTop!=null?[v.fvgBottom, v.fvgTop] : null) +
+        line('Session / Killzone', [v.session, v.killzone==='yes'?'KILLZONE ON':'off']) +
+        line('Fear & Greed', v.fearGreed) +
         '</table>';
     } else {
-      live = '<div class="empty">'+esc(d.reason || 'warming up — first 5m candles loading...')+'</div>';
+      live = '<div class="empty">'+esc(d.reason || 'warming up — first 1m candles loading...')+'</div>';
     }
-    var html = '<div class="banner green">📏 Complete Trading Encyclopedia — <b>'+lib.length+' indicators</b> live on the 5m chart · Engine 3C MASTER strategy (M5) chala raha hai</div>';
+    var html = '<div class="banner green">🎯 SHAAKUNI TRAP SUITE — <b>'+lib.length+' tools</b> live on the 1m chart · 82-indicator PDF encyclopedia DELETE ho chuki (owner request) · Engine 3C MASTER (M1 Binance) chala raha hai</div>';
     html += live;
     html += '<h2>Indicator Library</h2>';
     Object.keys(groups).forEach(function(g){

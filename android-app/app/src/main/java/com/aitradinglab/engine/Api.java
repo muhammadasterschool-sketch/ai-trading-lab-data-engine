@@ -92,7 +92,7 @@ public class Api {
     private Res get(String path, String auth) throws Exception {
         if ("/".equals(path) || "/index.html".equals(path)) return Res.html(dashboardHtml);
         if ("/api/health".equals(path)) return Res.json(200, new JSONObject()
-                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "3.0.0").put("timeframe", "5m").put("scanner", "24h").put("strategy", "3C Breakout (M5) — MASTER + QUANT PRO stack + HALAL MT5"));
+                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "4.1.0").put("timeframe", "1m").put("scanner", "24/7").put("strategy", "3C Breakout (M1 BINANCE) — MASTER + QUANT PRO + SHAAKUNI SUITE"));
 
         Long uid = userId(auth);
         if (uid == null) return Res.error(401, "authentication required");
@@ -691,7 +691,7 @@ public class Api {
 
     /** GET /api/seasonality?symbol=XAUUSD — 5y monthly seasonal edge (seasonality.ai pattern). */
     private Res seasonality(String path) throws Exception {
-        String sym = "XAUUSD";
+        String sym = "BTCUSDT";
         int q = path.indexOf("?symbol=");
         if (q > 0) sym = path.substring(q + 8).toUpperCase(Locale.US).trim();
         if (!sym.matches("[A-Z0-9]{4,20}")) return Res.error(400, "Symbol galat");
@@ -822,9 +822,9 @@ public class Api {
                 .put("bridgeLive", engine != null && engine.bridgeLive())
                 .put("bridgeLots", engine != null ? engine.bridgeLots() : 0.01)
                 .put("feedIntervalSec", db.setting("feed_interval_sec", "60"))
-                .put("labSymbol", db.setting("lab_symbol", "XAUUSD"))
+                .put("labSymbol", db.setting("lab_symbol", "BTCUSDT"))
                 .put("safeMode", engine != null && engine.isSafeMode())
-                .put("version", "3.0"));
+                .put("version", "4.1"));
     }
 
     /** v1.8 — candlestick chart data: GET /api/candles?symbol=XAUUSD&n=60 → 5m candles.
@@ -832,7 +832,7 @@ public class Api {
      *  Home chart par FreqUI-style trade markers/lines draw ho sakein. */
     private Res candles(String path, long uid) throws Exception {
         String sym = qParam("symbol").toUpperCase(Locale.US).trim();
-        if (!sym.matches("[A-Z0-9]{4,20}")) return Res.error(400, "Symbol galat hai (e.g. XAUUSD)");
+        if (!sym.matches("[A-Z0-9]{4,20}")) return Res.error(400, "Symbol galat hai (e.g. BTCUSDT)");
         int n;
         try { n = Integer.parseInt(qParam("n")); } catch (Exception e) { n = 60; }
         if (engine == null) return Res.error(503, "engine band hai");
@@ -1148,8 +1148,8 @@ public class Api {
             db.log("INFO", "DATA", "FEED_INTERVAL_SET", "per-symbol feed refresh = " + v + "s");
         }
         if (o.has("labSymbol")) {
-            String v = o.optString("labSymbol", "XAUUSD").toUpperCase(Locale.US).trim();
-            if (!v.matches("[A-Z0-9]{4,20}")) return Res.error(400, "Lab symbol galat (e.g. XAUUSD)");
+            String v = o.optString("labSymbol", "BTCUSDT").toUpperCase(Locale.US).trim();
+            if (!v.matches("[A-Z0-9]{4,20}")) return Res.error(400, "Lab symbol galat (e.g. BTCUSDT)");
             db.setSetting("lab_symbol", v);
             db.log("INFO", "LAB", "LAB_SYMBOL_SET", "Lab backtest symbol = " + v);
         }

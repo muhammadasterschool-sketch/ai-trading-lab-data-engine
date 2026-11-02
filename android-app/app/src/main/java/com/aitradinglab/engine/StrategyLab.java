@@ -46,6 +46,44 @@ public class StrategyLab {
         this.ctx = ctx.getApplicationContext();
         this.db = db;
         this.engine = engine;
+        seedShaakuniStrategies();
+    }
+
+    /** v4.1 — SHAAKUNI TRAP PLAYBOOKS Lab me seed (owner request: "usne jo strategies
+     *  use kiye hai woh add karo"). 5 playbooks uske masterclasses/TradingView script
+     *  se — CANDIDATE status: owner Backtest/Approve karke paper par dalega.
+     *  Ek dafa seed hota hai (setting flag). Purani strategies UNTOUCHED. */
+    private void seedShaakuniStrategies() {
+        try {
+            if ("1".equals(db.setting("shaakuni_seeded_v41", "0"))) return;
+            db.setSetting("shaakuni_seeded_v41", "1");
+            String[][] books = {
+                {"SSM Sniper — PDL Sweep + MSS Bull (Shaakuni)",
+                    "[{\"ind\":\"liq_sweep\",\"op\":\"pdl_swept\"},{\"ind\":\"mss\",\"op\":\"bull\"},{\"ind\":\"killzone\",\"op\":\"any\"}]", "BUY"},
+                {"SSM Sniper — PDH Sweep + MSS Bear (Shaakuni)",
+                    "[{\"ind\":\"liq_sweep\",\"op\":\"pdh_swept\"},{\"ind\":\"mss\",\"op\":\"bear\"},{\"ind\":\"killzone\",\"op\":\"any\"}]", "SELL"},
+                {"Killzone Sweep — London/NY (Shaakuni)",
+                    "[{\"ind\":\"killzone\",\"op\":\"any\"},{\"ind\":\"liq_sweep\",\"op\":\"any\"}]", "BOTH"},
+                {"OB Retest Continuation (Shaakuni)",
+                    "[{\"ind\":\"mss\",\"op\":\"bull\"},{\"ind\":\"ob_retest\",\"op\":\"any\"}]", "BOTH"},
+                {"Discount Buy + EMA200 Trend (Shaakuni PD filter)",
+                    "[{\"ind\":\"premium_discount\",\"op\":\"discount\"},{\"ind\":\"price_vs_ema\",\"p\":200,\"op\":\"above\"}]", "BUY"}
+            };
+            int added = 0;
+            for (String[] b : books) {
+                JSONObject spec = new JSONObject()
+                        .put("name", b[0])
+                        .put("side", b[2])
+                        .put("logic", "ALL")
+                        .put("conditions", new org.json.JSONArray(b[1]))
+                        .put("notes", "Shaakuni Trap playbook — liquidity sweep + MSS + POI (uske TradingView script aur masterclasses se)");
+                JSONObject r = insert("SHAAKUNI", "{}", spec);
+                if (r != null && r.optBoolean("ok")) added++;
+            }
+            db.log("INFO", "LAB", "SHAAKUNI_SEED", added + "/5 Shaakuni Trap playbooks Lab me seed (CANDIDATE) — owner Backtest/Approve kare");
+        } catch (Throwable e) {
+            try { db.log("WARN", "LAB", "SHAAKUNI_SEED_FAIL", String.valueOf(e)); } catch (Throwable ignored) { }
+        }
     }
 
     // ================== AI PROXY ==================
@@ -100,11 +138,95 @@ public class StrategyLab {
         return insert(sourceFrom(spec), spec.optString("video", "{}"), spec);
     }
 
-    /** Compile free text via the AI proxy; returns spec JSON (with injected video meta if YT). */
+    /** Compile free text via the AI proxy; returns spec JSON (with injected video meta if YT).
+     *  v4.1 ROOT-CAUSE FIX ("AI strategies kyu nahi ban raha hai"): DEFAULT_AI_BASE ek
+     *  purani sandbox ka PREVIEW URL tha jo mar chuka hai — har compile
+     *  "AI service unreachable" par fail ho raha tha. Ab: proxy try hota hai, aur
+     *  fail hone par OFFLINE rule-based compiler fallback — AI strategies ab HAMESHA
+     *  banti hain (bina kisi external service ke bhi). */
     private JSONObject compileText(String text) throws Exception {
         JSONObject r = aiPost("/api/ai/strategy", new JSONObject().put("text", text), 90000);
-        if (r == null || !r.optBoolean("ok")) return null;
-        return r.optJSONObject("spec");
+        if (r != null && r.optBoolean("ok")) {
+            JSONObject s = r.optJSONObject("spec");
+            if (s != null) { try { s.put("compiler", "ai-proxy"); } catch (Throwable ignored) { } return s; }
+        }
+        // OFFLINE FALLBACK — keyword rule-compiler (Shaakuni + classic dono samajhta hai)
+        JSONObject off = offlineCompile(text);
+        if (off != null) {
+            try { off.put("compiler", "offline-rules"); } catch (Throwable ignored) { }
+            lastAiError = null;
+        }
+        return off;
+    }
+
+    /** v4.1 OFFLINE COMPILER — free text se strategy spec (rule-based, no network).
+     *  Shaakuni concepts (sweep/MSS/OB/FVG/killzone/discount) + classic (rsi/ema/macd)
+     *  keywords samajhta hai. Kuch na mile to sensible trend+volume default. */
+    private static JSONObject offlineCompile(String text) {
+        try {
+            String t = text == null ? "" : text.toLowerCase();
+            JSONObject spec = new JSONObject();
+            boolean bear = t.contains("sell") || t.contains("short") || t.contains("bear") || t.contains("down");
+            boolean bull = t.contains("buy") || t.contains("long") || t.contains("bull") || t.contains("up");
+            spec.put("name", nameFrom(text));
+            spec.put("side", bear && !bull ? "SELL" : (bull && !bear ? "BUY" : "BOTH"));
+            spec.put("logic", "ALL");
+            org.json.JSONArray conds = new org.json.JSONArray();
+            boolean any = false;
+            if (t.contains("sweep") || t.contains("liquidity") || t.contains("stop hunt")) {
+                conds.put(new JSONObject().put("ind", "liq_sweep").put("op", bear && !bull ? "pdh_swept" : (bull && !bear ? "pdl_swept" : "any")));
+                any = true;
+            }
+            if (t.contains("mss") || t.contains("structure shift") || t.contains("structure break") || t.contains("market structure")) {
+                conds.put(new JSONObject().put("ind", "mss").put("op", bear && !bull ? "bear" : "bull"));
+                any = true;
+            }
+            if (t.contains("order block") || t.contains(" ob ") || t.contains("poi")) {
+                conds.put(new JSONObject().put("ind", "ob_retest").put("op", "any"));
+                any = true;
+            }
+            if (t.contains("fvg") || t.contains("fair value") || t.contains("imbalance")) {
+                conds.put(new JSONObject().put("ind", "fvg").put("op", "any"));
+                any = true;
+            }
+            if (t.contains("killzone") || t.contains("london") || t.contains("new york")) {
+                conds.put(new JSONObject().put("ind", "killzone").put("op", t.contains("new york") ? "newyork" : (t.contains("london") ? "london" : "any")));
+                any = true;
+            }
+            if (t.contains("discount")) { conds.put(new JSONObject().put("ind", "premium_discount").put("op", "discount")); any = true; }
+            if (t.contains("premium")) { conds.put(new JSONObject().put("ind", "premium_discount").put("op", "premium")); any = true; }
+            if (t.contains("oversold") || t.contains("rsi")) {
+                conds.put(new JSONObject().put("ind", "rsi").put("p", 14).put("op", t.contains("overbought") ? ">" : "<").put("v", t.contains("overbought") ? 70 : 30));
+                any = true;
+            }
+            if (t.contains("ema 200") || t.contains("ema200") || t.contains("200 ema")) {
+                conds.put(new JSONObject().put("ind", "price_vs_ema").put("p", 200).put("op", bear && !bull ? "below" : "above"));
+                any = true;
+            }
+            if (t.contains("macd")) { conds.put(new JSONObject().put("ind", "macd").put("op", bear && !bull ? "bear" : "bull")); any = true; }
+            if (t.contains("volume")) { conds.put(new JSONObject().put("ind", "volume").put("op", "spike")); any = true; }
+            if (!any) {
+                // default: trend + momentum (hamesha ek valid strategy bane)
+                conds.put(new JSONObject().put("ind", "price_vs_ema").put("p", 50).put("op", bear && !bull ? "below" : "above"));
+                conds.put(new JSONObject().put("ind", "rsi").put("p", 14).put("op", bear && !bull ? ">" : "<").put("v", bear && !bull ? 70 : 45));
+            }
+            spec.put("conditions", conds);
+            spec.put("notes", "Offline rule-compiler (AI proxy available nahi tha) — text keywords se bana");
+            return spec;
+        } catch (Throwable e) {
+            return null;
+        }
+    }
+
+    private static String nameFrom(String text) {
+        if (text == null) return "Custom";
+        String t = text.trim();
+        if (t.isEmpty()) return "Custom";
+        String[] words = t.split("\\s+");
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < words.length && i < 6; i++) { if (sb.length() > 0) sb.append(' '); sb.append(words[i]); }
+        String s = sb.toString();
+        return s.length() > 40 ? s.substring(0, 40) : s;
     }
 
     /** Watch ONE YouTube video now -> CANDIDATE row.
@@ -334,15 +456,18 @@ public class StrategyLab {
                 rc.close();
                 if (gl > 0) deg.append(tg[0]).append(" rolling20 PF=").append(Math.round(gw / gl * 100.0) / 100.0).append("; ");
             }
-            String prompt = "Hamara AI Trading Lab abhi 3C Breakout (M5) MASTER strategy paper-trade kar raha hai "
+            String prompt = "Hamara AI Trading Lab abhi 3C Breakout (M1 BINANCE, 7 crypto pairs) MASTER strategy paper-trade kar raha hai "
                     + "(3 candles: C1+C2 strong body>=70% same direction, C3 opposite protected candle, "
                     + "5-candle breakout window, SL opposite extreme, breakeven at +1R, close whole position at +3R). "
                     + "Existing lab strategies: " + (names.length() == 0 ? "(none)" : names) + ". "
                     + "Live rolling performance (last 20 trades each): " + (deg.length() == 0 ? "(data nahi)" : deg) + ". "
                     + "Ye dekh kar aisi strategy suggest karo jo current WEAKNESS cover kare. "
                     + "Suggest ONE new complementary strategy that is DIFFERENT from all existing ones "
-                    + "and can be evaluated on 5m commodity candles with these indicators only: rsi, price_vs_ema, "
-                    + "ema_cross, sma, macd, bb, atr, supertrend, volume, change, stoch, cci, mfi, adx, candle. "
+                    + "and can be evaluated on 1m Binance candles with these indicators only: rsi, price_vs_ema, "
+                    + "ema_cross, sma, macd, bb, atr, supertrend, volume, change, stoch, cci, mfi, adx, candle, "
+                    + "mss, bos, liq_sweep, ob_retest, fvg, killzone, premium_discount. "
+                    + "(aakhri 7 Shaakuni Trap Trader ke indicators hain — liquidity sweep + MSS + order block "
+                    + "+ FVG + killzone + premium/discount — inhe prefer karo). "
                     + "Sirf strategy spec do, koi lambi explanation nahi.";
             JSONObject spec = compileText(prompt);
             if (spec == null) { db.log("WARN", "LAB", "AUTO_EVOLVE_SKIP", lastAiError != null ? lastAiError : "AI spec nahi bani"); return; }
@@ -832,6 +957,80 @@ public class StrategyLab {
                 }
             }
             default: return new Object[]{0, 0}; // unknown indicator never passes
+
+            // ================== SHAAKUNI TRAP SUITE (v4.1) ==================
+            // Owner request: Shaakuni Trap Trader ke indicators DSL me bhi — AI Lab
+            // ab uske concepts (sweep/MSS/OB/FVG/killzone/premium-discount) use kar
+            // kar strategies bana sakta hai. Definitions = uska apna TradingView script.
+            case "mss": {
+                EngineCore.StructEvent se = EngineCore.structureWalk(k, 10);
+                if (se == null) return new Object[]{0, 0};
+                boolean wantBull = !op.contains("bear");
+                boolean isBull = "BULL".equals(se.dir);
+                boolean passed = (wantBull == isBull) && "MSS".equals(se.kind);
+                return new Object[]{passed ? 1 : 0, isBull ? 1 : -1};
+            }
+            case "bos": {
+                EngineCore.StructEvent se = EngineCore.structureWalk(k, 10);
+                if (se == null) return new Object[]{0, 0};
+                boolean wantBull = !op.contains("bear");
+                boolean isBull = "BULL".equals(se.dir);
+                boolean passed = (wantBull == isBull) && "BOS".equals(se.kind);
+                return new Object[]{passed ? 1 : 0, isBull ? 1 : -1};
+            }
+            case "liq_sweep": {
+                double[] d = EngineCore.prevDayHighLow(k);
+                double[] w = EngineCore.prevWeekHighLow(k);
+                int polarity = 0, hits = 0;
+                if (d != null) {
+                    if ("SWEEP".equals(EngineCore.sweepStatus(k, d[0], true))) { hits++; polarity = -1; }  // PDH sweep = bear trap
+                    if ("SWEEP".equals(EngineCore.sweepStatus(k, d[1], false))) { hits++; polarity = 1; }   // PDL sweep = bull trap
+                }
+                if (w != null) {
+                    if ("SWEEP".equals(EngineCore.sweepStatus(k, w[0], true))) { hits++; polarity = -1; }
+                    if ("SWEEP".equals(EngineCore.sweepStatus(k, w[1], false))) { hits++; polarity = 1; }
+                }
+                boolean passed;
+                if (op.contains("pdh")) passed = d != null && "SWEEP".equals(EngineCore.sweepStatus(k, d[0], true));
+                else if (op.contains("pdl")) passed = d != null && "SWEEP".equals(EngineCore.sweepStatus(k, d[1], false));
+                else if (op.contains("pwh")) passed = w != null && "SWEEP".equals(EngineCore.sweepStatus(k, w[0], true));
+                else if (op.contains("pwl")) passed = w != null && "SWEEP".equals(EngineCore.sweepStatus(k, w[1], false));
+                else passed = hits > 0;   // "any"
+                return new Object[]{passed ? 1 : 0, polarity};
+            }
+            case "ob_retest": {
+                java.util.List<EngineCore.ObZone> obs = EngineCore.orderBlocks(k, 10);
+                int polarity = 0; boolean in = false;
+                for (EngineCore.ObZone z : obs) {
+                    if (z.mitigated) continue;                      // sirf untouched zones (Shaakuni rule)
+                    if (px >= z.bottom && px <= z.top) { in = true; polarity = z.bullish ? 1 : -1; break; }
+                }
+                boolean passed = in && ("any".equals(op) || (op.contains("bull") && polarity > 0) || (op.contains("bear") && polarity < 0));
+                return new Object[]{passed ? 1 : 0, polarity};
+            }
+            case "fvg": {
+                double[] g = EngineCore.latestFvg(k);
+                if (g == null) return new Object[]{0, 0};
+                int polarity = (int) g[2];
+                boolean passed = "any".equals(op) || (op.contains("bull") && polarity > 0) || (op.contains("bear") && polarity < 0);
+                return new Object[]{passed ? 1 : 0, polarity};
+            }
+            case "killzone": {
+                String[] ses = EngineCore.sessionNow(last.ts);
+                boolean passed;
+                if (op.contains("london")) passed = "LONDON".equals(ses[0]);
+                else if (op.contains("newyork") || op.contains("new york")) passed = "NEW YORK".equals(ses[0]);
+                else passed = "yes".equals(ses[1]);   // any killzone
+                return new Object[]{passed ? 1 : 0, 0};   // session = filter (polarity neutral)
+            }
+            case "premium_discount": {
+                double[] d = EngineCore.prevDayHighLow(k);
+                if (d == null) return new Object[]{0, 0};
+                double eq = (d[0] + d[1]) / 2.0;
+                boolean discount = px < eq;
+                boolean passed = op.contains("discount") ? discount : !discount;
+                return new Object[]{passed ? 1 : 0, discount ? 1 : -1};   // discount = buy side
+            }
         }
     }
 
