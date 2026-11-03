@@ -92,7 +92,7 @@ public class Api {
     private Res get(String path, String auth) throws Exception {
         if ("/".equals(path) || "/index.html".equals(path)) return Res.html(dashboardHtml);
         if ("/api/health".equals(path)) return Res.json(200, new JSONObject()
-                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "4.4.0").put("timeframe", "1m+15m").put("scanner", "24/7").put("strategy", "3C MASTER (M1) + PDF PACK (9, 15m, ALL Binance pairs) + SHAAKUNI (5) + AI TRAINER"));
+                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "4.4.1").put("timeframe", "1m+15m").put("scanner", "24/7").put("strategy", "3C MASTER (M1) + PDF PACK (9, 15m, ALL Binance pairs) + SHAAKUNI (5) + AI TRAINER"));
 
         Long uid = userId(auth);
         if (uid == null) return Res.error(401, "authentication required");
@@ -852,11 +852,7 @@ public class Api {
                 .put("consecLoss", engine != null ? engine.consecLossN() : 3)
                 .put("dailyKillPct", engine != null ? engine.dailyKillPct() : 0)
                 .put("feePct", 0.05)
-                // v1.8 PRO FILTER PACK (backtest-proved)
-                .put("proRdMin", engine != null ? engine.proRdMin() : 0.25)
-                .put("proEmaFilter", engine == null || engine.proEmaFilter())
-                .put("proAtrFloor", engine != null ? engine.proAtrFloor() : 0.08)
-                .put("proVolFilter", engine == null || engine.proVolFilter())
+                // v4.4.1 — PRO FILTER PACK fields REMOVED (filter deleted)
                 // v3.0 QUANT PRO (P1-P5)
                 .put("slipBps", engine != null ? engine.slipBps() : 2)
                 .put("heatMaxPct", engine != null ? engine.heatMaxPct() : 0)
@@ -1125,27 +1121,7 @@ public class Api {
             db.setSetting("risk_pct", String.valueOf(r));
             db.log("INFO", "RISK", "RISK_SET", "3C per-trade risk = " + r + "% of equity (owner setting)");
         }
-        // v1.8 PRO FILTER PACK toggles (backtest-proved defaults)
-        if (o.has("proRdMin")) {
-            double v = o.optDouble("proRdMin", 0.25);
-            if (v < 0 || v > 2) return Res.error(400, "Risk-distance min 0–2% ke beech set karein (0 = off)");
-            db.setSetting("threec_rd_min_pct", String.valueOf(v));
-            db.log("INFO", "FILTER", "RD_MIN_SET", "3C min risk-distance = " + v + "% of price");
-        }
-        if (o.has("proEmaFilter")) {
-            db.setSetting("threec_ema_filter", o.optBoolean("proEmaFilter") ? "1" : "0");
-            db.log("INFO", "FILTER", "EMA_FILTER_SET", "EMA200 trend filter = " + o.optBoolean("proEmaFilter"));
-        }
-        if (o.has("proAtrFloor")) {
-            double v = o.optDouble("proAtrFloor", 0.08);
-            if (v < 0 || v > 2) return Res.error(400, "ATR floor 0–2% ke beech set karein (0 = off)");
-            db.setSetting("threec_atr_floor_pct", String.valueOf(v));
-            db.log("INFO", "FILTER", "ATR_FLOOR_SET", "3C ATR floor = " + v + "% of price");
-        }
-        if (o.has("proVolFilter")) {
-            db.setSetting("threec_vol_filter", o.optBoolean("proVolFilter") ? "1" : "0");
-            db.log("INFO", "FILTER", "VOL_FILTER_SET", "Volume filter = " + o.optBoolean("proVolFilter"));
-        }
+        // v4.4.1 — PRO FILTER PACK toggles REMOVED (filter deleted — owner order)
         // v1.7 PRO GUARD — SL-loss cooldown minutes (0=off)
         if (o.has("cooldownMin")) {
             int c = (int) o.optDouble("cooldownMin", 15);

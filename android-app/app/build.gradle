@@ -10,8 +10,8 @@ android {
         applicationId "com.aitradinglab.monitor"
         minSdk 24
         targetSdk 34
-        versionCode 36
-        versionName "4.4.0"
+        versionCode 37
+        versionName "4.4.1"
     }
 
     signingConfigs {

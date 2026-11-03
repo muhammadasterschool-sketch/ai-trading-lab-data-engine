@@ -291,33 +291,10 @@ public class EngineCore implements Runnable {
         } catch (Exception e) { return 0.01; }
     }
 
-    // ===== v1.8 PRO FILTER PACK (92-din futures-data backtest se proved — owner: "losses kyu") =====
-    // BASELINE: 1336 trades, PF 0.07, avgR -5.22, maxDD -6982R (92 din, 6 syms, fee-aware)
-    // PACK ON :  268 trades, PF 0.83, avgR -0.11, maxDD  -40R  -> bleed 95% kam, XRP breakeven+
-    /** Min risk distance as % of price — chhota zone = fees risk se zyada (fee bomb fix). */
-    public double proRdMin() {
-        try {
-            double v = Double.parseDouble(db.setting("threec_rd_min_pct", "0.25"));
-            if (v < 0) v = 0; if (v > 2) v = 2;
-            return v;
-        } catch (Exception e) { return 0.25; }
-    }
-
-    /** EMA200 trend alignment (5m): BUY sirf EMA ke upar, SELL sirf neeche (default ON). */
-    public boolean proEmaFilter() { return "1".equals(db.setting("threec_ema_filter", "1")); }
-
-    /** ATR14 floor as % of price — dead chop mein trading band (default 0.08%). */
-    public double proAtrFloor() {
-        try {
-            double v = Double.parseDouble(db.setting("threec_atr_floor_pct", "0.08"));
-            if (v < 0) v = 0; if (v > 2) v = 2;
-            return v;
-        } catch (Exception e) { return 0.08; }
-    }
-
-    /** Volume participation: C3 volume > 1.2 × SMA20(volume) (default ON). */
-    public boolean proVolFilter() { return "1".equals(db.setting("threec_vol_filter", "1")); }
-
+    // v4.4.1 — PRO FILTER PACK POORA REMOVE (owner order: "Pro filter remove kardo — is ki
+    // waja se buhut saari trades place hi nahi kar raha"). ProRdMin/proEmaFilter/proAtrFloor/
+    // proVolFilter getters + proFilter3C gate deleted. detect3C se guzra HAR setup ab armed
+    // hota hai — koi quality gate nahi. Indicators sirf SETUP DNA (ML features) ke liye.
     /** v1.8 — dashboard candlestick chart ke liye recent 5m candles (closed, oldest→newest). */
     public List<Candle> recentCandles(String symbol, int n) {
         List<Candle> out = new ArrayList<>();
@@ -1936,38 +1913,6 @@ public class EngineCore implements Runnable {
         lastPattern = event + " " + sym;
     }
 
-    /** v1.8 PRO FILTER PACK — setup complete hone ke baad quality gate (backtest-proved).
-     *  Rejected setup log hota hai (SETUP_FILTERED) aur walk mein dead ho jata hai. */
-    private Setup3C proFilter3C(String sym, List<Candle> k, int i, Setup3C s,
-                                double[] emaArr, double[] atrArr, double[] volSma,
-                                double rdMin, double atrFloor) {
-        Candle c3 = k.get(i);
-        java.util.List<String> why = new ArrayList<>();
-        double rdPct = Math.abs(s.trigger - s.slPrice) / s.trigger * 100.0;
-        if (rdMin > 0 && rdPct < rdMin)
-            why.add(String.format(Locale.US, "zone chhota: risk-dist %.3f%% < %.2f%% (fees risk se bari)", rdPct, rdMin));
-        if (emaArr != null && i >= 200) {   // v3.0: >=200 (pehle 199) — SMA-seeded EMA valid index
-            boolean buy = "BUY".equals(s.side);
-            boolean against = buy ? c3.c < emaArr[i] : c3.c > emaArr[i];
-            if (against)
-                why.add(String.format(Locale.US, "EMA200 trend ke khilaf (%.6f %s %.6f)", c3.c, buy ? "<" : ">", emaArr[i]));
-        }
-        if (atrFloor > 0 && atrArr != null && atrArr[i] > 0) {
-            double atrPct = atrArr[i] / c3.c * 100.0;
-            if (atrPct < atrFloor)
-                why.add(String.format(Locale.US, "dead chop: ATR %.3f%% < %.2f%%", atrPct, atrFloor));
-        }
-        // v3.0.1 — c3.v > 0 guard: Yahoo futures feed ke overnight bars par volume aksar
-        // 0 hota hai (feed volume nahi bhejta = unknown, zero participation nahi).
-        // Pehle v=0 setups ko "weak volume" reject kar deta tha — overnight setups sab
-        // mar jate the. Ab unknown volume par check SKIP hota hai, reject nahi.
-        if (volSma != null && i >= 19 && volSma[i] > 0 && c3.v > 0 && c3.v <= 1.2 * volSma[i])
-            why.add(String.format(Locale.US, "weak volume: %.0f <= 1.2x SMA20 %.0f", c3.v, volSma[i]));
-        if (why.isEmpty()) return s;
-        log3C(sym, s, "SETUP_FILTERED", "PRO pack ne rok liya — " + String.join("; ", why));
-        return null;
-    }
-
     /** TR value at index (ATR rolling-window ke liye). */
     private static double trOf(List<Candle> k, int i) {
         if (i <= 0) return k.get(0).h - k.get(0).l;
@@ -1983,29 +1928,27 @@ public class EngineCore implements Runnable {
     private Walk3C walk3C(String sym, List<Candle> k) {
         double entryBuf = bufSetting("threec_entry_buf_pct");
         double slBuf = bufSetting("threec_sl_buf_pct");
-        // v1.8 PRO FILTER PACK — precompute indicators once per walk (O(n), ek hi pass)
-        boolean useEma = proEmaFilter(), useVol = proVolFilter();
-        double rdMin = proRdMin(), atrFloor = proAtrFloor();
+        // v4.4.1 — indicators sirf SETUP DNA ke liye precompute (O(n), ek hi pass):
+        // emaArr → c3EmaDist, atrArr → c3AtrPct (ML journal features). KOI FILTER NAHI —
+        // volSma (sirf volume-filter ke liye tha) delete.
         int n = k.size();
-        double[] emaArr = useEma ? new double[n] : null;
-        double[] atrArr = atrFloor > 0 ? new double[n] : null;
-        double[] volSma = useVol ? new double[n] : null;
-        if (useEma) {
+        double[] emaArr = new double[n];
+        double[] atrArr = new double[n];
+        {
             double mult = 2.0 / 201.0;
             if (n >= 200) {
-                // v3.0 WARMUP FIX (audit): pehli close se EMA seed karna level ko materially
-                // galat banata tha. Ab index 199 par SMA200 seed — standard EMA practice.
+                // v3.0 WARMUP FIX (audit): index 199 par SMA200 seed — standard EMA practice.
                 double sma = 0;
                 for (int j = 0; j < 200; j++) sma += k.get(j).c;
                 double e = sma / 200.0;
-                for (int i = 0; i < 200; i++) emaArr[i] = e;   // pre-seed flat (filter index>=200 par hi lagta hai)
+                for (int i = 0; i < 200; i++) emaArr[i] = e;   // pre-seed flat (DNA index>=200 par hi leta hai)
                 for (int i = 200; i < n; i++) { e = (k.get(i).c - e) * mult + e; emaArr[i] = e; }
             } else {  // <200 candles — graceful warmup converge (purana behavior)
                 double e = k.get(0).c;
                 for (int i = 0; i < n; i++) { e = (k.get(i).c - e) * mult + e; emaArr[i] = e; }
             }
         }
-        if (atrFloor > 0) {
+        {
             double trSum = 0;
             for (int i = 0; i < n; i++) {
                 Candle c = k.get(i);
@@ -2014,14 +1957,6 @@ public class EngineCore implements Runnable {
                 trSum += tr;
                 if (i >= 14) trSum -= trOf(k, i - 14);
                 atrArr[i] = trSum / Math.min(i + 1, 14);
-            }
-        }
-        if (useVol) {
-            double vSum = 0;
-            for (int i = 0; i < n; i++) {
-                vSum += k.get(i).v;
-                if (i >= 20) vSum -= k.get(i - 20).v;
-                volSma[i] = vSum / Math.min(i + 1, 20);
             }
         }
         Walk3C w = new Walk3C();
@@ -2075,7 +2010,7 @@ public class EngineCore implements Runnable {
             }
             if (pending == null) {
                 Setup3C s = detect3C(k, i, entryBuf, slBuf);
-                if (s != null) s = proFilter3C(sym, k, i, s, emaArr, atrArr, volSma, rdMin, atrFloor);
+                // v4.4.1: proFilter3C gate REMOVED — jo setup detect3C pass kare woh seedha armed
                 if (s != null) {
                     pending = s;
                     // v3.0 — setup DNA (ML features) capture: entry par trade row me save
@@ -3514,11 +3449,13 @@ public class EngineCore implements Runnable {
                 if (!buy && r < 22) score -= 12;
             }
             // 2) VOLATILITY REGIME — healthy ATR vs dead chop
+            //    v4.4.1: proAtrFloor() getter REMOVED with the quality-gate pack —
+            //    council scoring purane default (0.08%) par fixed, ab setting nahi.
             double a = atr(k, 14);
             if (!Double.isNaN(a) && a > 0) {
                 double atrPct = a / c3 * 100.0;
-                if (atrPct >= proAtrFloor() * 2) score += 10;
-                else if (atrPct < proAtrFloor()) score -= 20;
+                if (atrPct >= 0.16) score += 10;
+                else if (atrPct < 0.08) score -= 20;
             }
             // 3) NEWS BIAS — 24h RSS sentiment (aligned bonus, opposite penalty)
             int nb = newsBias();
@@ -3948,7 +3885,7 @@ public class EngineCore implements Runnable {
         m.put("min_trades_scaling", MIN_TRADES_BEFORE_SCALING);
         m.put("limits", "UNLIMITED daily P/L (owner) — heat/bucket/event/session caps default OFF opt-in");
         // v4.4 status
-        m.put("version", "4.4.0");
+        m.put("version", "4.4.1");
         boolean mktClosed = marketClosedET();
         m.put("safe_mode", safeMode && !mktClosed);   // v3.0.1 — band market par SAFE MODE jhoota lagta tha
         m.put("market_closed", mktClosed);            // v3.0.1 — weekend / CME halt indicator
@@ -4008,7 +3945,7 @@ public class EngineCore implements Runnable {
         try {
             JSONObject nr = new JSONObject();
             Cursor lc = db.getReadableDatabase().rawQuery(
-                    "SELECT event, COUNT(*) FROM logs WHERE ts>=? AND event IN ('SETUP_DETECTED','SETUP_FILTERED'," +
+                    "SELECT event, COUNT(*) FROM logs WHERE ts>=? AND event IN ('SETUP_DETECTED'," +
                             "'SETUP_EXPIRED','SETUP_INVALIDATED','BREAKOUT_DETECTED','ORDER_EXECUTED','ENTRY_BLOCKED'," +
                             "'COUNCIL_BLOCKED','HEAT_CAP_BLOCKED','BUCKET_CAP_BLOCKED','SAFE_MODE_ON','FEE_EDGE_SKIP') GROUP BY event",
                     new String[]{String.valueOf(System.currentTimeMillis() - 24L * 3600_000)});

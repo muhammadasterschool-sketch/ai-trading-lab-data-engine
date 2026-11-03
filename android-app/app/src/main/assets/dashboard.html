@@ -144,7 +144,7 @@ select{width:100%;background:var(--card);border:1px solid var(--line);border-rad
   <div class="logo"><img src="logo.png" alt="AI Trading Lab"></div>
   <h1>AI Trading Lab</h1>
   <div class="sub">Full trading engine on this device — paper trading</div>
-  <div class="sub" style="color:var(--gold)">v4.4.0 · ALL BINANCE COINS · PDF STRATEGIES RESTORED · SHAAKUNI SUITE · AI TRAINED · RISK 1%</div>
+  <div class="sub" style="color:var(--gold)">v4.4.1 · ALL BINANCE COINS · PDF STRATEGIES · SHAAKUNI SUITE · AI TRAINED · RISK 1% · NO PRO FILTER</div>
   <div id="engStrip" class="eng">checking engine…</div>
   <div class="note"><b>Naya install / update?</b> Accounts is device ki local database mein hote hain — app reinstall ya update ke baad purana account <b>transfer nahi hota</b>. Pehla account = <b>OWNER (ADMIN)</b>. Baaki log <b>Register</b> se apply karein — <b>invite code owner se milega</b> (kahin likha hua nahi hota), aur owner ke <b>APPROVE</b> karne ke baad hi sign in possible hoga. Kisi authenticator app ki zaroorat nahi.</div>
 
@@ -217,7 +217,7 @@ select{width:100%;background:var(--card);border:1px solid var(--line);border-rad
   <aside id="drawer">
     <div class="dhead">
       <img src="logo.png" alt="">
-      <div><div class="dt">AI Trading Lab</div><div class="ds" id="drEngine">engine · v4.4.0 ALL-BINANCE + AI TRAINER</div></div>
+      <div><div class="dt">AI Trading Lab</div><div class="ds" id="drEngine">engine · v4.4.1 ALL-BINANCE + AI TRAINER</div></div>
       <button class="dclose" onclick="closeDrawer()">✕</button>
     </div>
     <div class="duser" id="drUser"></div>
@@ -630,7 +630,6 @@ function renderDash(){
       '<div class="card full"><div class="k">🔍 Why no trades? — 24h engine report</div>' +
         '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">' +
           '<div style="flex:1;min-width:80px"><div class="mut" style="font-size:10px">3C SETUPS BANE</div><b style="font-size:16px;color:#4ade80">'+((nr.SETUP_DETECTED||0))+'</b></div>' +
-          '<div style="flex:1;min-width:80px"><div class="mut" style="font-size:10px">PRO FILTER REJECT</div><b style="font-size:16px;color:'+(nr.SETUP_FILTERED?'#fbbf24':'#71717a')+'">'+(nr.SETUP_FILTERED||0)+'</b></div>' +
           '<div style="flex:1;min-width:80px"><div class="mut" style="font-size:10px">BREAKOUT NAHI HUA</div><b style="font-size:16px;color:'+(nr.SETUP_EXPIRED?'#fbbf24':'#71717a')+'">'+(nr.SETUP_EXPIRED||0)+'</b></div>' +
           '<div style="flex:1;min-width:80px"><div class="mut" style="font-size:10px">INVALIDATED</div><b style="font-size:16px;color:'+(nr.SETUP_INVALIDATED?'#fbbf24':'#71717a')+'">'+(nr.SETUP_INVALIDATED||0)+'</b></div>' +
           '<div style="flex:1;min-width:80px"><div class="mut" style="font-size:10px">ENTRIES EXECUTED</div><b style="font-size:16px;color:'+(nr.ORDER_EXECUTED?'#4ade80':'#71717a')+'">'+(nr.ORDER_EXECUTED||0)+'</b></div>' +
@@ -642,7 +641,7 @@ function renderDash(){
       '<div class="card full"><div class="k">Equity (recent)</div><div id="sparkwrap">'+spark+'</div></div>' +
       '<div class="card full"><div class="k">Engine Status</div>' +
         '<table style="margin-top:6px"><tr><td class="mut">Consensus</td><td>'+esc(e.consensus||'')+'</td></tr>' +
-        '<tr><td class="mut">Strategy</td><td><b>'+(e.strategy_name||'3C Breakout (M1 BINANCE) — MASTER')+'</b> + PRO FILTER PACK · risk '+(e.risk_pct!=null?e.risk_pct:'1')+'%/trade · '+esc(e.risk_scaling||'min-25 consensus scaling armed')+'</td></tr>' +
+        '<tr><td class="mut">Strategy</td><td><b>'+(e.strategy_name||'3C Breakout (M1 BINANCE) — MASTER')+'</b> · risk '+(e.risk_pct!=null?e.risk_pct:'1')+'%/trade · '+esc(e.risk_scaling||'min-25 consensus scaling armed')+'</td></tr>' +
         '<tr><td class="mut">Market scanner</td><td>'+(e.scanner||'24h')+' nonstop · scan #'+(e.scan_count||0)+(e.fear_greed>=0?' · F&G '+e.fear_greed:'')+(e.threec_armed&&e.threec_armed.length?' · <b>'+e.threec_armed.length+' 3C setup(s) armed</b>':'')+'</td></tr>' +
         '<tr><td class="mut">Instruments trading</td><td>'+e.active_symbols+' · '+(e.indicator_count||13)+' SHAAKUNI indicators · 10s scan · live stop-order entries</td></tr>' +
         '<tr><td class="mut">Data feed</td><td>'+esc(e.feed||('Binance spot · '+(e.data_host||'')))+' · real exchange market data (not simulated) · fees 0.05%/side + slippage '+ (e.slip_bps!=null?e.slip_bps:2) +'bps modeled</td></tr>' +
@@ -1258,22 +1257,6 @@ function renderSet(){
         '<div class="row" style="margin-top:8px"><input id="dkPct" type="number" min="0" max="90" step="any" value="'+dk+'" style="'+INP+';width:110px;padding:8px"><button class="btn" onclick="setGuard(\'dailyKillPct\')">SET</button></div>' +
         '<div class="small" style="margin-top:6px">Abhi <b>'+(dk>0?('ON — daily -'+dk+'% par ruk jayega'):'OFF — unlimited (aapki purani request)')+'</b>. 0 = off. Open trades ka SL/TP/breakeven kill switch ke baad bhi normal chalta hai — sirf NAYE entries rukti hain. Kal UTC reset.</div>' +
         '<div id="guardMsg" style="margin-top:8px"></div></div>' +
-        '<h2>🎯 PRO FILTER PACK — 92-din backtest proved (v1.8)</h2>' +
-        '<div class="card full">' +
-        '<div class="small" style="margin-bottom:10px">Ye filters <b>bina backtest proof ke</b> nahi lage: purane rules se 92 din mein PF 0.07 (gobra hua loss) — filters ke saath PF 0.83 aur drawdown 175x kam. Losses ka asli sabab: chhote zones par fees risk se zyada + trend ke khilaf entries + dead chop.</div>' +
-        '<div class="k">1 · Min zone size (risk-distance % of price)</div>' +
-        '<div class="row" style="margin-top:8px"><input id="fRd" type="number" min="0" max="2" step="0.05" value="'+(r.data.proRdMin!=null?r.data.proRdMin:0.25)+'" style="'+INP+';width:110px;padding:8px"><button class="btn" onclick="setFilter(\'proRdMin\')">SET</button></div>' +
-        '<div class="small" style="margin-top:6px">Default <b>0.25%</b> — fee-bomb fix: chhota zone = fees risk se zyada. 0 = off.</div>' +
-        '<div class="k" style="margin-top:14px">2 · EMA200 trend filter</div>' +
-        '<div class="row" style="margin-top:8px"><button class="btn '+(r.data.proEmaFilter?'':'sec')+'" onclick="setFilter(\'proEmaFilter\',true)">ON</button><button class="btn '+(r.data.proEmaFilter?'sec':'')+'" onclick="setFilter(\'proEmaFilter\',false)">OFF</button></div>' +
-        '<div class="small" style="margin-top:6px">BUY sirf EMA200 ke upar, SELL sirf neeche — trend ke khilaf trading band (default ON).</div>' +
-        '<div class="k" style="margin-top:14px">3 · ATR floor (% of price)</div>' +
-        '<div class="row" style="margin-top:8px"><input id="fAtr" type="number" min="0" max="2" step="0.01" value="'+(r.data.proAtrFloor!=null?r.data.proAtrFloor:0.08)+'" style="'+INP+';width:110px;padding:8px"><button class="btn" onclick="setFilter(\'proAtrFloor\')">SET</button></div>' +
-        '<div class="small" style="margin-top:6px">Default <b>0.08%</b> — dead chop mein entries band. 0 = off.</div>' +
-        '<div class="k" style="margin-top:14px">4 · Volume participation</div>' +
-        '<div class="row" style="margin-top:8px"><button class="btn '+(r.data.proVolFilter?'':'sec')+'" onclick="setFilter(\'proVolFilter\',true)">ON</button><button class="btn '+(r.data.proVolFilter?'sec':'')+'" onclick="setFilter(\'proVolFilter\',false)">OFF</button></div>' +
-        '<div class="small" style="margin-top:6px">Setup candle ka volume 1.2× average se zyada ho — weak breakouts band (default ON).</div>' +
-        '<div id="filterMsg" style="margin-top:8px"></div></div>' +
         '<h2>🧠 QUANT PRO — v3.0 professional stack</h2>' +
         '<div class="banner green" style="margin-bottom:10px"><b>Sab caps OPT-IN hain (default OFF/UNLIMITED — aapka UNLIMITED rule qayam).</b> Ye professional risk machinery hai: heat cap, bucket exposure, slippage model, Signal Council, event gate, CME session filter aur bridge live mirror.</div>' +
         '<div class="card full">' +
@@ -1327,21 +1310,7 @@ function setGuard(key){
     setTimeout(renderSettings, 1200);
   });
 }
-function setFilter(key, boolVal){
-  var b = {};
-  if(boolVal === true || boolVal === false) b[key] = boolVal;
-  else {
-    var id = {proRdMin:'fRd', proAtrFloor:'fAtr'}[key];
-    var v = parseFloat(document.getElementById(id).value);
-    if(isNaN(v) || v < 0){ alert('Number dein (0 ya zyada)'); return; }
-    b[key] = v;
-  }
-  api('/api/settings',{method:'POST',body:b}).then(function(r){
-    var el = document.getElementById('filterMsg');
-    if(el) el.innerHTML = '<div class="banner green">✅ Filter set — naye setups par foran apply</div>';
-    setTimeout(renderSettings, 1200);
-  });
-}
+/* v4.4.1 — old quality-gate helper JS removed (owner order) */
 /* v3.0 — QUANT PRO settings (slip/heat/bucket/council/event/session/autopause/bridge) */
 function setPro(key, boolVal){
   var b = {};
