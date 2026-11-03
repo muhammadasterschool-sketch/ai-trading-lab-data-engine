@@ -1,0 +1,38 @@
+package android.database;
+public interface Cursor {
+    int getCount();
+    int getPosition();
+    boolean move(int offset);
+    boolean moveToPosition(int position);
+    boolean moveToFirst();
+    boolean moveToLast();
+    boolean moveToNext();
+    boolean moveToPrevious();
+    boolean isFirst();
+    boolean isLast();
+    boolean isBeforeFirst();
+    boolean isAfterLast();
+    int getColumnIndex(String columnName);
+    int getColumnIndexOrThrow(String columnName);
+    String getColumnName(int columnIndex);
+    String[] getColumnNames();
+    int getInt(int columnIndex);
+    long getLong(int columnIndex);
+    short getShort(int columnIndex);
+    float getFloat(int columnIndex);
+    double getDouble(int columnIndex);
+    byte[] getBlob(int columnIndex);
+    String getString(int columnIndex);
+    int getType(int columnIndex);
+    boolean isNull(int columnIndex);
+    void deactivate();
+    boolean requery();
+    void close();
+    boolean isClosed();
+    void registerContentObserver(android.database.ContentObserver observer);
+    void unregisterContentObserver(android.database.ContentObserver observer);
+    void registerDataSetObserver(android.database.DataSetObserver observer);
+    void unregisterDataSetObserver(android.database.DataSetObserver observer);
+    void setNotificationUri(android.content.ContentResolver cr, android.net.Uri uri);
+    android.net.Uri getNotificationUri();
+}
