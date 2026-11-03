@@ -518,3 +518,10 @@ Stage Summary:
 - TESTS: engine-tests/run-tests.sh (classpath fix: org-json.jar pehle, android.jar stubs baad) — ShaakuniEngineTest 18/18 + NAYA V44Test 23/23 = 41/41 PASS (pack meta/fire/ADX, simulate TP/SL/BE exact R, stats/weights/OOS, prevDayMap, bucketForRank, STABLE_BASES, SHK no-crash). Host compile clean.
 - BUILD: versionCode 35→36, versionName 4.4.0; assembleRelease foreground-daemon clean 253KB; aapt 36/4.4.0 ✓; apksigner same keystore (CN=AI Trading Lab) ✓; dex markers FEE_EDGE_SKIP/SHK1_SSM_BULL/ai_weights_v2/BINANCE_UNIVERSE_SYNC/TRAIN AI ✓; dashboard asset ✓. Deliver: AI-Trading-Lab-v4.4.0-all-binance-ai.apk + SHA256.
 - PAPER ONLY barkarar — koi real order path nahi. Risk 1% flat (owner rule) — AI weights sirf on/off+priority, risk nahi badalte.
+
+## Task 33 — v4.4.0 DELIVERY (links + iOS guide) — Nov 3
+- SANDBOX RESET: local clone + tools + APK sab mit gaye the — GitHub main (32b8251) se re-clone. Tools fresh install: JDK 21 (Adoptium), Gradle 8.7, cmdline-tools + platform-34 + build-tools 34.0.0 (no root — tarballs).
+- APK REBUILD: assembleRelease foreground ~10 min (pehli dafa AGP deps download); versionCode 36 / 4.4.0 aapt-verified, apksigner verify (CN=AI Trading Lab), zipalign OK. SHA256 089831c2...75b10.
+- GITHUB RELEASE v4.4.0 banaya (API): tag v4.4.0 + RELEASE-v4.4.0.md notes + APK asset upload — permanent download link live. APK repo ke download/ me bhi committed (744077a).
+- iOS GUIDE: AI-Trading-Lab-v4.4.0-iOS-Android-Setup-Guide.pdf (5 pages, Roman Urdu) — T07 Crystal Blue cover (Playwright, cover_validate PASS) + ReportLab body (pdf_qa PASS). Content: overview, permanent links, Android 5-step install, iPhone 3 routes (Safari PWA same-WiFi / Cloudflare tunnel / Xcode native), v4.4.0 tour, troubleshooting, PAPER-ONLY note. BUG FIX: "H, W = A4" swap tha — tables 728pt wide ban rahe the (left column clip); W,H order theek = pdf_qa PASS.
+- 3C MASTER rules UNTOUCHED. PAPER ONLY.
