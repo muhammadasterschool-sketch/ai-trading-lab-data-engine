@@ -435,6 +435,7 @@ public class EngineCore implements Runnable {
         refreshCandles();
         scanAndTrade();
         try { scanPdfPack(); } catch (Throwable t) { db.log("ERROR", "PACK", "SCAN_FAIL", String.valueOf(t)); }   // v4.5 PDF pack (5m, ALL pairs)
+        try { scanPlaybook(); } catch (Throwable t) { db.log("ERROR", "PB", "SCAN_FAIL", String.valueOf(t)); }   // v1.0 5M PLAYBOOK (guide S1-S4, BTC/ETH/BNB/SOL)
         snapshotEquity();
         try { selfLearnTick(); } catch (Throwable ignored) { }   // v4.4 — har 25 closed trades par AI re-weight
         scanCount++;
@@ -742,9 +743,11 @@ public class EngineCore implements Runnable {
             }
             d.execSQL("UPDATE instruments SET last_data_at=? WHERE symbol=?",
                     new Object[]{System.currentTimeMillis(), s});
-            // 7 din se purani 5m purge (DB lean: ~2016 bars/pair)
+            // 7 din se purani 5m purge (DB lean: ~2016 bars/pair) — PB symbols 16 din
+            // (playbook ko 4032-bar = 14-din window chahiye)
+            long keepDays = PB_SYMBOLS.contains(s) ? 16L : 7L;
             d.execSQL("DELETE FROM candles WHERE symbol=? AND tf=? AND ts < ?",
-                    new Object[]{s, TF15, System.currentTimeMillis() - 7L * 86400000L});
+                    new Object[]{s, TF15, System.currentTimeMillis() - keepDays * 86400000L});
             d.setTransactionSuccessful();
         } finally { d.endTransaction(); }
     }
@@ -2335,6 +2338,234 @@ public class EngineCore implements Runnable {
         return false;
     }
 
+    // ================== v1.0 — 5M PLAYBOOK (Z.ai Research 5m guide S1-S4) ==================
+    /** Guide portfolio: BTC/ETH/BNB/SOL (charon coins jinhone 5 saal ke backtest me profit diya). */
+    static final java.util.Set<String> PB_SYMBOLS = new java.util.HashSet<>(java.util.Arrays.asList(
+            "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT"));
+    private final java.util.Map<String, Long> lastPbFill = new HashMap<>();
+    private final Map<String, Long> lastEvalPb = new HashMap<>();
+
+    /** Initial SL multiplier (guide: P1 5x, P2 4x, P3/P4 3.5x ATR). */
+    static double pbSlAtrMult(String key) {
+        if (key.startsWith("P1")) return 5.0;
+        if (key.startsWith("P2")) return 4.0;
+        return 3.5;
+    }
+
+    /** Trail multiplier (guide: P4 7x, baaki 8x ATR — 4 closed bars ke baad). */
+    static double pbTrailAtrMult(String key) {
+        return key.startsWith("P4") ? 7.0 : 8.0;
+    }
+
+    /** v1.0 — playbook scan: 4 guide coins, CLOSED 5m bar par eval (idempotent), har
+     *  signal har user ke liye paper trade (owner + traders — multi-user design). */
+    private void scanPlaybook() {
+        if (!"1".equals(db.setting("pb_on", "1"))) return;
+        List<Long> users = userIds();
+        for (String sym : PB_SYMBOLS) {
+            try {
+                ensurePbHistory(sym);
+                List<Candle> all = loadCandles15(sym);
+                if (all.size() < 500) continue;
+                List<Candle> k = all;
+                if (!k.isEmpty() && System.currentTimeMillis() - k.get(k.size() - 1).ts < TF15_MS) {
+                    k = k.subList(0, k.size() - 1);   // sirf CLOSED 5m candles (guide rule)
+                    if (k.size() < 500) continue;
+                }
+                Candle last = k.get(k.size() - 1);
+                Long done = lastEvalPb.get(sym);
+                if (done != null && done == last.ts) continue;   // isi bar par eval ho chuka
+                lastEvalPb.put(sym, last.ts);
+                List<StrategyPack.Signal> sigs = StrategyPack.evaluatePlaybook(k, k.size() - 1);
+                for (StrategyPack.Signal s : sigs) {
+                    if (!"1".equals(db.setting("pack_" + s.strategy.toLowerCase(Locale.ROOT), "1"))) continue;
+                    if (!aiEnabled(s.strategy)) continue;      // AI weights gate (untrained = ON)
+                    for (long uid : users) openTradePb(uid, sym, s);
+                }
+            } catch (Throwable t) {
+                db.log("WARN", "PB", "EVAL_FAIL", sym + " — " + t);
+            }
+        }
+    }
+
+    /** v1.0 — playbook ko 14-din (4032+ bars) 5m history chahiye — Binance paginated
+     *  fetch (5 x 1000 bars), DB candles me accumulate. Har 5 min par ek top-up. */
+    private void ensurePbHistory(String sym) {
+        long now = System.currentTimeMillis();
+        Long last = lastPbFill.get(sym);
+        if (last != null && now - last < 5 * 60_000L) return;
+        Cursor c = db.getReadableDatabase().rawQuery(
+                "SELECT COUNT(*), MAX(ts) FROM candles WHERE symbol=? AND tf=?", new String[]{sym, TF15});
+        int have = 0; long newest = 0;
+        if (c.moveToFirst()) { have = c.getInt(0); newest = c.getLong(1); }
+        c.close();
+        if (have >= 4400 && now - newest < TF15_MS) { lastPbFill.put(sym, now); return; }
+        List<Candle> pages = fetchFromBinancePaged(sym, TF15, 5);
+        if (pages != null && !pages.isEmpty()) {
+            upsertCandles15(sym, pages);
+            db.log("INFO", "PB", "HISTORY_FILL", sym + " — " + pages.size() + " 5m bars fetched (deep history " + have + " → " + (have + pages.size()) + ")");
+        }
+        lastPbFill.put(sym, now);
+    }
+
+    /** v1.0 — Binance klines paginated (endTime backward walk) — playbook deep history. */
+    private List<Candle> fetchFromBinancePaged(String symbol, String interval, int maxPages) {
+        List<Candle> out = new ArrayList<>();
+        Long endTime = null;
+        for (int pg = 0; pg < maxPages; pg++) {
+            try {
+                String url = BINANCE_HOST + "/api/v3/klines?symbol=" + symbol + "&interval=" + interval
+                        + "&limit=1000" + (endTime != null ? "&endTime=" + endTime : "");
+                String body = httpGetUrl(url, 12000);
+                if (body == null) break;
+                List<Candle> page = parseBinanceKlines(body);
+                if (page.isEmpty()) break;
+                out.addAll(page);
+                long oldest = page.get(0).ts;
+                if (endTime != null && oldest >= endTime) break;
+                endTime = oldest - 1;
+                if (page.size() < 1000) break;
+            } catch (Throwable t) { break; }
+        }
+        return out;
+    }
+
+    /** v1.0 — PLAYBOOK entry (guide S1-S4): risk-based sizing (guide formula), SL =
+     *  slMult x ATR, NO TP — exit trail se (managePbTrade). Fee-edge guard expected
+     *  move 2xATR. Leverage-cap analog: notional <= 95% balance. */
+    private void openTradePb(long uid, String sym, StrategyPack.Signal s) {
+        String tier = "PB:" + s.strategy;
+        if (!freshData(sym)) return;
+        if (strategyPaused(tier)) return;
+        if (entryBlocked(uid, sym)) return;
+        if (!tradingAllowed(uid)) { askOwnerToEnableTrading(uid); return; }
+        if (eventGateActive()) return;
+        Cursor ex = db.getReadableDatabase().rawQuery(
+                "SELECT COUNT(*) FROM trades WHERE user_id=? AND symbol=? AND strategy=? AND status='OPEN'",
+                new String[]{String.valueOf(uid), sym, tier});
+        boolean have = ex.moveToFirst() && ex.getInt(0) > 0;
+        ex.close();
+        if (have) return;
+        List<Candle> k = loadCandles15(sym);
+        if (k.size() < 600) return;
+        double atr = StrategyPack.atrAt(k, 14, k.size() - 1);
+        if (!(atr > 0)) return;
+        double price = livePrice(sym);
+        if (price <= 0) price = k.get(k.size() - 1).c;
+        double slDist = pbSlAtrMult(s.strategy) * atr;
+        if (!(slDist > 0) || price <= 0) return;
+        if (!feeEdgeOk(tier + " " + sym, price, 2 * atr)) return;   // fee-edge guard (expected 2xATR move)
+        double heatCap = heatMaxPct(), bucketCap = bucketMaxPct();
+        if (heatCap > 0 && heatRiskPct(uid) + 1.0 > heatCap) return;
+        if (bucketCap > 0 && bucketRiskPct(uid, bucketOf(sym)) + 1.0 > bucketCap) return;
+        price = slipEntry(price, s.side);
+        double bal = balanceOf(uid);
+        if (bal <= 0) return;
+        double risk = bal * dynamicRiskPct(tier) / 100.0;   // base 1% (guide safe config), min-25 scaling
+        double qty = risk / slDist;
+        if (qty * price > bal * 0.95) qty = bal * 0.95 / price;
+        if (qty <= 0) return;
+        boolean buy = "BUY".equals(s.side);
+        double sl = buy ? price - slDist : price + slDist;
+        double tp = buy ? price + 1000 * atr : price - 1000 * atr;   // nominal — PB exit TRAIL/SL se hota hai
+        JSONObject features = new JSONObject();
+        try {
+            features.put("pb", 1).put("atr", atr)
+                    .put("sl_mult", pbSlAtrMult(s.strategy)).put("trail_mult", pbTrailAtrMult(s.strategy))
+                    .put("trail", 0).put("bars", 0).put("last_bar_ts", s.sigTs)
+                    .put("sig_ts", s.sigTs).put("tf", TF15).put("note", s.note);
+        } catch (Throwable ignored) { }
+        double riskAmt = slDist * qty;
+        db.getWritableDatabase().execSQL(
+                "INSERT INTO trades(user_id, symbol, side, qty, entry, sl, tp, status, strategy, consensus, opened_at, risk, risk_amt, decision, council, win_prob, features) VALUES(?,?,?,?,?,?,?,'OPEN',?,?,?,?,?,?,?,?,?)",
+                new Object[]{uid, sym, s.side, qty, price, sl, tp, tier, 0.7, System.currentTimeMillis(), dynamicRiskPct(tier) / 100.0, riskAmt, price, 0, mlWinProb(features), features.toString()});
+        long tradeId = 0;
+        Cursor ti = db.getReadableDatabase().rawQuery("SELECT MAX(id) FROM trades", null);
+        if (ti.moveToFirst()) tradeId = ti.getLong(0);
+        ti.close();
+        recordOrder(tradeId, uid, sym, s.side, "MARKET", price, qty, "PAPER", "FILLED");
+        bridgeOrder(sym, s.side, tradeId, uid, price, qty);
+        db.log("INFO", "PB", "ORDER_EXECUTED", sym + " " + s.side + " [" + tier + "] qty="
+                + String.format(Locale.US, "%.6f", qty) + " entry=" + fpx(price) + " sl=" + fpx(sl)
+                + " — " + s.note + " (guide sizing, NO TP — trail exit)");
+        try { Notifier.post(appContext(), "Playbook trade", sym + " " + s.side + " [" + s.strategy + "] — " + s.note); } catch (Throwable ignored) { }
+    }
+
+    /** v1.0 — PLAYBOOK management (guide exit rule): pehle 4 closed bars initial SL,
+     *  phir har closed 5m bar ke close par trail = close -/+ trailMult x ATR (sirf
+     *  behtar direction me shift, kabhi loose nahi). Exit TRAIL/SL se, TP nahi.
+     *  Restart-safe: trail/bars/last_bar_ts features JSON me persist. */
+    private void managePbTrade(long id, long uid, String sym, String side, double qty,
+                               double entry, double sl0, boolean buy) {
+        try {
+            Cursor fc = db.getReadableDatabase().rawQuery("SELECT features FROM trades WHERE id=?", new String[]{String.valueOf(id)});
+            String feats = fc.moveToFirst() ? fc.getString(0) : "{}";
+            fc.close();
+            JSONObject ft = new JSONObject(feats);
+            double atr = ft.optDouble("atr", 0);
+            double trailMult = ft.optDouble("trail_mult", 8.0);
+            double trail = ft.optDouble("trail", 0);
+            long lastBar = ft.optLong("last_bar_ts", 0);
+            int barsHeld = ft.optInt("bars", 0);
+            if (!(atr > 0)) return;
+            long now = System.currentTimeMillis();
+            // 1) CLOSED bars replay — trail advance (har closed 5m bar par ek dafa)
+            Cursor cb = db.getReadableDatabase().rawQuery(
+                    "SELECT ts, c FROM candles WHERE symbol=? AND tf=? AND ts>? AND ts<=? ORDER BY ts",
+                    new String[]{sym, TF15, String.valueOf(lastBar), String.valueOf(now - TF15_MS)});
+            List<long[]> bars = new ArrayList<>(); List<Double> closes = new ArrayList<>();
+            while (cb.moveToNext()) { bars.add(new long[]{cb.getLong(0)}); closes.add(cb.getDouble(1)); }
+            cb.close();
+            for (int i = 0; i < bars.size(); i++) {
+                long ts = bars.get(i)[0]; double cl = closes.get(i);
+                if (barsHeld >= 4) {
+                    double cand = buy ? cl - trailMult * atr : cl + trailMult * atr;
+                    trail = (trail == 0) ? cand : (buy ? Math.max(trail, cand) : Math.min(trail, cand));
+                }
+                barsHeld++;
+                lastBar = ts;
+            }
+            if (!bars.isEmpty()) {
+                ft.put("trail", trail).put("last_bar_ts", lastBar).put("bars", barsHeld);
+                db.getWritableDatabase().execSQL("UPDATE trades SET features=? WHERE id=?", new Object[]{ft.toString(), id});
+            }
+            // 2) exit check — latest closed bar + live bar (SL pehle — conservative)
+            boolean trailing = barsHeld >= 4 && trail != 0;
+            double activeStop = trailing ? trail : sl0;
+            double[][] hl2 = new double[2][];
+            Cursor cc = db.getReadableDatabase().rawQuery(
+                    "SELECT h, l FROM candles WHERE symbol=? AND tf=? AND ts<=? ORDER BY ts DESC LIMIT 1",
+                    new String[]{sym, TF15, String.valueOf(now - TF15_MS)});
+            if (cc.moveToFirst()) hl2[0] = new double[]{cc.getDouble(0), cc.getDouble(1)};
+            cc.close();
+            Cursor lc = db.getReadableDatabase().rawQuery(
+                    "SELECT h, l FROM candles WHERE symbol=? AND tf=? AND ts>? ORDER BY ts DESC LIMIT 1",
+                    new String[]{sym, TF15, String.valueOf(now - TF15_MS)});
+            if (lc.moveToFirst()) hl2[1] = new double[]{lc.getDouble(0), lc.getDouble(1)};
+            lc.close();
+            for (double[] hl : hl2) {
+                if (hl == null) continue;
+                boolean hit = buy ? hl[1] <= activeStop : hl[0] >= activeStop;
+                if (hit) {
+                    String reason = trailing ? "TRAIL" : "SL";
+                    db.log("INFO", "PB", "PLAYBOOK_EXIT", "trade #" + id + " " + sym + " — " + reason + " hit @ " + fpx(activeStop) + " (bars=" + barsHeld + ")");
+                    closeTrade(id, uid, activeStop, reason, qty, entry, side);
+                    return;
+                }
+            }
+            // MFE/MAE journal (closed bar se)
+            if (hl2[0] != null) {
+                double mfe = buy ? (hl2[0][0] - entry) * qty : (entry - hl2[0][1]) * qty;
+                double mae = buy ? (entry - hl2[0][1]) * qty : (hl2[0][0] - entry) * qty;
+                db.getWritableDatabase().execSQL(
+                        "UPDATE trades SET mfe=MAX(IFNULL(mfe,0),?), mae=MAX(IFNULL(mae,0),?) WHERE id=?",
+                        new Object[]{Math.max(0, mfe), Math.max(0, mae), id});
+            }
+        } catch (Throwable t) {
+            db.log("WARN", "PB", "MANAGE_FAIL", "trade #" + id + " — " + t);
+        }
+    }
+
     // ================== v4.4 — AI TRAINER GLUE ==================
     private long lastAiTrainCheck = 0;
     volatile boolean aiTraining = false;   // package-private (Api status ke liye)
@@ -2825,6 +3056,7 @@ public class EngineCore implements Runnable {
             boolean buy = "BUY".equals(side);
             boolean is3C = strategy != null && strategy.startsWith("3C");
             boolean isPack = strategy != null && strategy.startsWith("PDF:");
+            boolean isPB = strategy != null && strategy.startsWith("PB:");
             double rDist = isPack ? Math.abs(tp - entry) / 2.0 : Math.abs(tp - entry) / THREEC_TP_R;   // v4.4: pack TP=+2R
             // v4.4 — PDF pack trades: boundary invalidation + window expiry (15m rules)
             if (isPack) {
@@ -2858,6 +3090,12 @@ public class EngineCore implements Runnable {
                         continue;
                     }
                 } catch (Throwable ignored) { }
+            }
+            // v1.0 — PLAYBOOK trades: apna trail-based management (guide exit rule) —
+            // generic SL/TP/BE loop se alag (PB me TP nahi hota, trail hi exit hai).
+            if (isPB) {
+                managePbTrade(id, uid, sym, side, qty, entry, sl, buy);
+                continue;
             }
             boolean done = false;
             for (double[] hl : candles2) {
@@ -3934,14 +4172,14 @@ public class EngineCore implements Runnable {
         m.put("scan_count", scanCount);
         m.put("last_scan_at", lastScanAt);
         m.put("strategy_count", 1 + StrategyPack.STRATEGIES.length + 5);
-        m.put("strategy_name", "3C MASTER (M5) + PDF PACK (9 strategies, 5m, ALL pairs) + SHAAKUNI (5 playbooks)");
+        m.put("strategy_name", "3C MASTER (M5) + PDF PACK (9) + 5M PLAYBOOK (4 — Z.ai guide S1-S4) + SHAAKUNI (5)");
         m.put("pdf_pack", "RESTORED v4.4 — S1 EMA pullback · S2 BB squeeze · S3 Supertrend+ADX · S4 VWAP · S5 PDH/PDL · S6 Funding+OI · S7 Candle patterns · S8 Dow pullback · S9 Gann 50%");
         m.put("risk_pct", riskPct());
         m.put("risk_scaling", scalingInfo("3C_MASTER"));
         m.put("min_trades_scaling", MIN_TRADES_BEFORE_SCALING);
         m.put("limits", "UNLIMITED daily P/L (owner) — heat/bucket/event/session caps default OFF opt-in");
         // v4.4 status
-        m.put("version", "4.5.0");
+        m.put("version", "1.0");
         boolean mktClosed = marketClosedET();
         m.put("safe_mode", safeMode && !mktClosed);   // v3.0.1 — band market par SAFE MODE jhoota lagta tha
         m.put("market_closed", mktClosed);            // v3.0.1 — weekend / CME halt indicator

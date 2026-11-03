@@ -49,8 +49,8 @@ public class V44Test {
     public static void main(String[] args) {
 
         // ================= 1) Pack metadata =================
-        check("pack.meta.count", StrategyPack.STRATEGIES.length == 9 && StrategyPack.KEYS.length == 9,
-                "strategies=" + StrategyPack.STRATEGIES.length);
+        check("pack.meta.count", StrategyPack.STRATEGIES.length == 13 && StrategyPack.KEYS.length == 13,
+                "strategies=" + StrategyPack.STRATEGIES.length + " (9 PDF pack + 4 playbook v1.0)");
         check("pack.meta.restore", StrategyPack.STRATEGIES[0][0].equals("S1_EMA_PULLBACK")
                 && StrategyPack.STRATEGIES[4][0].equals("S5_PDH_PDL") && StrategyPack.STRATEGIES[8][0].equals("S9_GANN_50"),
                 "S1/S5/S9 keys present (PDF pack RESTORED)");

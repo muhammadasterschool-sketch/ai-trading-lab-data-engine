@@ -51,12 +51,17 @@ public class StrategyPack {
             {"S6_FUNDING_OI",     "Funding + OI contrarian fade",         "Promising"},
             {"S7_CANDLE_PAT",     "Engulfing/Hammer + trend + volume",    "Part-3"},
             {"S8_DOW_PULLBACK",   "Dow HH/HL structure pullback",         "Part-4"},
-            {"S9_GANN_50",        "50% retracement bounce (Gann)",        "Part-4"}
+            {"S9_GANN_50",        "50% retracement bounce (Gann)",        "Part-4"},
+            {"P1_14D_RIDER",      "14D Breakout Rider (5M Playbook)",     "CHAMPION"},
+            {"P2_10D_TREND",      "10D Trend+Volume Break (Playbook)",    "4/4 positive"},
+            {"P3_14D_CLASSIC",    "14D Breakout Classic (Playbook)",      "3/4 positive"},
+            {"P4_SQUEEZE",        "Squeeze Explosion (Playbook)",         "Rare + powerful"}
     };
 
     public static final String[] KEYS = {
             "S1_EMA_PULLBACK", "S2_BB_SQUEEZE", "S3_SUPERTREND_ADX", "S4_VWAP_BOUNCE",
-            "S5_PDH_PDL", "S6_FUNDING_OI", "S7_CANDLE_PAT", "S8_DOW_PULLBACK", "S9_GANN_50"
+            "S5_PDH_PDL", "S6_FUNDING_OI", "S7_CANDLE_PAT", "S8_DOW_PULLBACK", "S9_GANN_50",
+            "P1_14D_RIDER", "P2_10D_TREND", "P3_14D_CLASSIC", "P4_SQUEEZE"
     };
 
     /** Default entry/validity window (15m bars). */
@@ -434,5 +439,157 @@ public class StrategyPack {
 
     private static String fpx(double v) {
         return String.format(java.util.Locale.US, v >= 100 ? "%.3f" : "%.6f", v);
+    }
+
+    // ================== v1.0 — 5M PLAYBOOK (Z.ai Research "5-Minute Crypto Strategy Guide") ==================
+    // 5 saal x 4 coins (BTC/ETH/BNB/SOL) x 49 configs ka no-lookahead backtest — sirf
+    // profitable families andar: multi-day breakout riding. Rules guide section 4-7 se
+    // EXACT: entry closed 5m bar par, initial SL = atrX x ATR(14), NO TP — exit trail
+    // (trailMult x ATR, 4 closed bars ke baad, sirf behtar direction me shift) se.
+    // ATR(14) — Wilder TR average (signal use ke liye standard 14-bar TR mean).
+
+    /** Wilder ATR(n) at bar index at (0-based). NaN agar data kam. */
+    public static double atrAt(List<EngineCore.Candle> k, int n, int at) {
+        if (at < n || n <= 0) return Double.NaN;
+        double sum = 0;
+        for (int j = at - n + 1; j <= at; j++) sum += tr(k, j);
+        return sum / n;
+    }
+
+    private static double tr(List<EngineCore.Candle> k, int j) {
+        if (j <= 0) return k.get(j).h - k.get(j).l;
+        double pc = k.get(j - 1).c;
+        return Math.max(k.get(j).h - k.get(j).l,
+                Math.max(Math.abs(k.get(j).h - pc), Math.abs(k.get(j).l - pc)));
+    }
+
+    /** [highestHigh, lowestLow] of bars [from, to] inclusive. */
+    public static double[] hhll(List<EngineCore.Candle> k, int from, int to) {
+        double hh = Double.NEGATIVE_INFINITY, ll = Double.POSITIVE_INFINITY;
+        for (int j = Math.max(0, from); j <= to && j < k.size(); j++) {
+            if (k.get(j).h > hh) hh = k.get(j).h;
+            if (k.get(j).l < ll) ll = k.get(j).l;
+        }
+        return new double[]{hh, ll};
+    }
+
+    /** Completed 1h bars ka close series (5m bars se group) — NO lookahead: jis hour me
+     *  signal bar hai wo EXCLUDE (:55 bar ka close = mukammal hour close). */
+    static List<Double> hourlyCloses(List<EngineCore.Candle> k, int i, int needHours) {
+        List<Double> out = new ArrayList<>();
+        long curHour = k.get(i).ts / 3600000L;
+        for (int j = i; j >= 0 && out.size() < needHours; j--) {
+            EngineCore.Candle b = k.get(j);
+            if (b.ts / 3600000L >= curHour) continue;                 // current hour incomplete/exclude
+            if (b.ts % 3600000L == 3300000L) out.add(b.c);            // :55 bar = completed hour close
+        }
+        return out;
+    }
+
+    /** EMA over double closes (SMA seed) — kam data par NaN. */
+    static double emaDoubles(List<Double> v, int n) {
+        if (v.size() < n) return Double.NaN;
+        double sum = 0;
+        for (int i = 0; i < n; i++) sum += v.get(i);
+        double e = sum / n;
+        double a = 2.0 / (n + 1);
+        for (int i = n; i < v.size(); i++) e = v.get(i) * a + e * (1 - a);
+        return e;
+    }
+
+    /** BB(20,2) width at bar (upper-lower). */
+    static double bbWidth(List<EngineCore.Candle> k, int at) {
+        double[] bb = bollingerAt(k, 20, at);
+        return bb == null ? Double.NaN : (bb[2] - bb[0]);   // upper - lower (full BB width)
+    }
+
+    /** Playbook signal factory. */
+    private static Signal pb(String key, String side, EngineCore.Candle bar, int i, double sl, String note) {
+        Signal s = new Signal();
+        s.strategy = key; s.side = side; s.sigTs = bar.ts; s.sigIdx = i; s.refPrice = bar.c;
+        s.slPrice = sl; s.boundary = 0; s.windowBars = 0; s.note = note;
+        return s;
+    }
+
+    /**
+     * 5M PLAYBOOK detectors — CLOSED 5m candles, bar i (last closed). Guide rules EXACT:
+     *  P1 14D Breakout Rider  : close > 14d HH (4032 bars, signal bar exclude) + vol > 1.3x(288 SMA) | SL 5xATR, trail 8x
+     *  P2 10D Trend+Volume    : close > 10d HH (2880) + 1h EMA50>EMA200 + vol 1.3x | SL 4xATR, trail 8x
+     *  P3 14D Breakout Classic: close > 14d HH (no vol filter) | SL 3.5xATR, trail 8x
+     *  P4 Squeeze Explosion   : BB width percentile < 30% (last 12 bars me) + 14d break | SL 3.5xATR, trail 7x
+     * Depth guard: P1/P3/P4 ko poore 4032-bar window ki zaroorat, P2 ko 2880+2400 (1h EMA200) —
+     * kam data par koi signal nahi (conservative, no partial-window signals).
+     */
+    public static List<Signal> evaluatePlaybook(List<EngineCore.Candle> k, int i) {
+        List<Signal> out = new ArrayList<>();
+        if (k == null || i < 300 || i >= k.size()) return out;
+        EngineCore.Candle bar = k.get(i);
+        double atr = atrAt(k, 14, i);
+        if (!(atr > 0)) return out;
+        boolean deep14 = i >= 4032;          // poora 14-din window
+        boolean deep10 = i >= 2880;          // poora 10-din window (P2: + 2400 1h EMA seed ke liye 12x200)
+        double[] rng14 = hhll(k, i - 4032, i - 1);
+        double volSma288 = volSma(k, i, 288);
+        boolean volOk = volSma288 > 0 && bar.v > 1.3 * volSma288;
+        double close = bar.c;
+
+        // --- P1 14D Breakout Rider (CHAMPION) ---
+        if (deep14) {
+            if (close > rng14[0] && volOk)
+                out.add(pb("P1_14D_RIDER", "BUY", bar, i, close - 5.0 * atr,
+                        "14D high break " + fpx(rng14[0]) + " + vol 1.3x — trail 8xATR"));
+            if (close < rng14[1] && volOk)
+                out.add(pb("P1_14D_RIDER", "SELL", bar, i, close + 5.0 * atr,
+                        "14D low break " + fpx(rng14[1]) + " + vol 1.3x — trail 8xATR"));
+        }
+        // --- P3 14D Breakout Classic (no volume filter) ---
+        if (deep14) {
+            if (close > rng14[0])
+                out.add(pb("P3_14D_CLASSIC", "BUY", bar, i, close - 3.5 * atr,
+                        "14D high break (classic, no vol filter) — trail 8xATR"));
+            if (close < rng14[1])
+                out.add(pb("P3_14D_CLASSIC", "SELL", bar, i, close + 3.5 * atr,
+                        "14D low break (classic, no vol filter) — trail 8xATR"));
+        }
+        // --- P2 10D Trend+Volume Break (1h EMA trend filter) ---
+        if (deep10) {
+            double[] rng10 = hhll(k, i - 2880, i - 1);
+            List<Double> hc = hourlyCloses(k, i, 220);
+            double e50 = emaDoubles(hc, 50), e200 = emaDoubles(hc, 200);
+            if (!Double.isNaN(e50) && !Double.isNaN(e200)) {
+                if (close > rng10[0] && e50 > e200 && volOk)
+                    out.add(pb("P2_10D_TREND", "BUY", bar, i, close - 4.0 * atr,
+                            "10D high break + 1h trend UP (EMA50 " + fpx(e50) + " > EMA200 " + fpx(e200) + ") — trail 8xATR"));
+                if (close < rng10[1] && e50 < e200 && volOk)
+                    out.add(pb("P2_10D_TREND", "SELL", bar, i, close + 4.0 * atr,
+                            "10D low break + 1h trend DOWN (EMA50 " + fpx(e50) + " < EMA200 " + fpx(e200) + ") — trail 8xATR"));
+            }
+        }
+        // --- P4 Squeeze Explosion (BB width percentile < 30% phir 14d break) ---
+        if (deep14) {
+            boolean squeeze = false;
+            for (int j = Math.max(0, i - 11); j <= i && !squeeze; j += 1) {
+                double w = bbWidth(k, j);
+                if (Double.isNaN(w)) continue;
+                int samples = 0, below = 0;
+                for (int q = j - 4032; q <= j; q += 4) {     // stride-4 percentile sample
+                    if (q < 20) continue;
+                    double wq = bbWidth(k, q);
+                    if (Double.isNaN(wq)) continue;
+                    samples++;
+                    if (wq < w) below++;
+                }
+                if (samples >= 500 && below * 100.0 / samples < 30.0) squeeze = true;
+            }
+            if (squeeze) {
+                if (close > rng14[0])
+                    out.add(pb("P4_SQUEEZE", "BUY", bar, i, close - 3.5 * atr,
+                            "Squeeze explosion (BB width pct < 30%) + 14D high break — trail 7xATR"));
+                if (close < rng14[1])
+                    out.add(pb("P4_SQUEEZE", "SELL", bar, i, close + 3.5 * atr,
+                            "Squeeze explosion (BB width pct < 30%) + 14D low break — trail 7xATR"));
+            }
+        }
+        return out;
     }
 }
