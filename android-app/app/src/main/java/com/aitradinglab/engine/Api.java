@@ -92,7 +92,7 @@ public class Api {
     private Res get(String path, String auth) throws Exception {
         if ("/".equals(path) || "/index.html".equals(path)) return Res.html(dashboardHtml);
         if ("/api/health".equals(path)) return Res.json(200, new JSONObject()
-                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "4.1.0").put("timeframe", "1m").put("scanner", "24/7").put("strategy", "3C Breakout (M1 BINANCE) — MASTER + QUANT PRO + SHAAKUNI SUITE"));
+                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "4.4.0").put("timeframe", "1m+15m").put("scanner", "24/7").put("strategy", "3C MASTER (M1) + PDF PACK (9, 15m, ALL Binance pairs) + SHAAKUNI (5) + AI TRAINER"));
 
         Long uid = userId(auth);
         if (uid == null) return Res.error(401, "authentication required");
@@ -115,12 +115,50 @@ public class Api {
         if ("/api/analytics".equals(path)) return analytics(uid);    // v3.0 EDGE ANALYTICS
         if (path.startsWith("/api/seasonality")) return seasonality(path);  // v3.0 seasonal edge
         if ("/api/audit.csv".equals(path)) return auditCsv(uid);     // v3.0 audit trail export
+        if ("/api/ai_status".equals(path)) return aiStatus();        // v4.4 AI trainer status + weights
+        if ("/api/pack".equals(path)) return packStatus();           // v4.4 PDF pack status
         // v5.7 FULL MOBILE CONTROL — owner admin endpoints (role=ADMIN required)
         if ("/api/admin/users".equals(path)) return adminUsers(uid);
         if ("/api/admin/invites".equals(path)) return adminInvites(uid);
         if ("/api/admin/alerts".equals(path)) return adminAlerts(uid);
         return Res.error(404, "not found");
     }
+
+    /** v4.4 — AI trainer status + weights (Home > AI TRAINER card). */
+    private Res aiStatus() {
+        if (engine == null) return Res.error(503, "engine not ready");
+        JSONObject o = new JSONObject();
+        try {
+            long trainedAt = 0;
+            try { trainedAt = Long.parseLong(db.setting("ai_trained_at", "0").trim()); } catch (Throwable ignored) { }
+            o.put("trained_at", trainedAt);
+            o.put("auto_train", "1".equals(db.setting("ai_auto_train", "1")));
+            o.put("running", engine.aiTraining);
+            try { o.put("report", new JSONObject(db.setting("ai_train_report", "{}"))); } catch (Throwable ignored) { }
+            try { o.put("weights", new JSONObject(db.setting("ai_weights_v2", "{}"))); } catch (Throwable ignored) { }
+            o.put("fee_edge_on", "1".equals(db.setting("fee_edge_on", "1")));
+            o.put("min_fee_edge_pct", db.setting("min_fee_edge_pct", "0.14"));
+        } catch (Throwable t) { return Res.error(500, String.valueOf(t)); }
+        return Res.json(200, o);
+    }
+
+    /** v4.4 — PDF pack strategies + toggles. */
+    private Res packStatus() {
+        JSONObject o = new JSONObject();
+        try {
+            JSONArray arr = new JSONArray();
+            for (String[] s : com.aitradinglab.engine.StrategyPack.STRATEGIES) {
+                arr.put(new JSONObject()
+                        .put("key", s[0]).put("name", s[1]).put("rating", s[2])
+                        .put("on", "1".equals(db.setting("pack_" + s[0].toLowerCase(Locale.ROOT), "1"))));
+            }
+            o.put("strategies", arr);
+            o.put("pack_on", "1".equals(db.setting("pack_on", "1")));
+        } catch (Throwable t) { return Res.error(500, String.valueOf(t)); }
+        return Res.json(200, o);
+    }
+
+    // v4.4 — isAdmin() neeche v5.7 section me already hai (duplicate hataya gaya)
 
     // ================== POST ==================
     private Res post(String path, String auth, String body) throws Exception {
@@ -145,6 +183,14 @@ public class Api {
         if ("/api/settings".equals(path)) return saveSettings(body);
         // v1.2 — owner ka apna paper amount: set ANY paper balance
         if ("/api/balance".equals(path)) return setBalance(uid, body);
+        // v4.4 — TRAIN AI (owner/ADMIN only): Binance history walk-forward
+        if ("/api/ai_train".equals(path)) {
+            if (!isAdmin(uid)) return Res.error(403, "sirf owner (ADMIN) AI train kar sakta hai");
+            if (engine == null) return Res.error(503, "engine not ready");
+            engine.trainAiAsync();
+            db.log("INFO", "AI", "TRAIN_TRIGGERED", "owner ne TRAIN AI dabaya — Binance history walk-forward shuru (15m depth + 1d 2017→)");
+            return Res.json(200, new JSONObject().put("ok", true).put("message", "AI training shuru — Binance history (top-12 pairs, 15m depth + 1d HTF) walk-forward chal raha hai. 5-15 min; report Home > AI TRAINER card me aayegi."));
+        }
         // v1.2 Strategy Lab — add/compile/watch/backtest/paper/approve
         if ("/api/strategies".equals(path)) {
             if (engine == null || engine.lab == null) return Res.error(503, "Lab shuru ho raha hai — refresh karein");
@@ -821,10 +867,16 @@ public class Api {
                 .put("sessionFilter", engine != null && engine.sessionFilterOn())
                 .put("bridgeLive", engine != null && engine.bridgeLive())
                 .put("bridgeLots", engine != null ? engine.bridgeLots() : 0.01)
+                // v4.4 — AI trainer + PDF pack + fee edge
+                .put("aiAutoTrain", "1".equals(db.setting("ai_auto_train", "1")))
+                .put("feeEdgeOn", "1".equals(db.setting("fee_edge_on", "1")))
+                .put("minFeeEdgePct", db.setting("min_fee_edge_pct", "0.14"))
+                .put("packOn", "1".equals(db.setting("pack_on", "1")))
+                .put("aiTrainedAt", db.setting("ai_trained_at", "0"))
                 .put("feedIntervalSec", db.setting("feed_interval_sec", "60"))
                 .put("labSymbol", db.setting("lab_symbol", "BTCUSDT"))
                 .put("safeMode", engine != null && engine.isSafeMode())
-                .put("version", "4.1"));
+                .put("version", "4.4"));
     }
 
     /** v1.8 — candlestick chart data: GET /api/candles?symbol=XAUUSD&n=60 → 5m candles.
@@ -1030,6 +1082,40 @@ public class Api {
             boolean on = o.optBoolean("engineOn");
             db.setSetting("engine_on", on ? "1" : "0");
             db.log("INFO", "SYSTEM", on ? "ENGINE_ENABLED" : "ENGINE_DISABLED", "user toggled engine");
+        }
+        // v4.4 — PDF pack + AI trainer + fee-edge settings
+        if (o.has("packOn")) {
+            db.setSetting("pack_on", o.optBoolean("packOn") ? "1" : "0");
+            db.log("INFO", "PACK", "PACK_SET", "PDF Strategy Pack = " + o.optBoolean("packOn"));
+        }
+        if (o.has("packKey") && o.has("packVal")) {
+            String k = o.optString("packKey", "");
+            if (k.matches("[A-Za-z0-9_]+")) {
+                db.setSetting("pack_" + k.toLowerCase(Locale.ROOT), o.optBoolean("packVal") ? "1" : "0");
+                db.log("INFO", "PACK", "STRATEGY_TOGGLE", k + " = " + o.optBoolean("packVal"));
+            }
+        }
+        if (o.has("aiAutoTrain")) {
+            db.setSetting("ai_auto_train", o.optBoolean("aiAutoTrain") ? "1" : "0");
+            db.log("INFO", "AI", "AUTO_TRAIN_SET", "AI auto-retrain (24h) = " + o.optBoolean("aiAutoTrain"));
+        }
+        if (o.has("feeEdgeOn")) {
+            db.setSetting("fee_edge_on", o.optBoolean("feeEdgeOn") ? "1" : "0");
+            db.log("INFO", "GUARD", "FEE_EDGE_SET", "Fee-edge guard = " + o.optBoolean("feeEdgeOn"));
+        }
+        if (o.has("minFeeEdgePct")) {
+            double v = o.optDouble("minFeeEdgePct", 0.14);
+            if (v < 0 || v > 1) return Res.error(400, "Fee edge 0-1% ke beech set karein (default 0.14% = round-trip fees)");
+            db.setSetting("min_fee_edge_pct", String.valueOf(v));
+            db.log("INFO", "GUARD", "FEE_EDGE_MIN_SET", "Min TP move = " + v + "% (fees+slip round-trip)");
+        }
+        if (o.has("aiForceKey")) {
+            String k = o.optString("aiForceKey", "");
+            if (k.matches("[A-Za-z0-9_]+")) {
+                db.setSetting("ai_off_" + k, o.optBoolean("aiForceVal", true) ? "1" : "0");
+                if (engine != null) engine.invalidateAiWeights();
+                db.log("INFO", "AI", "STRATEGY_FORCE", k + " owner force " + (o.optBoolean("aiForceVal", true) ? "ON" : "AI-weight"));
+            }
         }
         // v1.4 — 3C risk % of equity per trade (MASTER PROMPT: "The user controls risk percentage")
         // v1.8 — owner "risk increase karoo": range 0.1–20%, default 2%

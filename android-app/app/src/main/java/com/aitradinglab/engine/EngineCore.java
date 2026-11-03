@@ -61,7 +61,10 @@ public class EngineCore implements Runnable {
     private static final String TF = "1m";                 // v4.1 BINANCE timeframe (owner: 1m candles)
     private static final long TF_MS = 60L * 1000;
     /** public for StrategyLab backtester */ public static final long TF_MS_PUB = TF_MS;
-    private static final int ACTIVE_TOP = 30;      // halal universe (27) — cap sirf safety
+    /** v4.4 — PDF pack timeframe (PDF section 11: 1m/5m scalping fees-dominated — 15m entries). */
+    static final String TF15 = "15m";
+    static final long TF15_MS = 15L * 60 * 1000;
+    private static final int ACTIVE_TOP = 40;      // v4.4: 1m scan tier (top-40 by volume) — 15m PDF pack ALL pairs rotate karta hai
     // ==== 3C STRATEGY CONSTANTS (MASTER PROMPT — kabhi change nahi without owner approval) ====
     public static final double THREEC_BODY_MIN = 0.70;  // C1 & C2 body >= 70% of High-Low range
     public static final int THREEC_WINDOW = 5;          // breakout window: next 5 M5 candles
@@ -334,7 +337,9 @@ public class EngineCore implements Runnable {
 
     /** v1.4 — the ONE master strategy (35-strategy consensus retired by owner request). */
     public static final String[][] STRATEGY_META = {
-            {"3C Breakout (M5) — MASTER", "Price action"}
+            {"3C Breakout (M1) — MASTER", "Price action"},
+            {"PDF PACK S1-S9 (15m, ALL pairs)", "Mechanical"},
+            {"SHAAKUNI SSM playbooks x5", "SMC"}
     };
 
     public EngineCore(Db db) {
@@ -413,6 +418,7 @@ public class EngineCore implements Runnable {
                     lastEvolve = now;
                     if (lab != null) { try { lab.autoEvolve(); } catch (Throwable t) { db.log("ERROR", "LAB", "EVOLVE_FAIL", String.valueOf(t)); } }
                 }
+                try { aiTrainTick(); } catch (Throwable ignored) { }   // v4.4 — AI auto-train (boot + har 24h)
                 Thread.sleep(2000);
 
             } catch (Throwable t) {
@@ -435,7 +441,9 @@ public class EngineCore implements Runnable {
         manageOpenTrades();
         refreshCandles();
         scanAndTrade();
+        try { scanPdfPack(); } catch (Throwable t) { db.log("ERROR", "PACK", "SCAN_FAIL", String.valueOf(t)); }   // v4.4 PDF pack (15m, ALL pairs)
         snapshotEquity();
+        try { selfLearnTick(); } catch (Throwable ignored) { }   // v4.4 — har 25 closed trades par AI re-weight
         scanCount++;
         lastScanAt = System.currentTimeMillis();
     }
@@ -481,6 +489,21 @@ public class EngineCore implements Runnable {
         BINANCE_PAIRS.put("ADAUSDT", "ADA/USDT — Cardano (RETAIL)");
     }
     private static final String BINANCE_HOST = "https://api.binance.com";
+
+    // ================== v4.4 ALL-BINANCE UNIVERSE (owner: "saare binance ke coins daalo, baki sab delete") ==================
+    /** symbol → BINANCE tradable cache (discover()/syncBinanceUniverse() refresh karta hai). */
+    final java.util.Set<String> binanceOkCache = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
+    /** Stable-stable pairs exclude (USDC/TUSD/FDUSD... vs USDT — real coins chahiye). */
+    static final java.util.Set<String> STABLE_BASES = new java.util.HashSet<>(java.util.Arrays.asList(
+            "USDC", "TUSD", "FDUSD", "BUSD", "DAI", "USDP", "EUR", "GBP", "TRY", "BRL", "ARS",
+            "UAH", "JPY", "AEUR", "USDS", "SUSD", "XUSD", "USD1", "EURI", "GYEN", "PAXG"));
+
+    /** Volume rank → risk bucket: 1-10 MAJOR, 11-60 RETAIL, 61+ ALTCOIN. */
+    static String bucketForRank(int rank) {
+        if (rank <= 10) return "MAJOR";
+        if (rank <= 60) return "RETAIL";
+        return "ALTCOIN";
+    }
     /** Per-symbol last fetch attempt (rate-limit guard — M5 candles 60s refresh kaafi). */
     private final java.util.Map<String, Long> lastFetchAt = new HashMap<>();
 
@@ -552,14 +575,24 @@ public class EngineCore implements Runnable {
     /** BINANCE klines fetch (v4.1 primary feed). Response:
      *  [[openTime, open, high, low, close, volume, closeTime, ...], ...] — last row
      *  in-progress candle hota hai (Binance live deta hai). */
-    private List<Candle> fetchFromBinance(String symbol, int limit) {
-        if (!BINANCE_PAIRS.containsKey(symbol)) return null;
+    private List<Candle> fetchFromBinance(String symbol, int limit) { return fetchFromBinance(symbol, limit, TF); }
+
+    /** v4.4 — interval-aware (1m live + 15m PDF pack + 1d/15m AI training).
+     *  Universe gate: BINANCE_PAIRS ya instruments me exchange=BINANCE (ALL coins). */
+    private List<Candle> fetchFromBinance(String symbol, int limit, String interval) {
+        if (!binanceTradable(symbol)) return null;
         try {
             String body = httpGetUrl(BINANCE_HOST + "/api/v3/klines?symbol=" + symbol
-                    + "&interval=" + TF + "&limit=" + Math.min(limit, 1000), 12000);
+                    + "&interval=" + interval + "&limit=" + Math.min(limit, 1000), 12000);
             if (body == null) return null;
             return parseBinanceKlines(body);
         } catch (Exception e) { return null; }
+    }
+
+    /** v4.4 — ALL-BINANCE gate (static 7 seed + exchangeInfo-discovered pairs). */
+    private boolean binanceTradable(String symbol) {
+        if (BINANCE_PAIRS.containsKey(symbol)) return true;
+        synchronized (binanceOkCache) { return binanceOkCache.contains(symbol); }
     }
 
     /** v4.1 — Binance klines JSON → Candle list (public static — host-JVM tests ke liye).
@@ -619,6 +652,7 @@ public class EngineCore implements Runnable {
             if (ks == null || ks.isEmpty()) continue;
             upsertCandles(s, ks);
         }
+        rotate15m(30);   // v4.4 — PDF pack 15m feed (ALL Binance pairs, rotating)
     }
 
     private void upsertCandles(String s, List<Candle> ks) {
@@ -642,6 +676,67 @@ public class EngineCore implements Runnable {
         List<Candle> out = new ArrayList<>();
         Cursor c = db.getReadableDatabase().rawQuery(
                 "SELECT ts, o, h, l, c, v FROM candles WHERE symbol=? AND tf=? ORDER BY ts", new String[]{symbol, TF});
+        while (c.moveToNext()) {
+            Candle k = new Candle();
+            k.ts = c.getLong(0); k.o = c.getDouble(1); k.h = c.getDouble(2);
+            k.l = c.getDouble(3); k.c = c.getDouble(4); k.v = c.getDouble(5);
+            out.add(k);
+        }
+        c.close();
+        return out;
+    }
+
+    // ================== v4.4 — 15m PDF PACK FEED (rotating, ALL pairs) ==================
+    private final java.util.List<String> rot15 = new ArrayList<>();
+    private int rot15Pos = 0;
+    private final Map<String, Long> lastEval15 = new HashMap<>();
+
+    /** Har 10s tick par 30 pairs ki 15m candles refresh — 300+ pair universe bhi
+     *  ~2 min me poora cycle (15m candle har 15 min close hoti hai — kaafi hai). */
+    private void rotate15m(int batch) {
+        try {
+            if (rot15.isEmpty() || rot15Pos >= rot15.size()) {
+                rot15.clear();
+                Cursor c = db.getReadableDatabase().rawQuery(
+                        "SELECT symbol FROM instruments WHERE status='ACTIVE' AND exchange='BINANCE' ORDER BY priority DESC", null);
+                while (c.moveToNext()) rot15.add(c.getString(0));
+                c.close();
+                rot15Pos = 0;
+                if (rot15.isEmpty()) return;
+            }
+            int end = Math.min(rot15.size(), rot15Pos + batch);
+            for (int i = rot15Pos; i < end; i++) {
+                String s = rot15.get(i);
+                List<Candle> ks = fetchFromBinance(s, 300, TF15);
+                if (ks != null && !ks.isEmpty()) upsertCandles15(s, ks);
+            }
+            rot15Pos = end;
+        } catch (Throwable t) {
+            db.log("WARN", "FEED", "ROT15_FAIL", String.valueOf(t));
+        }
+    }
+
+    private void upsertCandles15(String s, List<Candle> ks) {
+        android.database.sqlite.SQLiteDatabase d = db.getWritableDatabase();
+        d.beginTransaction();
+        try {
+            for (Candle k : ks) {
+                d.execSQL("INSERT OR REPLACE INTO candles(symbol, tf, ts, o, h, l, c, v) VALUES(?,?,?,?,?,?,?,?)",
+                        new Object[]{s, TF15, k.ts, k.o, k.h, k.l, k.c, k.v});
+            }
+            d.execSQL("UPDATE instruments SET last_data_at=? WHERE symbol=?",
+                    new Object[]{System.currentTimeMillis(), s});
+            // 7 din se purani 15m purge (DB lean: ~672 bars/pair)
+            d.execSQL("DELETE FROM candles WHERE symbol=? AND tf=? AND ts < ?",
+                    new Object[]{s, TF15, System.currentTimeMillis() - 7L * 86400000L});
+            d.setTransactionSuccessful();
+        } finally { d.endTransaction(); }
+    }
+
+    private List<Candle> loadCandles15(String symbol) {
+        List<Candle> out = new ArrayList<>();
+        Cursor c = db.getReadableDatabase().rawQuery(
+                "SELECT ts, o, h, l, c, v FROM candles WHERE symbol=? AND tf=? ORDER BY ts", new String[]{symbol, TF15});
         while (c.moveToNext()) {
             Candle k = new Candle();
             k.ts = c.getLong(0); k.o = c.getDouble(1); k.h = c.getDouble(2);
@@ -2100,6 +2195,388 @@ public class EngineCore implements Runnable {
         }
     }
 
+    // ================== v4.4 — PDF STRATEGY PACK SCAN + FEE-EDGE + AI TRAINER ==================
+    private final Map<String, double[]> fundingCache = new HashMap<>();
+    private long fundingAt = 0;
+
+    /** S6 ke liye funding + OI 24h change (fapi.binance.com) — 15 min cache. */
+    private double[] fundingOi(String sym) {
+        long now = System.currentTimeMillis();
+        if (now - fundingAt > 15 * 60_000L) { fundingCache.clear(); fundingAt = now; }
+        if (fundingCache.containsKey(sym)) return fundingCache.get(sym);
+        try {
+            String fr = httpGetUrl("https://fapi.binance.com/fapi/v1/premiumIndex?symbol=" + sym, 8000);
+            if (fr == null) { fundingCache.put(sym, null); return null; }
+            double funding = new JSONObject(fr).optDouble("lastFundingRate", Double.NaN);
+            String oi = httpGetUrl("https://fapi.binance.com/futures/data/openInterestHist?symbol=" + sym + "&period=1h&limit=25", 8000);
+            double oiChg = Double.NaN;
+            if (oi != null) {
+                JSONArray arr = new JSONArray(oi);
+                if (arr.length() >= 2) {
+                    double first = arr.getJSONObject(0).optDouble("sumOpenInterest", 0);
+                    double last = arr.getJSONObject(arr.length() - 1).optDouble("sumOpenInterest", 0);
+                    if (first > 0) oiChg = (last - first) / first * 100.0;
+                }
+            }
+            if (Double.isNaN(funding)) { fundingCache.put(sym, null); return null; }
+            double[] out = new double[]{funding, Double.isNaN(oiChg) ? 0 : oiChg};
+            fundingCache.put(sym, out);
+            return out;
+        } catch (Throwable t) { fundingCache.put(sym, null); return null; }
+    }
+
+    /** Pack scan: naye CLOSED 15m candle par S1-S9 evaluate (rotating feed ka current window). */
+    private void scanPdfPack() {
+        if (!"1".equals(db.setting("pack_on", "1"))) return;
+        if (rot15.isEmpty()) return;
+        int from = Math.max(0, rot15Pos - 30), end = rot15Pos;
+        if (from >= end) return;
+        List<Long> users = userIds();
+        for (int i = from; i < end && i < rot15.size(); i++) {
+            String sym = rot15.get(i);
+            try {
+                List<Candle> all = loadCandles15(sym);
+                if (all.size() < 220) continue;
+                List<Candle> k = all;
+                if (!k.isEmpty() && System.currentTimeMillis() - k.get(k.size() - 1).ts < TF15_MS) {
+                    k = k.subList(0, k.size() - 1);   // sirf CLOSED 15m candles (PDF rule)
+                    if (k.size() < 220) continue;
+                }
+                Candle last = k.get(k.size() - 1);
+                Long done = lastEval15.get(sym);
+                if (done != null && done == last.ts) continue;   // isi candle par pehle eval ho chuka
+                lastEval15.put(sym, last.ts);
+                double[] prevDay = prevDayHighLow(k);
+                double[] adx = StrategyPack.adxAt(k, 14, k.size() - 1);
+                double chopAdx = adx == null ? -1 : adx[0];
+                double[] deriv = fundingOi(sym);
+                List<StrategyPack.Signal> sigs = StrategyPack.evaluateAll(k, k.size() - 1, prevDay, deriv, chopAdx);
+                for (StrategyPack.Signal s : sigs) {
+                    if (!"1".equals(db.setting("pack_" + s.strategy.toLowerCase(Locale.ROOT), "1"))) continue;
+                    if (!aiEnabled(s.strategy)) continue;      // v4.4 AI gate (trained weights)
+                    for (long uid : users) openTradePdf(uid, sym, s);
+                }
+            } catch (Throwable t) {
+                db.log("WARN", "PACK", "EVAL_FAIL", sym + " — " + t);
+            }
+        }
+    }
+
+    /** v4.4 — AI weights gate: trained strategy OFF ho to trade nahi (owner force-on: ai_off_<key>=1). */
+    boolean aiEnabled(String key) {
+        try {
+            if ("1".equals(db.setting("ai_off_" + key, "0"))) return true;   // owner force-enable
+            JSONObject w = aiWeights();
+            if (w == null || !w.has(key)) return true;   // untrained = neutral ON
+            return w.getJSONObject(key).optInt("on", 1) == 1;
+        } catch (Throwable t) { return true; }
+    }
+
+    private JSONObject aiWeightsCache;
+    private long aiWeightsAt = 0;
+
+    JSONObject aiWeights() {
+        long now = System.currentTimeMillis();
+        if (aiWeightsCache != null && now - aiWeightsAt < 60_000) return aiWeightsCache;
+        try {
+            aiWeightsCache = new JSONObject(db.setting("ai_weights_v2", "{}"));
+            aiWeightsAt = now;
+            return aiWeightsCache;
+        } catch (Throwable t) { return null; }
+    }
+
+    void invalidateAiWeights() { aiWeightsCache = null; aiWeightsAt = 0; }
+
+    /** PDF pack entry — pack SL/boundary/window, TP = +2R, BE at +1R, risk 1% flat (owner rule). */
+    private void openTradePdf(long uid, String sym, StrategyPack.Signal s) {
+        String tier = "PDF:" + s.strategy;
+        if (!freshData(sym)) return;
+        if (strategyPaused(tier)) return;
+        if (entryBlocked(uid, sym)) return;
+        if (!tradingAllowed(uid)) { askOwnerToEnableTrading(uid); return; }
+        if (eventGateActive()) return;
+        Cursor ex = db.getReadableDatabase().rawQuery(
+                "SELECT COUNT(*) FROM trades WHERE user_id=? AND symbol=? AND strategy=? AND status='OPEN'",
+                new String[]{String.valueOf(uid), sym, tier});
+        boolean have = ex.moveToFirst() && ex.getInt(0) > 0;
+        ex.close();
+        if (have) return;
+        List<Candle> k = loadCandles15(sym);
+        if (k.isEmpty()) return;
+        double price = livePrice(sym);
+        if (price <= 0) price = k.get(k.size() - 1).c;
+        double rd = Math.abs(price - s.slPrice);
+        if (rd <= 0 || price <= 0) return;
+        double tpDist = 2 * rd;
+        if (!feeEdgeOk(tier + " " + sym, price, tpDist)) return;   // v4.4 fee-edge guard
+        int council = councilScore(sym, s.side, k, k.size() - 1);
+        int cMin = councilMin();
+        if (cMin > 0 && council < cMin) return;
+        double heatCap = heatMaxPct(), bucketCap = bucketMaxPct();
+        if (heatCap > 0 && heatRiskPct(uid) + 1.0 > heatCap) return;
+        if (bucketCap > 0 && bucketRiskPct(uid, bucketOf(sym)) + 1.0 > bucketCap) return;
+        price = slipEntry(price, s.side);
+        double bal = balanceOf(uid);
+        if (bal <= 0) return;
+        double risk = bal * dynamicRiskPct(tier) / 100.0;   // base 1%, min-25 consensus scaling
+        double qty = risk / rd;
+        if (qty * price > bal * 0.95) qty = bal * 0.95 / price;
+        if (qty <= 0) return;
+        boolean buy = "BUY".equals(s.side);
+        double sl = buy ? price - rd : price + rd;
+        double tp = buy ? price + tpDist : price - tpDist;
+        JSONObject features = new JSONObject();
+        try {
+            features.put("boundary", s.boundary).put("sig_ts", s.sigTs)
+                    .put("window_bars", s.windowBars).put("tf", TF15).put("note", s.note);
+        } catch (Throwable ignored) { }
+        double riskAmt = rd * qty;
+        db.getWritableDatabase().execSQL(
+                "INSERT INTO trades(user_id, symbol, side, qty, entry, sl, tp, status, strategy, consensus, opened_at, risk, risk_amt, decision, council, win_prob, features) VALUES(?,?,?,?,?,?,?,'OPEN',?,?,?,?,?,?,?,?,?)",
+                new Object[]{uid, sym, s.side, qty, price, sl, tp, tier, 0.7, System.currentTimeMillis(), dynamicRiskPct(tier) / 100.0, riskAmt, price, council, mlWinProb(features), features.toString()});
+        long tradeId = 0;
+        Cursor ti = db.getReadableDatabase().rawQuery("SELECT MAX(id) FROM trades", null);
+        if (ti.moveToFirst()) tradeId = ti.getLong(0);
+        ti.close();
+        recordOrder(tradeId, uid, sym, s.side, "MARKET", price, qty, "PAPER", "FILLED");
+        bridgeOrder(sym, s.side, tradeId, uid, price, qty);
+        db.log("INFO", "PACK", "ORDER_EXECUTED", sym + " " + s.side + " [" + tier + "] qty="
+                + String.format(Locale.US, "%.6f", qty) + " entry=" + fpx(price) + " sl=" + fpx(sl)
+                + " — " + s.note + " (risk 1%, TP +2R, boundary invalidation)");
+    }
+
+    // ================== v4.4 — FEE-EDGE GUARD (professional loss-killer) ==================
+    /** TP move round-trip fees (0.05%×2 + slippage×2) se chhota → trade SKIP.
+     *  PDF ka bhi rule: "1m/5m scalping is dominated by fees". Default ON —
+     *  owner fee_edge_on=0 se disable kar sakta hai. */
+    private boolean feeEdgeOk(String where, double price, double tpDist) {
+        if (!"1".equals(db.setting("fee_edge_on", "1"))) return true;
+        double minEdge = 0.14;
+        try { minEdge = Double.parseDouble(db.setting("min_fee_edge_pct", "0.14").trim()); } catch (Throwable ignored) { }
+        if (price <= 0 || tpDist <= 0) return true;
+        double tpPct = tpDist / price * 100.0;
+        if (tpPct >= minEdge) return true;
+        db.log("INFO", "GUARD", "FEE_EDGE_SKIP", where + " — TP move " + String.format(Locale.US, "%.3f", tpPct)
+                + "% < round-trip fees+slip " + String.format(Locale.US, "%.2f", minEdge) + "% — professional skip (negative expectancy trade)");
+        return false;
+    }
+
+    // ================== v4.4 — AI TRAINER GLUE ==================
+    private long lastAiTrainCheck = 0;
+    volatile boolean aiTraining = false;   // package-private (Api status ke liye)
+
+    /** Run-loop cadence: boot par (agar kabhi train nahi hua) + har 24h auto-retrain. */
+    void aiTrainTick() {
+        long now = System.currentTimeMillis();
+        if (now - lastAiTrainCheck < 3600_000) return;
+        lastAiTrainCheck = now;
+        if (!"1".equals(db.setting("ai_auto_train", "1"))) return;
+        long last = 0;
+        try { last = Long.parseLong(db.setting("ai_trained_at", "0").trim()); } catch (Throwable ignored) { }
+        if (now - last > 24L * 3600_000) trainAiAsync();
+    }
+
+    public void trainAiAsync() {
+        if (aiTraining) return;
+        aiTraining = true;
+        Thread t = new Thread(() -> {
+            try { trainAiBlocking(); }
+            catch (Throwable e) { try { db.log("ERROR", "AI", "TRAIN_FAIL", String.valueOf(e)); } catch (Throwable ignored) { } }
+            finally { aiTraining = false; }
+        }, "ai-trainer");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** Walk-forward training — Binance REAL history (15m execution depth + 1d HTF:
+     *  BTC/ETH 2017 se — Binance ka purana data yahi hai; 2006-2016 me crypto
+     *  exchanges exist hi nahi karte the). Weights settings me save + report. */
+    public JSONObject trainAiBlocking() {
+        List<String> pairs = new ArrayList<>();
+        Cursor c = db.getReadableDatabase().rawQuery(
+                "SELECT symbol FROM instruments WHERE status='ACTIVE' AND exchange='BINANCE' ORDER BY priority DESC LIMIT 12", null);
+        while (c.moveToNext()) pairs.add(c.getString(0));
+        c.close();
+        if (pairs.isEmpty()) pairs.addAll(BINANCE_PAIRS.keySet());
+        String[] keys = new String[StrategyPack.KEYS.length + 5];
+        System.arraycopy(StrategyPack.KEYS, 0, keys, 0, StrategyPack.KEYS.length);
+        String[] shk = {"SHK1_SSM_BULL", "SHK2_SSM_BEAR", "SHK3_KZ_SWEEP", "SHK4_OB_RETEST", "SHK5_PD_EMA200"};
+        System.arraycopy(shk, 0, keys, StrategyPack.KEYS.length, 5);
+        Map<String, List<AiTrainer.T>> trades = new java.util.LinkedHashMap<>();
+        for (String k : keys) trades.put(k, new ArrayList<>());
+        double fee = TAKER_FEE;
+        double slip = slipBps();
+        long minTs = Long.MAX_VALUE, maxTs = 0;
+        int pairsDone = 0;
+        for (String sym : pairs) {
+            try {
+                List<Candle> k15 = deepKlines(sym, TF15, 4);   // ~41 din 15m execution depth
+                if (k15.size() >= 400) {
+                    accumulate(trades, keys, k15, fee, slip);
+                    minTs = Math.min(minTs, k15.get(0).ts);
+                    maxTs = Math.max(maxTs, k15.get(k15.size() - 1).ts);
+                    pairsDone++;
+                }
+                if (pairs.indexOf(sym) < 6) {
+                    List<Candle> k1d = deepKlines(sym, "1d", 4);   // 1d HTF — 2017 se listing tak
+                    if (k1d.size() >= 260) accumulateDaily(trades, keys, k1d, fee, slip);
+                }
+            } catch (Throwable t) {
+                db.log("WARN", "AI", "TRAIN_PAIR_FAIL", sym + " — " + t);
+            }
+        }
+        if (minTs == Long.MAX_VALUE) minTs = System.currentTimeMillis() - 30L * 86400000L;
+        if (maxTs == 0) maxTs = System.currentTimeMillis();
+        long splitTs = minTs + (long) ((maxTs - minTs) * 0.7);
+        JSONObject weights = new JSONObject();
+        JSONObject reportStrats = new JSONObject();
+        int onCount = 0;
+        for (String key : keys) {
+            List<AiTrainer.T> tl = trades.get(key);
+            AiTrainer.Res r = new AiTrainer.Res();
+            r.key = key;
+            double[] st = AiTrainer.stats(tl);
+            r.n = (int) st[0]; r.wr = st[1]; r.pf = st[2]; r.expR = st[3];
+            double[] oo = AiTrainer.oosStats(tl, splitTs);
+            r.nOos = (int) oo[0]; r.oosWr = oo[1]; r.oosPf = oo[2];
+            r.weight = r.nOos > 0 ? AiTrainer.weightFrom(r.oosPf) : 1.0;
+            r.enabled = AiTrainer.enabledFrom(r.nOos, r.oosPf);
+            if (r.enabled == 1) onCount++;
+            try {
+                weights.put(key, AiTrainer.resJson(r));
+                reportStrats.put(key, AiTrainer.resJson(r));
+            } catch (Throwable ignored) { }
+        }
+        long now = System.currentTimeMillis();
+        db.setSetting("ai_weights_v2", weights.toString());
+        db.setSetting("ai_trained_at", String.valueOf(now));
+        invalidateAiWeights();
+        JSONObject report = new JSONObject();
+        try {
+            report.put("trained_at", now).put("pairs", pairsDone).put("from", minTs).put("to", maxTs)
+                    .put("split_is_oos", "70/30").put("strategies", reportStrats)
+                    .put("on", onCount).put("total", keys.length)
+                    .put("note", "Risk 1% flat (owner rule) — weights sirf enable/disable + priority. OOS PF<0.9 = auto-pause. 1d data Binance listing (BTC 2017) se — 2006-2016 crypto exchange data exist nahi karta.");
+        } catch (Throwable ignored) { }
+        db.setSetting("ai_train_report", report.toString());
+        db.log("INFO", "AI", "TRAIN_DONE", onCount + "/" + keys.length + " strategies ON — " + pairsDone
+                + " pairs (15m depth + 1d HTF 2017→), fees+slip included, IS/OOS 70/30. AI ab proven configs par focus karega.");
+        return report;
+    }
+
+    /** Ek pair ke 15m bars par SAB strategies ke signals EK pass me → per-key simulate. */
+    private void accumulate(Map<String, List<AiTrainer.T>> trades, String[] keys, List<Candle> k, double fee, double slip) {
+        double[][] pdMap = AiTrainer.prevDayMap(k);
+        Map<String, java.util.SortedMap<Integer, StrategyPack.Signal>> byKey = new java.util.LinkedHashMap<>();
+        for (String key : keys) byKey.put(key, new java.util.TreeMap<>());
+        String[] shkKeys = {"SHK1_SSM_BULL", "SHK2_SSM_BEAR", "SHK3_KZ_SWEEP", "SHK4_OB_RETEST", "SHK5_PD_EMA200"};
+        for (int i = 210; i < k.size() - 1; i++) {
+            double[] adx = StrategyPack.adxAt(k, 14, i);
+            double chopAdx = adx == null ? -1 : adx[0];
+            for (StrategyPack.Signal s : StrategyPack.evaluateAll(k, i, pdMap[i], null, chopAdx)) {
+                java.util.SortedMap<Integer, StrategyPack.Signal> m = byKey.get(s.strategy);
+                if (m != null) m.put(i, s);
+            }
+            for (String shkKey : shkKeys)
+                for (StrategyPack.Signal s : AiTrainer.shaakuniSignals(k, i, shkKey)) {
+                    java.util.SortedMap<Integer, StrategyPack.Signal> m = byKey.get(shkKey);
+                    if (m != null) m.put(i, s);
+                }
+        }
+        for (String key : keys) {
+            java.util.SortedMap<Integer, StrategyPack.Signal> m = byKey.get(key);
+            if (m == null || m.isEmpty()) continue;
+            List<AiTrainer.T> tl = AiTrainer.simulate(k, (kk, i) -> {
+                StrategyPack.Signal s = m.get(i);
+                return s == null ? java.util.Collections.<StrategyPack.Signal>emptyList() : java.util.Collections.singletonList(s);
+            }, fee, slip);
+            trades.get(key).addAll(tl);
+        }
+    }
+
+    /** 1d bars par trend-family (S1/S3/S5/S8/S9) — 2017→2026 depth (BTC/ETH listing se). */
+    private void accumulateDaily(Map<String, List<AiTrainer.T>> trades, String[] keys, List<Candle> k, double fee, double slip) {
+        double[][] pdMap = AiTrainer.prevDayMap(k);
+        String[] dailyKeys = {"S1_EMA_PULLBACK", "S3_SUPERTREND_ADX", "S5_PDH_PDL", "S8_DOW_PULLBACK", "S9_GANN_50"};
+        for (String key : dailyKeys) {
+            final String fk = key;
+            List<AiTrainer.T> tl = AiTrainer.simulate(k, (kk, i) -> {
+                List<StrategyPack.Signal> out = new ArrayList<>();
+                if (i < pdMap.length) {
+                    for (StrategyPack.Signal s : StrategyPack.evaluateAll(kk, i, pdMap[i], null, -1))
+                        if (s.strategy.equals(fk)) out.add(s);
+                }
+                return out;
+            }, fee, slip);
+            trades.get(key).addAll(tl);
+        }
+    }
+
+    // ================== v4.4 — SELF-LEARNING (har 25 closed trades) ==================
+    void selfLearnTick() {
+        long now = System.currentTimeMillis();
+        long lastCheck = 0;
+        try { lastCheck = Long.parseLong(db.setting("self_learn_at", "0").trim()); } catch (Throwable ignored) { }
+        if (lastCheck == 0) { db.setSetting("self_learn_at", String.valueOf(now)); return; }
+        if (now - lastCheck < 10 * 60_000L) return;   // 10-min cadence
+        db.setSetting("self_learn_at", String.valueOf(now));
+        Cursor c = db.getReadableDatabase().rawQuery(
+                "SELECT COUNT(*) FROM trades WHERE status='CLOSED' AND closed_at>?",
+                new String[]{String.valueOf(lastCheck)});
+        int closed = c.moveToFirst() ? c.getInt(0) : 0;
+        c.close();
+        if (closed < 25) return;
+        reweightFromLive();
+    }
+
+    /** Live trades se per-strategy PF → weights blend (0.6 backtest + 0.4 live). */
+    void reweightFromLive() {
+        try {
+            JSONObject w = aiWeights();
+            if (w == null) return;
+            JSONObject fresh = new JSONObject(w.toString());
+            Cursor c = db.getReadableDatabase().rawQuery(
+                    "SELECT strategy, pnl, risk_amt FROM trades WHERE status='CLOSED' AND strategy LIKE 'PDF:%' AND closed_at>? ORDER BY id DESC LIMIT 500",
+                    new String[]{String.valueOf(System.currentTimeMillis() - 30L * 86400000L)});
+            Map<String, List<Double>> byKey = new HashMap<>();
+            while (c.moveToNext()) {
+                String strat = c.getString(0);
+                if (strat == null || !strat.contains(":")) continue;
+                String key = strat.substring(strat.indexOf(':') + 1);
+                double ra = c.getDouble(2);
+                if (ra <= 0) continue;
+                List<Double> l = byKey.get(key);
+                if (l == null) { l = new ArrayList<>(); byKey.put(key, l); }
+                l.add(c.getDouble(1) / ra);
+            }
+            c.close();
+            if (byKey.isEmpty()) return;
+            int paused = 0;
+            for (Map.Entry<String, List<Double>> e : byKey.entrySet()) {
+                if (!fresh.has(e.getKey())) continue;
+                List<Double> rs = e.getValue();
+                if (rs.size() < 10) continue;   // kam trades → backtest weight par bharosa
+                double gw = 0, gl = 0;
+                for (double r : rs) { if (r > 0) gw += r; else gl += -r; }
+                double livePf = gl > 0 ? gw / gl : (gw > 0 ? 99 : 0);
+                JSONObject row = fresh.getJSONObject(e.getKey());
+                double btW = row.optDouble("w", 1.0);
+                double liveW = AiTrainer.weightFrom(livePf);
+                double blended = Math.round((0.6 * btW + 0.4 * liveW) * 100.0) / 100.0;
+                int on = (rs.size() >= 15 && livePf < 0.7) ? 0 : row.optInt("on", 1);
+                row.put("live_pf", Math.round(livePf * 100.0) / 100.0).put("live_n", rs.size())
+                        .put("w", blended).put("on", on);
+                if (on == 0) paused++;
+            }
+            db.setSetting("ai_weights_v2", fresh.toString());
+            invalidateAiWeights();
+            db.log("INFO", "AI", "SELF_LEARN", "25+ closed trades → re-weight: " + byKey.size()
+                    + " PDF strategies live PF se blend (0.6 BT + 0.4 live), " + paused + " auto-paused (live PF<0.7, n≥15).");
+        } catch (Throwable t) {
+            db.log("WARN", "AI", "SELF_LEARN_FAIL", String.valueOf(t));
+        }
+    }
+
     // ===== v2.1 OWNER TRADING GATE =====
     /** Owner ne is user ke liye TRADING enable ki hai? (users.trade_ok; ADMIN hamesha 1). */
     private boolean tradingAllowed(long uid) {
@@ -2204,6 +2681,7 @@ public class EngineCore implements Runnable {
         if (qty * fillSlip > bal * 0.95) qty = bal * 0.95 / fillSlip;
         if (qty <= 0) return;
         double tp = "BUY".equals(s.side) ? fillSlip + THREEC_TP_R * riskDist : fillSlip - THREEC_TP_R * riskDist;
+        if (!feeEdgeOk("3C_MASTER " + sym, fillSlip, THREEC_TP_R * riskDist)) return;   // v4.4 fee-edge guard
         double riskAmt = Math.abs(fillSlip - s.slPrice) * qty;
         // v3.0 — setup DNA features + ML win probability (FreqAI-lite, experimental)
         java.util.Calendar cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"));
@@ -2309,6 +2787,7 @@ public class EngineCore implements Runnable {
         price = slipEntry(price, side);                     // v3.0 slippage
         double sl = "BUY".equals(side) ? price - 1.5 * a : price + 1.5 * a;
         double tp = "BUY".equals(side) ? price + 2.5 * a : price - 2.5 * a;
+        if (!feeEdgeOk(tier + " " + sym, price, 2.5 * a)) return;   // v4.4 fee-edge guard
         double bal = balanceOf(uid);
         if (bal <= 0) return;
         double risk = bal * dynamicRiskPct(tier) / 100.0;   // v4.1: min-25 → consensus scaling, base 1%
@@ -2371,7 +2850,41 @@ public class EngineCore implements Runnable {
             lc.close();
             boolean buy = "BUY".equals(side);
             boolean is3C = strategy != null && strategy.startsWith("3C");
-            double rDist = Math.abs(tp - entry) / THREEC_TP_R;      // 1R (TP 3R door fix hai)
+            boolean isPack = strategy != null && strategy.startsWith("PDF:");
+            double rDist = isPack ? Math.abs(tp - entry) / 2.0 : Math.abs(tp - entry) / THREEC_TP_R;   // v4.4: pack TP=+2R
+            // v4.4 — PDF pack trades: boundary invalidation + window expiry (15m rules)
+            if (isPack) {
+                try {
+                    Cursor fc = db.getReadableDatabase().rawQuery("SELECT features FROM trades WHERE id=?", new String[]{String.valueOf(id)});
+                    String feats = fc.moveToFirst() ? fc.getString(0) : "{}";
+                    fc.close();
+                    JSONObject ft = new JSONObject(feats);
+                    double boundary = ft.optDouble("boundary", 0);
+                    long sigTs = ft.optLong("sig_ts", 0);
+                    int winBars = ft.optInt("window_bars", 5);
+                    if (boundary > 0) {
+                        Cursor b15 = db.getReadableDatabase().rawQuery(
+                                "SELECT c FROM candles WHERE symbol=? AND tf='15m' AND ts<=? ORDER BY ts DESC LIMIT 1",
+                                new String[]{sym, String.valueOf(System.currentTimeMillis() - TF15_MS)});
+                        double c15 = b15.moveToFirst() ? b15.getDouble(0) : 0;
+                        b15.close();
+                        if (c15 > 0) {
+                            boolean invalid = buy ? c15 < boundary : c15 > boundary;
+                            if (invalid) {
+                                db.log("INFO", "PACK", "SETUP_INVALIDATED", "trade #" + id + " " + sym + " — 15m close " + fpx(c15)
+                                        + " boundary " + fpx(boundary) + " ke paar (PDF invalidation) — close @market");
+                                closeTrade(id, uid, livePrice(sym), "BOUNDARY", qty, entry, side);
+                                continue;
+                            }
+                        }
+                    }
+                    if (sigTs > 0 && System.currentTimeMillis() > sigTs + (winBars + 2L) * TF15_MS) {
+                        db.log("INFO", "PACK", "SETUP_EXPIRED", "trade #" + id + " " + sym + " — " + winBars + "×15m window khatam bina move ke — flat exit");
+                        closeTrade(id, uid, livePrice(sym), "WINDOW", qty, entry, side);
+                        continue;
+                    }
+                } catch (Throwable ignored) { }
+            }
             boolean done = false;
             for (double[] hl : candles2) {
                 if (hl == null || done) continue;
@@ -2390,8 +2903,8 @@ public class EngineCore implements Runnable {
                     done = true;
                     continue;
                 }
-                // 3C management: +1R par WHOLE position ka SL breakeven par; +3R TP already set.
-                if (is3C) {
+                // 3C/PACK management: +1R par WHOLE position ka SL breakeven par (3C TP=3R, pack TP=2R)
+                if (is3C || isPack) {
                     boolean beMoved = buy ? sl >= entry : sl <= entry;      // SL pehle se entry par?
                     boolean beHit = buy ? hi >= entry + rDist : lo <= entry - rDist;
                     if (!beMoved && beHit && rDist > 0) {
@@ -2619,11 +3132,87 @@ public class EngineCore implements Runnable {
             in.append('\'').append(s[0]).append('\'');
         }
         d.execSQL("UPDATE instruments SET status='ACTIVE', exchange='BINANCE' WHERE symbol IN (" + in + ")");
-        try { d.execSQL("UPDATE instruments SET status='RETIRED' WHERE symbol NOT IN (" + in + ")"); } catch (Throwable ignored) { }
-        if (!"1".equals(db.setting("seeded_v41", "0"))) {
-            db.setSetting("seeded_v41", "1");
-            db.log("INFO", "DISCOVERY", "BINANCE_SEED", "v4.1 BINANCE universe: " + BINANCE_UNIVERSE.length
-                    + " spot pairs (MAJOR: BTC/ETH/BNB/SOL — RETAIL: XRP/DOGE/ADA), 1m candles, 24/7. MT5/Yahoo feed retired.");
+        // v4.4 — sirf non-Binance retire (ALL-Binance universe discover() sync karta hai)
+        try { d.execSQL("UPDATE instruments SET status='RETIRED' WHERE exchange IS NOT NULL AND exchange<>'BINANCE'"); } catch (Throwable ignored) { }
+        for (String[] s : BINANCE_UNIVERSE) {
+            synchronized (binanceOkCache) { binanceOkCache.add(s[0]); }
+            synchronized (BUCKET) { BUCKET.put(s[0], s[1]); }
+        }
+        if (!"1".equals(db.setting("seeded_v44", "0"))) {
+            db.setSetting("seeded_v44", "1");
+            db.log("INFO", "DISCOVERY", "BINANCE_SEED", "v4.4 ALL-BINANCE universe: seed 7 pairs + exchangeInfo se SAARE USDT spot pairs (volume-ranked MAJOR/RETAIL/ALTCOIN). Owner: 'saare binance ke coins daalo, baki sab delete'.");
+        }
+    }
+
+    /** v4.4 universe sync state. */
+    private long lastUniverseSync = 0;
+
+    /** exchangeInfo + 24hr tickers → SAARE USDT spot pairs instruments me (volume-ranked).
+     *  Leveraged tokens (UP/DOWN/BULL/BEAR) + stable-stable pairs exclude. */
+    private void syncBinanceUniverse() {
+        try {
+            String ei = httpGetUrl(BINANCE_HOST + "/api/v3/exchangeInfo", 15000);
+            String tk = httpGetUrl(BINANCE_HOST + "/api/v3/ticker/24hr", 20000);
+            if (ei == null || tk == null) return;
+            java.util.Set<String> spot = new java.util.HashSet<>();
+            org.json.JSONArray syms = new org.json.JSONObject(ei).getJSONArray("symbols");
+            for (int i = 0; i < syms.length(); i++) {
+                org.json.JSONObject s = syms.getJSONObject(i);
+                if (!"TRADING".equals(s.optString("status"))) continue;
+                if (!"USDT".equals(s.optString("quoteAsset"))) continue;
+                if (!s.optBoolean("isSpotTradingAllowed", true)) continue;
+                String base = s.optString("baseAsset", "").toUpperCase(Locale.ROOT);
+                if (base.endsWith("UP") || base.endsWith("DOWN") || base.endsWith("BULL") || base.endsWith("BEAR")) continue;
+                if (STABLE_BASES.contains(base)) continue;
+                spot.add(s.optString("symbol"));
+            }
+            if (spot.isEmpty()) return;
+            org.json.JSONArray tick = new org.json.JSONArray(tk);
+            List<Object[]> vols = new ArrayList<>();
+            for (int i = 0; i < tick.length(); i++) {
+                org.json.JSONObject t = tick.getJSONObject(i);
+                String sym = t.optString("symbol");
+                if (!spot.contains(sym)) continue;
+                vols.add(new Object[]{sym, t.optDouble("quoteVolume", 0)});
+            }
+            vols.sort((a, b) -> Double.compare((Double) b[1], (Double) a[1]));
+            android.database.sqlite.SQLiteDatabase d = db.getWritableDatabase();
+            long now = System.currentTimeMillis();
+            int rank = 0, added = 0;
+            synchronized (binanceOkCache) { binanceOkCache.clear(); }
+            for (Object[] v : vols) {
+                rank++;
+                String sym = (String) v[0];
+                double vol = (Double) v[1];
+                String bucket = bucketForRank(rank);
+                int priority = (int) Math.min(2_000_000_000L, Math.max(0, Math.log10(Math.max(vol, 1)) * 1000));
+                String note = sym.replace("USDT", "") + "/USDT — Binance spot (rank " + rank + ", " + bucket + ")";
+                synchronized (binanceOkCache) { binanceOkCache.add(sym); }
+                synchronized (BUCKET) { BUCKET.put(sym, bucket); }
+                try {
+                    d.execSQL("INSERT INTO instruments(symbol, base, quote, exchange, asset_class, status, priority, discovered_at, note) VALUES(?,?,'USDT','BINANCE','CRYPTO','ACTIVE',?,?,?) " +
+                            "ON CONFLICT(symbol) DO UPDATE SET status='ACTIVE', exchange='BINANCE', priority=?, note=?",
+                            new Object[]{sym, sym.replace("USDT", ""), priority, now, note, priority, note});
+                    added++;
+                } catch (Throwable dupEx) {
+                    try {   // older SQLite: update + insert fallback
+                        android.content.ContentValues cv = new android.content.ContentValues();
+                        cv.put("status", "ACTIVE");
+                        cv.put("exchange", "BINANCE");
+                        cv.put("priority", priority);
+                        cv.put("note", note);
+                        int n = d.update("instruments", cv, "symbol=?", new String[]{sym});
+                        if (n == 0) d.execSQL("INSERT INTO instruments(symbol, base, quote, exchange, asset_class, status, priority, discovered_at, note) VALUES(?,?,'USDT','BINANCE','CRYPTO','ACTIVE',?,?,?)",
+                                new Object[]{sym, sym.replace("USDT", ""), priority, now, note});
+                        added++;
+                    } catch (Throwable ignored) { }
+                }
+            }
+            try { d.execSQL("UPDATE instruments SET status='RETIRED' WHERE exchange IS NOT NULL AND exchange<>'BINANCE'"); } catch (Throwable ignored) { }
+            lastUniverseSync = now;
+            db.log("INFO", "DISCOVERY", "BINANCE_UNIVERSE_SYNC", added + " USDT spot pairs ACTIVE (volume-ranked: MAJOR top-10, RETAIL 11-60, ALTCOIN 61+) — 15m PDF pack SAB par, 1m scan top-40 par");
+        } catch (Throwable t) {
+            db.log("WARN", "DISCOVERY", "UNIVERSE_SYNC_FAIL", String.valueOf(t));
         }
     }
 
@@ -2632,6 +3221,7 @@ public class EngineCore implements Runnable {
      *  symbol auto-register NAHI hota — universe sirf owner ke hukum se badalta hai. */
     private void discover() {
         long now = System.currentTimeMillis();
+        if (now - lastUniverseSync > 6L * 3600_000) syncBinanceUniverse();   // v4.4 ALL-Binance sync (har 6h)
         Cursor c = db.getReadableDatabase().rawQuery("SELECT symbol, status, IFNULL(last_data_at,0) FROM instruments", null);
         List<Object[]> upd = new ArrayList<>();
         while (c.moveToNext()) {
@@ -2955,7 +3545,7 @@ public class EngineCore implements Runnable {
         JSONObject cached = seasonCache.get(sym);
         long now = System.currentTimeMillis();
         if (!force && cached != null && now - cached.optLong("fetched", 0) < 24L * 3600_000) return cached;
-        if (!BINANCE_PAIRS.containsKey(sym)) return cached;
+        if (!binanceTradable(sym)) return cached;
         try {
             List<Candle> daily = new ArrayList<>();
             long end = now, start = now - 5L * 365 * 24 * 3600_000L;
@@ -3267,6 +3857,26 @@ public class EngineCore implements Runnable {
     /** Deep backtest candles (HONEST LAB): bridge limit=8000 ya Binance 1m paginated
      *  (3× 1000 = ~50 hours of 1m data — 3C window ke liye kaafi).
      *  DB me upsert NAHI hota (rolling window clean rehta hai) — in-memory only. */
+    /** v4.4 — paginated klines (koi bhi interval) — AI training + pack depth.
+     *  Binance 1000/call; pages back-to-back endTime pagination. */
+    public List<Candle> deepKlines(String sym, String interval, int pages) {
+        List<Candle> out = new ArrayList<>();
+        long end = System.currentTimeMillis();
+        for (int p = 0; p < pages; p++) {
+            try {
+                String body = httpGetUrl(BINANCE_HOST + "/api/v3/klines?symbol=" + sym + "&interval=" + interval
+                        + "&limit=1000&endTime=" + end, 15000);
+                if (body == null) break;
+                List<Candle> ks = parseBinanceKlines(body);
+                if (ks == null || ks.isEmpty()) break;
+                out.addAll(0, ks);
+                end = ks.get(0).ts - 1;
+                if (ks.size() < 1000) break;
+            } catch (Throwable t) { break; }
+        }
+        return out;
+    }
+
     public List<Candle> deepCandles(String sym, int days) {
         String base = mt5Bridge();
         if (!base.isEmpty()) {
@@ -3320,19 +3930,25 @@ public class EngineCore implements Runnable {
         m.put("active_symbols", activeSymbols);
         m.put("consensus", lastConsensus.isEmpty() ? "warming up" : lastConsensus);
         m.put("data_host", mt5Bridge().isEmpty() ? "BINANCE (api.binance.com)" : "MT5-BRIDGE");
-        m.put("feed", "Binance spot — 7 pairs (MAJOR: BTC/ETH/BNB/SOL, RETAIL: XRP/DOGE/ADA) 1m");
+        m.put("feed", "Binance spot — ALL USDT pairs (volume-ranked MAJOR/RETAIL/ALTCOIN) — 1m scan top-" + ACTIVE_TOP + " + 15m PDF pack ALL pairs");
+        try {
+            Cursor uc = db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM instruments WHERE status='ACTIVE' AND exchange='BINANCE'", null);
+            m.put("universe_total", uc.moveToFirst() ? uc.getInt(0) : 0);
+            uc.close();
+        } catch (Throwable ignored) { }
         m.put("timeframe", TF);
         m.put("scanner", "24/7");
         m.put("scan_count", scanCount);
         m.put("last_scan_at", lastScanAt);
-        m.put("strategy_count", 1);
-        m.put("strategy_name", "3C Breakout (M1 Binance) — MASTER + QUANT PRO + SHAAKUNI SUITE");
+        m.put("strategy_count", 1 + StrategyPack.STRATEGIES.length + 5);
+        m.put("strategy_name", "3C MASTER (M1) + PDF PACK (9 strategies, 15m, ALL pairs) + SHAAKUNI (5 playbooks)");
+        m.put("pdf_pack", "RESTORED v4.4 — S1 EMA pullback · S2 BB squeeze · S3 Supertrend+ADX · S4 VWAP · S5 PDH/PDL · S6 Funding+OI · S7 Candle patterns · S8 Dow pullback · S9 Gann 50%");
         m.put("risk_pct", riskPct());
         m.put("risk_scaling", scalingInfo("3C_MASTER"));
         m.put("min_trades_scaling", MIN_TRADES_BEFORE_SCALING);
         m.put("limits", "UNLIMITED daily P/L (owner) — heat/bucket/event/session caps default OFF opt-in");
-        // v4.1 status
-        m.put("version", "4.1.0");
+        // v4.4 status
+        m.put("version", "4.4.0");
         boolean mktClosed = marketClosedET();
         m.put("safe_mode", safeMode && !mktClosed);   // v3.0.1 — band market par SAFE MODE jhoota lagta tha
         m.put("market_closed", mktClosed);            // v3.0.1 — weekend / CME halt indicator
@@ -3347,7 +3963,24 @@ public class EngineCore implements Runnable {
         m.put("ml", mw != null ? "trained n=" + mw.optInt("n") + " acc=" + mw.optInt("acc") + "% (experimental)" : "warming up (40+ feature-tagged trades chahiye)");
         m.put("degraded_check", "30-min rolling PF monitor + ML drift check");
         m.put("indicator_count", SHAAKUNI_SUITE.length);
-        m.put("indicator_suite", "SHAAKUNI TRAP (liquidity/OB/MSS/killzones) — PDF encyclopedia retired");
+        m.put("indicator_suite", "SHAAKUNI TRAP (liquidity/OB/MSS/killzones) + CLASSIC overlay (EMA/RSI/ATR/VWAP/ADX/Supertrend) — chart par live");
+        // v4.4 — AI trainer status
+        long trainedAt = 0;
+        try { trainedAt = Long.parseLong(db.setting("ai_trained_at", "0").trim()); } catch (Throwable ignored) { }
+        m.put("ai_trained_at", trainedAt);
+        m.put("ai_age_h", trainedAt > 0 ? Math.round((System.currentTimeMillis() - trainedAt) / 3600000.0) : -1);
+        try {
+            JSONObject w = aiWeights();
+            int aiOn = 0, aiTot = 0;
+            if (w != null) {
+                java.util.Iterator<String> it = w.keys();
+                while (it.hasNext()) { aiTot++; if (w.getJSONObject(it.next()).optInt("on", 1) == 1) aiOn++; }
+            }
+            m.put("ai_strategies_on", aiOn);
+            m.put("ai_strategies_total", aiTot);
+        } catch (Throwable ignored) { }
+        m.put("fee_edge", "ON (min TP move " + db.setting("min_fee_edge_pct", "0.14") + "% — round-trip fees se kam move = professional skip)");
+        m.put("min_trades_scaling", MIN_TRADES_BEFORE_SCALING);
         m.put("fear_greed", fngValue);
         m.put("last_pattern", lastPattern);
         org.json.JSONArray armed = new org.json.JSONArray();
@@ -3377,7 +4010,7 @@ public class EngineCore implements Runnable {
             Cursor lc = db.getReadableDatabase().rawQuery(
                     "SELECT event, COUNT(*) FROM logs WHERE ts>=? AND event IN ('SETUP_DETECTED','SETUP_FILTERED'," +
                             "'SETUP_EXPIRED','SETUP_INVALIDATED','BREAKOUT_DETECTED','ORDER_EXECUTED','ENTRY_BLOCKED'," +
-                            "'COUNCIL_BLOCKED','HEAT_CAP_BLOCKED','BUCKET_CAP_BLOCKED','SAFE_MODE_ON') GROUP BY event",
+                            "'COUNCIL_BLOCKED','HEAT_CAP_BLOCKED','BUCKET_CAP_BLOCKED','SAFE_MODE_ON','FEE_EDGE_SKIP') GROUP BY event",
                     new String[]{String.valueOf(System.currentTimeMillis() - 24L * 3600_000)});
             while (lc.moveToNext()) nr.put(lc.getString(0), lc.getInt(1));
             lc.close();
@@ -3627,6 +4260,19 @@ public class EngineCore implements Runnable {
         Candle last = k.get(k.size() - 1);
         v.put("price", last.c);
         v.put("atr14", atr(k, 14));
+        // v4.4 — CLASSIC indicator strip (chart overlay + live values) — owner: "indicators dalne hai"
+        double e50 = ema(k, 50), e200 = ema(k, 200), r14 = rsi(k, 14), vw = vwap(k);
+        if (!Double.isNaN(e50)) v.put("ema50", e50);
+        if (!Double.isNaN(e200) && e200 > 0) {
+            v.put("ema200", e200);
+            v.put("ema200DistPct", (last.c - e200) / e200 * 100.0);
+        }
+        if (!Double.isNaN(r14)) v.put("rsi14", r14);
+        if (!Double.isNaN(vw) && vw > 0) v.put("vwap", vw);
+        double[] adxSnap = StrategyPack.adxAt(k, 14, k.size() - 1);
+        if (adxSnap != null) v.put("adx14", adxSnap[0]);
+        double[] stSnap = supertrend(k);
+        if (stSnap != null) v.put("stDir", (int) stSnap[1]);
         // --- liquidity levels
         double[] d = prevDayHighLow(k);
         if (d != null) {

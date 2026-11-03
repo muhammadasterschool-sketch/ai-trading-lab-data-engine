@@ -55,6 +55,15 @@ public class StrategyLab {
      *  Ek dafa seed hota hai (setting flag). Purani strategies UNTOUCHED. */
     private void seedShaakuniStrategies() {
         try {
+            // v4.4 — Shaakuni playbooks AUTO-ACTIVE (owner: "trades buhut kam le raha hai" —
+            // CANDIDATE me band playbooks kabhi trade nahi karte the; ab paper par live).
+            if (!"1".equals(db.setting("shaakuni_active_v44", "0"))) {
+                db.setSetting("shaakuni_active_v44", "1");
+                db.getWritableDatabase().execSQL(
+                        "UPDATE strategies SET status='ACTIVE', updated_at=? WHERE source='SHAAKUNI' AND status IN ('CANDIDATE','BACKTESTED') AND deleted_at=0",
+                        new Object[]{System.currentTimeMillis()});
+                db.log("INFO", "LAB", "SHAAKUNI_ACTIVE", "Shaakuni Trap playbooks AUTO-ACTIVE (paper) — owner request: aur trades chahiye. Strategy Lab me toggle/reject kar sakte hain.");
+            }
             if ("1".equals(db.setting("shaakuni_seeded_v41", "0"))) return;
             db.setSetting("shaakuni_seeded_v41", "1");
             String[][] books = {

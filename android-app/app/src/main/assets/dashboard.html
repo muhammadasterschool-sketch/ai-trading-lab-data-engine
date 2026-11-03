@@ -144,7 +144,7 @@ select{width:100%;background:var(--card);border:1px solid var(--line);border-rad
   <div class="logo"><img src="logo.png" alt="AI Trading Lab"></div>
   <h1>AI Trading Lab</h1>
   <div class="sub">Full trading engine on this device — paper trading</div>
-  <div class="sub" style="color:var(--gold)">v4.1.0 · BINANCE 7 PAIRS · SHAAKUNI SUITE · RISK 1% · MIN-25 SCALING</div>
+  <div class="sub" style="color:var(--gold)">v4.4.0 · ALL BINANCE COINS · PDF STRATEGIES RESTORED · SHAAKUNI SUITE · AI TRAINED · RISK 1%</div>
   <div id="engStrip" class="eng">checking engine…</div>
   <div class="note"><b>Naya install / update?</b> Accounts is device ki local database mein hote hain — app reinstall ya update ke baad purana account <b>transfer nahi hota</b>. Pehla account = <b>OWNER (ADMIN)</b>. Baaki log <b>Register</b> se apply karein — <b>invite code owner se milega</b> (kahin likha hua nahi hota), aur owner ke <b>APPROVE</b> karne ke baad hi sign in possible hoga. Kisi authenticator app ki zaroorat nahi.</div>
 
@@ -217,7 +217,7 @@ select{width:100%;background:var(--card);border:1px solid var(--line);border-rad
   <aside id="drawer">
     <div class="dhead">
       <img src="logo.png" alt="">
-      <div><div class="dt">AI Trading Lab</div><div class="ds" id="drEngine">engine · v4.1.0 BINANCE + SHAAKUNI</div></div>
+      <div><div class="dt">AI Trading Lab</div><div class="ds" id="drEngine">engine · v4.4.0 ALL-BINANCE + AI TRAINER</div></div>
       <button class="dclose" onclick="closeDrawer()">✕</button>
     </div>
     <div class="duser" id="drUser"></div>
@@ -531,8 +531,10 @@ function dlAudit(){
 var SEASON_SYM = 'BTCUSDT';
 function renderSeason(){
   var t = document.getElementById('insBody'); if(!t) return;
-  var chips = ['BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','DOGEUSDT','ADAUSDT']
-    .map(function(s){ return '<button class="chip '+(SEASON_SYM===s?'on':'')+'" onclick="SEASON_SYM=\''+s+'\';renderSeason()">'+s+'</button>'; }).join('');
+  var chips = UNIVERSE_TOP.slice(0,14).map(function(s){
+    return '<button class="chip '+(SEASON_SYM===s?'on':'')+'" onclick="SEASON_SYM=\''+s+'\';renderSeason()">'+s.replace('USDT','')+'</button>';
+  }).join('');
+  ensureUniverse(false);
   t.innerHTML = '<h2>🗓 Seasonality — '+esc(SEASON_SYM)+' (5y monthly edge)</h2><div class="chips">'+chips+'</div><div id="seasBody"><div class="empty">Data fetch ho raha hai…</div></div>';
   api('/api/seasonality?symbol='+SEASON_SYM).then(function(r){
     var b = document.getElementById('seasBody'); if(!b) return;
@@ -568,6 +570,7 @@ function renderSettings(){
   RENDER_TARGET = 'main';
 }
 function renderDash(){
+  ensureUniverse(false);
   api('/api/dashboard').then(function(r){
     /* v1.0 BUGFIX: only a real 401 ends the session. A transient network hiccup
        (status 0 while the engine restarts) must NOT wipe the saved token — the old
@@ -587,27 +590,34 @@ function renderDash(){
     else if(e.safe_mode) ban += '<div class="banner red">🛡 <b>SAFE MODE — feed outage:</b> candle data stale (market OPEN hai lekin candles nahi aa rahi). Naye entries band, khuli trades ka SL/TP freeze hai (false trigger se bachne ke liye). Feed wapas aane par auto-resume.</div>';
     else if(e.market_closed) ban += '<div class="banner warn" style="border-color:#f59e0b;color:#fbbf24">🕐 <b>Market BAND hai</b> (weekend ya CME daily maintenance 17:00-18:00 ET) — 3C sirf chalte market par trade karta hai. Engine 24/7 chal raha hai, market khulte hi scan resume ho jayega. Ye normal hai — ghabraiye nahi.</div>';
     else if(e.news_pause) ban += '<div class="banner warn">📰 High-impact news — new entries paused 30 min</div>';
-    else ban += '<div class="banner green">⏱ BINANCE MODE · 24/7 scanner LIVE — '+e.active_symbols+' pairs on '+(e.timeframe||'1m')+' chart · risk '+(e.risk_pct!=null?e.risk_pct:'1')+'%/trade · '+esc(e.risk_scaling||'base risk')+' · QUANT PRO: slippage '+ (e.slip_bps!=null?e.slip_bps:2) +'bps · council '+(e.council_min>0?'GATE ≥'+e.council_min+'%':'tag-only')+' · ML '+(e.ml||'warming up')+'</div>';
+    else ban += '<div class="banner green">⏱ ALL-BINANCE MODE · 24/7 LIVE — <b>'+(e.universe_total||'ALL')+' USDT pairs</b> (15m PDF pack SAB par · 1m scan top-' + (e.active_symbols||40) + ') · 3C MASTER + PDF PACK (9) + SHAAKUNI (5) · AI '+(e.ai_trained_at>0?('TRAINED ('+(e.ai_strategies_on!=null?e.ai_strategies_on:'—')+'/'+(e.ai_strategies_total||14)+' ON)'):'ready — TRAIN AI dabayein')+' · fee-edge guard ON · risk '+(e.risk_pct!=null?e.risk_pct:'1')+'%/trade · '+esc(e.risk_scaling||'min-25 scaling')+'</div>';
     var spark = sparkSvg(d.equity||[]);
     var exp = d.exposure||{};
     var nr = e.no_trade_report||{};   /* v3.0.1 why-no-trades 24h counters */
     var heatCell = '<div class="card full"><div class="k">Portfolio Heat + Bucket Exposure (LEAN-style)</div>' +
       '<div style="display:flex;gap:6px;margin-top:8px">' +
         '<div style="flex:1"><div class="mut" style="font-size:10px">TOTAL HEAT</div><b style="font-size:16px;color:'+((d.heat||0)>(d.heatCap||0)&&(d.heatCap||0)>0?'#f87171':'#e5e7eb')+'">'+(d.heat||0).toFixed(1)+'%</b>'+(d.heatCap>0?' <span class="mut" style="font-size:10px">/ cap '+d.heatCap+'%</span>':' <span class="mut" style="font-size:10px">/ UNLIMITED</span>')+'</div>' +
-        '<div style="flex:1"><div class="mut" style="font-size:10px">⛏ MAJOR (BTC/ETH/BNB/SOL)</div><b>'+(exp.MAJOR||0).toFixed(1)+'%</b></div>' +
-        '<div style="flex:1"><div class="mut" style="font-size:10px">🛢 RETAIL (XRP/DOGE/ADA)</div><b>'+(exp.RETAIL||0).toFixed(1)+'%</b></div>' +
+        '<div style="flex:1"><div class="mut" style="font-size:10px">⛏ MAJOR (top-10)</div><b>'+(exp.MAJOR||0).toFixed(1)+'%</b></div>' +
+        '<div style="flex:1"><div class="mut" style="font-size:10px">🛢 RETAIL (11-60)</div><b>'+(exp.RETAIL||0).toFixed(1)+'%</b></div>' +
+        '<div style="flex:1"><div class="mut" style="font-size:10px">🪙 ALTCOIN (61+)</div><b>'+((exp.ALTCOIN||0)).toFixed(1)+'%</b></div>' +
       '</div>' +
       '<div class="small" style="margin-top:6px">Heat = khuli trades ka total risk (entry→SL) ÷ equity. Caps Settings > QUANT PRO me (default UNLIMITED — aapka rule).</div></div>';
-    var chUps = ['BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','DOGEUSDT','ADAUSDT'];
-    var chChips = chUps.map(function(s){
+    var chChips = UNIVERSE_TOP.slice(0,14).map(function(s){
       return '<button class="chip '+(CHART_SYM===s?'on':'')+'" onclick="CHART_SYM=\''+s+'\';renderDash()">'+s.replace('USDT','')+'</button>';
     }).join('');
+    var aiTxt = (e.ai_trained_at>0) ? ('<b style="color:#4ade80">TRAINED</b> '+(e.ai_age_h>=0?e.ai_age_h+'h pehle':'')+' · <b>'+(e.ai_strategies_on!=null?e.ai_strategies_on:'—')+'/'+(e.ai_strategies_total||14)+'</b> strategies ON') : '<b style="color:#fbbf24">abhi train nahi hua</b> — TRAIN AI dabayein (5-15 min, background)';
+    var aiCard = '<div class="card full"><div class="k">🤖 AI TRAINER — professional + profitable (Binance history walk-forward)</div>' +
+      '<div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap">' +
+        '<div style="flex:1;min-width:200px"><b style="font-size:13px">'+aiTxt+'</b>' +
+        '<div class="small" style="margin-top:4px">Top-12 pairs × (S1-S9 PDF + 5 Shaakuni playbooks) · IS/OOS 70/30 walk-forward · fees+slip INCLUDED · OOS PF&lt;0.9 = auto-pause · har 25 closed trades par self-learning re-weight · risk 1% flat (aapka rule).</div></div>' +
+        '<button class="chip on" id="aiTrainBtn" onclick="trainAi()">🤖 TRAIN AI</button></div></div>';
     tgt().innerHTML =
       ban +
-      '<div class="card full"><div style="display:flex;justify-content:space-between;align-items:baseline"><div class="k">'+esc(CHART_SYM)+' · M1 candlestick</div><div class="chartprice" id="chartPx">—</div></div>' +
+      '<div class="card full"><div style="display:flex;justify-content:space-between;align-items:baseline"><div class="k">'+esc(CHART_SYM)+' · M1 candlestick + SHAAKUNI/CLASSIC overlay</div><div class="chartprice" id="chartPx">—</div></div>' +
         '<div class="chartwrap"><canvas id="cchart"></canvas></div>' +
-        '<div class="chips" style="margin-top:10px">'+chChips+'</div>' +
-        '<div class="small" style="margin-top:6px">BINANCE SPOT 1m candles (real exchange data — 7 pairs, 24/7) — engine in par 3C setups dhoondta hai + Shaakuni Suite (PDH/PDL, sweeps, OB, MSS) live. Green = close upar, red = close neeche.</div></div>' +
+        '<div id="indStrip" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px"></div>' +
+        '<div class="chips" style="margin-top:8px">'+chChips+'<button class="chip" onclick="ensureUniverse(true)">↻ all coins</button></div>' +
+        '<div class="small" style="margin-top:6px">BINANCE SPOT — <b>SAARE USDT pairs</b> (24h volume-ranked MAJOR/RETAIL/ALTCOIN): overlay par PDH/PDL/PWH/PWL liquidity lines, EQ 50%, FVG zone, Order Blocks; neeche RSI/EMA200/ATR/VWAP/ADX/Supertrend strip — Shaakuni Suite live. Green = close upar, red = neeche.</div></div>' +
       '<div class="grid">' +
       card('Paper Balance', '$'+d.balance.toFixed(2), d.totalPnl>=0?'green':'red') +
       card('Total P&L', (d.totalPnl>=0?'+':'')+d.totalPnl.toFixed(2)+' ('+(d.pnlPct>=0?'+':'')+d.pnlPct.toFixed(2)+'%)', d.totalPnl>=0?'green':'red') +
@@ -616,6 +626,7 @@ function renderDash(){
       card('Today', (d.dayPnlPct>=0?'+':'')+d.dayPnlPct.toFixed(2)+'%', d.dayPnlPct>=0?'green':'red') +
       card('Drawdown (TRUE HWM)', d.drawdownPct.toFixed(2)+'% <span class="mut" style="font-size:10px">peak-ratcheted</span>', d.drawdownPct>-5?'green':'red') +
       heatCell +
+      aiCard +
       '<div class="card full"><div class="k">🔍 Why no trades? — 24h engine report</div>' +
         '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">' +
           '<div style="flex:1;min-width:80px"><div class="mut" style="font-size:10px">3C SETUPS BANE</div><b style="font-size:16px;color:#4ade80">'+((nr.SETUP_DETECTED||0))+'</b></div>' +
@@ -643,10 +654,47 @@ function renderDash(){
 }
 /* ================= v1.8 CANDLESTICK CHART (dependency-free canvas) ================= */
 var CHART_SYM = 'BTCUSDT';
+var UNIVERSE_TOP = ['BTCUSDT','ETHUSDT','BNBUSDT','SOLUSDT','XRPUSDT','DOGEUSDT','ADAUSDT','LINKUSDT','AVAXUSDT','DOTUSDT','LTCUSDT','TRXUSDT','ATOMUSDT','NEARUSDT'];
+var UNIVERSE_DONE = false;
+function ensureUniverse(force){
+  if(UNIVERSE_DONE && !force) return;
+  api('/api/instruments').then(function(r){
+    if(r.status!==200 || !r.data || !r.data.instruments) return;
+    var list = (r.data.instruments||[]).filter(function(i){ return i.status==='ACTIVE' && i.symbol && /USDT$/.test(i.symbol); });
+    if(list.length){ UNIVERSE_TOP = list.map(function(i){ return i.symbol; }); UNIVERSE_DONE = true; }
+  }).catch(function(){});
+}
+function trainAi(){
+  var b = document.getElementById('aiTrainBtn');
+  if(b){ b.textContent='⏳ shuru ho raha hai…'; }
+  api('/api/ai_train',{method:'POST',body:{}}).then(function(r){
+    var msg = (r.data && (r.data.message||r.data.error)) || 'trigger fail';
+    if(b) b.textContent = r.status===200 ? '✓ chal raha hai' : '✗ ' + String(msg).slice(0,24);
+    setTimeout(function(){ if(b){ b.textContent='🤖 TRAIN AI'; } }, 8000);
+  }).catch(function(){ if(b) b.textContent='🤖 TRAIN AI'; });
+}
+function renderPack(){
+  api('/api/pack').then(function(r){
+    var el = document.getElementById('packBody'); if(!el) return;
+    if(r.status!==200){ el.textContent = (r.data&&r.data.error)||'engine busy — refresh karein'; return; }
+    var d = r.data;
+    var rows = (d.strategies||[]).map(function(s){
+      return '<tr><td><b>'+esc(s.key)+'</b><br><span class="mut" style="font-size:10px">'+esc(s.name)+' · '+esc(s.rating)+'</span></td>' +
+        '<td style="text-align:right"><button class="chip '+(s.on?'on':'')+'" onclick="togglePack(\''+s.key+'\','+(!s.on)+')">'+(s.on?'ON':'OFF')+'</button></td></tr>';
+    }).join('');
+    el.innerHTML = '<table>'+rows+'</table><div class="small" style="margin-top:6px">PDF encyclopedia ki mechanical strategies (CLOSED 15m candles, fees-aware) — v4.1 rebuild me ghalti se gayab thin, <b>AB RESTORED</b>. Sab SAARE Binance USDT pairs par scan hoti hain. AI trainer inhi par walk-forward chalata hai (OOS PF&lt;0.9 auto-pause). Toggle = turant effect.</div>';
+  }).catch(function(){});
+}
+function togglePack(key, val){
+  api('/api/settings',{method:'POST',body:{packKey:key,packVal:val}}).then(function(){ renderPack(); }).catch(function(){});
+}
 function drawCandles(){
   var cv = document.getElementById('cchart');
   if(!cv) return;
-  api('/api/candles?symbol='+CHART_SYM+'&n=60').then(function(r){
+  var indP = api('/api/indicators?symbol='+CHART_SYM).catch(function(){ return {status:0, data:{}}; });
+  Promise.all([api('/api/candles?symbol='+CHART_SYM+'&n=60'), indP]).then(function(rs){
+    var r = rs[0];
+    var ird = (rs[1] && rs[1].data && rs[1].data.values) ? rs[1].data.values : null;
     if(TAB!=='dash') return;
     var cv2 = document.getElementById('cchart');
     if(!cv2) return;
@@ -721,6 +769,58 @@ function drawCandles(){
     ctx.fillStyle = '#06120c';
     ctx.font = 'bold 9px -apple-system, sans-serif';
     ctx.fillText(fmtPx(lp), padL+plotW+5, ly+3);
+    // v4.4 — SHAAKUNI + CLASSIC INDICATOR OVERLAY (PDH/PDL/PWH/PWL/EQ, FVG zone, OBs) + strip
+    try {
+      if(ird){
+        [['PDH',ird.pdh,'#fbbf24'],['PDL',ird.pdl,'#fbbf24'],['PWH',ird.pwh,'#a78bfa'],['PWL',ird.pwl,'#a78bfa'],['EQ',ird.eqD,'#38bdf8']].forEach(function(L){
+          if(!L[1] || L[1]<lo || L[1]>hi) return;
+          var y2 = Y(L[1]);
+          ctx.strokeStyle = L[2]; ctx.setLineDash([3,4]); ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(padL, y2); ctx.lineTo(padL+plotW, y2); ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.fillStyle = L[2]; ctx.font = 'bold 8px -apple-system, sans-serif';
+          ctx.fillText(L[0], padL+2, y2-2);
+        });
+        if(ird.fvgTop && ird.fvgBottom && ird.fvgTop>lo && ird.fvgBottom<hi){
+          var fy = Y(Math.min(ird.fvgTop,hi)), fh = Math.abs(Y(ird.fvgBottom)-Y(ird.fvgTop));
+          ctx.fillStyle = ird.fvgDir>0 ? 'rgba(16,185,129,.10)' : 'rgba(248,113,113,.10)';
+          ctx.fillRect(padL, fy, plotW, Math.max(2,fh));
+          ctx.fillStyle = ird.fvgDir>0 ? 'rgba(16,185,129,.75)' : 'rgba(248,113,113,.75)';
+          ctx.font = 'bold 8px -apple-system, sans-serif';
+          ctx.fillText('FVG', padL+2, fy+9);
+        }
+        if(ird.orderBlocks && ird.orderBlocks.length){
+          ird.orderBlocks.slice(0,4).forEach(function(z){
+            if(z.mitigated) return;
+            if(z.top>lo && z.bottom<hi){
+              var zy = Y(Math.min(z.top,hi)), zh = Math.max(2, Y(Math.max(z.bottom,lo))-Y(Math.min(z.top,hi)));
+              ctx.fillStyle = z.bull ? 'rgba(52,211,153,.13)' : 'rgba(248,113,113,.13)';
+              ctx.fillRect(padL, zy, plotW, zh);
+              ctx.strokeStyle = z.bull ? 'rgba(52,211,153,.45)' : 'rgba(248,113,113,.45)';
+              ctx.strokeRect(padL, zy, plotW, zh);
+            }
+          });
+        }
+        var strip = document.getElementById('indStrip');
+        if(strip){
+          var f1 = function(x,d){ return (x==null||isNaN(x))?'—':(d!=null?Number(x).toFixed(d):String(x)); };
+          var pd = ird.premiumDiscount||'—';
+          var st = ird.stDir===1?'UP':(ird.stDir===-1?'DOWN':'—');
+          strip.innerHTML =
+            '<span class="chip" style="cursor:default">RSI14 <b style="color:'+(ird.rsi14>70?'#f87171':(ird.rsi14<30?'#4ade80':'#e5e7eb'))+'">'+f1(ird.rsi14,1)+'</b></span>' +
+            '<span class="chip" style="cursor:default">EMA200 '+(ird.ema200DistPct==null?'—':(ird.ema200DistPct>=0?'▲ +':'▼ ')+f1(ird.ema200DistPct,2)+'%')+'</span>' +
+            '<span class="chip" style="cursor:default">ATR '+f1(ird.atr14,5)+'</span>' +
+            '<span class="chip" style="cursor:default">VWAP '+f1(ird.vwap,4)+'</span>' +
+            '<span class="chip" style="cursor:default">ADX '+f1(ird.adx14,1)+'</span>' +
+            '<span class="chip" style="cursor:default">ST '+st+'</span>' +
+            '<span class="chip" style="cursor:default">'+(pd==='DISCOUNT'?'<b style="color:#4ade80">DISCOUNT</b>':(pd==='PREMIUM'?'<b style="color:#fbbf24">PREMIUM</b>':'—'))+'</span>' +
+            '<span class="chip" style="cursor:default">'+(ird.killzone==='yes'?'⚡ ':'')+esc(ird.session||'')+'</span>' +
+            (ird.pdhStatus?'<span class="chip" style="cursor:default">PDH '+esc(ird.pdhStatus)+'</span>':'') +
+            (ird.pdlStatus?'<span class="chip" style="cursor:default">PDL '+esc(ird.pdlStatus)+'</span>':'') +
+            (ird.candlePattern?'<span class="chip" style="cursor:default">🕯 '+esc(ird.candlePattern)+'</span>':'');
+        }
+      }
+    } catch(e2) { }
     // time labels
     ctx.fillStyle = '#5b6577';
     ctx.font = '8.5px -apple-system, sans-serif';
@@ -826,7 +926,7 @@ function renderInd(){
     } else {
       live = '<div class="empty">'+esc(d.reason || 'warming up — first 1m candles loading...')+'</div>';
     }
-    var html = '<div class="banner green">🎯 SHAAKUNI TRAP SUITE — <b>'+lib.length+' tools</b> live on the 1m chart · 82-indicator PDF encyclopedia DELETE ho chuki (owner request) · Engine 3C MASTER (M1 Binance) chala raha hai</div>';
+    var html = '<div class="banner green">🎯 SHAAKUNI TRAP SUITE — <b>'+lib.length+' tools</b> chart par live (overlay + value strip) · PDF STRATEGY PACK (S1-S9) RESTORED v4.4 · classic indicators (RSI/EMA200/ATR/VWAP/ADX/Supertrend) chart ke neeche strip me · engine: 3C MASTER + Pack + Shaakuni</div>';
     html += live;
     html += '<h2>Indicator Library</h2>';
     Object.keys(groups).forEach(function(g){
@@ -966,7 +1066,10 @@ function renderLab(){
       '<div id="trashSec"></div>' +
       '<h2>4 · 3C MASTER strategy (M5)</h2>' +
       '<table>'+builtin+'</table>' +
-      '<div class="small" style="margin-top:10px">'+esc(d.masterNote||'3C MASTER')+' — vote: +1 BUY setup armed, -1 SELL setup armed (last scanned symbol: '+esc(d.lastVoteSym||'-')+').</div>';
+      '<div class="small" style="margin-top:10px">'+esc(d.masterNote||'3C MASTER')+' — vote: +1 BUY setup armed, -1 SELL setup armed (last scanned symbol: '+esc(d.lastVoteSym||'-')+').</div>' +
+      '<h2>5 · PDF Strategy Pack (S1-S9 — RESTORED v4.4)</h2>' +
+      '<div class="card full"><div id="packBody" class="small">loading…</div></div>';
+    renderPack();
     var ts = d.trashCount||0;
     if(ts>0){
       api('/api/strategies',{method:'POST',body:{action:'trash'}}).then(function(t){
