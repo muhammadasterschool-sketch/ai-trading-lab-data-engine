@@ -13,7 +13,7 @@ import java.util.TreeMap;
  * professional aur profitable train karo".
  *
  * Kya karta hai:
- *  1. REAL Binance history par walk-forward backtest (15m execution depth + 1d HTF
+ *  1. REAL Binance history par walk-forward backtest (5m execution depth + 1d HTF
  *     regime; BTC/ETH 2017 se daily data — Binance ka aakhri data yahi hai).
  *  2. Har strategy (PDF pack S1-S9 + Shaakuni playbooks SHK1-SHK5) ke trades
  *     collect → WR / PF / expectancy, fees+slippage INCLUDED.

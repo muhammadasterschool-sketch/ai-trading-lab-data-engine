@@ -144,7 +144,7 @@ select{width:100%;background:var(--card);border:1px solid var(--line);border-rad
   <div class="logo"><img src="logo.png" alt="AI Trading Lab"></div>
   <h1>AI Trading Lab</h1>
   <div class="sub">Full trading engine on this device — paper trading</div>
-  <div class="sub" style="color:var(--gold)">v4.4.1 · ALL BINANCE COINS · PDF STRATEGIES · SHAAKUNI SUITE · AI TRAINED · RISK 1% · NO PRO FILTER</div>
+  <div class="sub" style="color:var(--gold)">v4.5.0 · ALL BINANCE COINS · 5M TIMEFRAME · PDF STRATEGIES · SHAAKUNI SUITE · AI TRAINED · RISK 1%</div>
   <div id="engStrip" class="eng">checking engine…</div>
   <div class="note"><b>Naya install / update?</b> Accounts is device ki local database mein hote hain — app reinstall ya update ke baad purana account <b>transfer nahi hota</b>. Pehla account = <b>OWNER (ADMIN)</b>. Baaki log <b>Register</b> se apply karein — <b>invite code owner se milega</b> (kahin likha hua nahi hota), aur owner ke <b>APPROVE</b> karne ke baad hi sign in possible hoga. Kisi authenticator app ki zaroorat nahi.</div>
 
@@ -217,7 +217,7 @@ select{width:100%;background:var(--card);border:1px solid var(--line);border-rad
   <aside id="drawer">
     <div class="dhead">
       <img src="logo.png" alt="">
-      <div><div class="dt">AI Trading Lab</div><div class="ds" id="drEngine">engine · v4.4.1 ALL-BINANCE + AI TRAINER</div></div>
+      <div><div class="dt">AI Trading Lab</div><div class="ds" id="drEngine">engine · v4.5.0 ALL-BINANCE 5M + AI TRAINER</div></div>
       <button class="dclose" onclick="closeDrawer()">✕</button>
     </div>
     <div class="duser" id="drUser"></div>
@@ -590,7 +590,7 @@ function renderDash(){
     else if(e.safe_mode) ban += '<div class="banner red">🛡 <b>SAFE MODE — feed outage:</b> candle data stale (market OPEN hai lekin candles nahi aa rahi). Naye entries band, khuli trades ka SL/TP freeze hai (false trigger se bachne ke liye). Feed wapas aane par auto-resume.</div>';
     else if(e.market_closed) ban += '<div class="banner warn" style="border-color:#f59e0b;color:#fbbf24">🕐 <b>Market BAND hai</b> (weekend ya CME daily maintenance 17:00-18:00 ET) — 3C sirf chalte market par trade karta hai. Engine 24/7 chal raha hai, market khulte hi scan resume ho jayega. Ye normal hai — ghabraiye nahi.</div>';
     else if(e.news_pause) ban += '<div class="banner warn">📰 High-impact news — new entries paused 30 min</div>';
-    else ban += '<div class="banner green">⏱ ALL-BINANCE MODE · 24/7 LIVE — <b>'+(e.universe_total||'ALL')+' USDT pairs</b> (15m PDF pack SAB par · 1m scan top-' + (e.active_symbols||40) + ') · 3C MASTER + PDF PACK (9) + SHAAKUNI (5) · AI '+(e.ai_trained_at>0?('TRAINED ('+(e.ai_strategies_on!=null?e.ai_strategies_on:'—')+'/'+(e.ai_strategies_total||14)+' ON)'):'ready — TRAIN AI dabayein')+' · fee-edge guard ON · risk '+(e.risk_pct!=null?e.risk_pct:'1')+'%/trade · '+esc(e.risk_scaling||'min-25 scaling')+'</div>';
+    else ban += '<div class="banner green">⏱ ALL-BINANCE MODE · 24/7 LIVE — <b>'+(e.universe_total||'ALL')+' USDT pairs</b> (5m PDF pack SAB par · 5m scan top-' + (e.active_symbols||40) + ') · 3C MASTER + PDF PACK (9) + SHAAKUNI (5) · AI '+(e.ai_trained_at>0?('TRAINED ('+(e.ai_strategies_on!=null?e.ai_strategies_on:'—')+'/'+(e.ai_strategies_total||14)+' ON)'):'ready — TRAIN AI dabayein')+' · fee-edge guard ON · risk '+(e.risk_pct!=null?e.risk_pct:'1')+'%/trade · '+esc(e.risk_scaling||'min-25 scaling')+'</div>';
     var spark = sparkSvg(d.equity||[]);
     var exp = d.exposure||{};
     var nr = e.no_trade_report||{};   /* v3.0.1 why-no-trades 24h counters */
@@ -681,7 +681,7 @@ function renderPack(){
       return '<tr><td><b>'+esc(s.key)+'</b><br><span class="mut" style="font-size:10px">'+esc(s.name)+' · '+esc(s.rating)+'</span></td>' +
         '<td style="text-align:right"><button class="chip '+(s.on?'on':'')+'" onclick="togglePack(\''+s.key+'\','+(!s.on)+')">'+(s.on?'ON':'OFF')+'</button></td></tr>';
     }).join('');
-    el.innerHTML = '<table>'+rows+'</table><div class="small" style="margin-top:6px">PDF encyclopedia ki mechanical strategies (CLOSED 15m candles, fees-aware) — v4.1 rebuild me ghalti se gayab thin, <b>AB RESTORED</b>. Sab SAARE Binance USDT pairs par scan hoti hain. AI trainer inhi par walk-forward chalata hai (OOS PF&lt;0.9 auto-pause). Toggle = turant effect.</div>';
+    el.innerHTML = '<table>'+rows+'</table><div class="small" style="margin-top:6px">PDF encyclopedia ki mechanical strategies (CLOSED 5m candles, fees-aware) — v4.1 rebuild me ghalti se gayab thin, <b>AB RESTORED</b>. Sab SAARE Binance USDT pairs par scan hoti hain. AI trainer inhi par walk-forward chalata hai (OOS PF&lt;0.9 auto-pause). Toggle = turant effect.</div>';
   }).catch(function(){});
 }
 function togglePack(key, val){

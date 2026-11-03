@@ -90,11 +90,11 @@ public class V441Test {
                 "sirf volume-filter ka array delete");
 
         // 6) version bump
-        check("ver.gradle", read(root.resolve("android-app/app/build.gradle")).contains("versionCode 37")
-                && read(root.resolve("android-app/app/build.gradle")).contains("versionName \"4.4.1\""),
-                "build.gradle 37 / 4.4.1");
-        check("ver.api", api.contains("\"4.4.1\""), "health version 4.4.1");
-        check("ver.core", core.contains("\"4.4.1\""), "status version 4.4.1");
+        check("ver.gradle", read(root.resolve("android-app/app/build.gradle")).contains("versionCode 39")
+                && read(root.resolve("android-app/app/build.gradle")).contains("versionName \"4.5.0\""),
+                "build.gradle 39 / 4.5.0");
+        check("ver.api", api.contains("\"4.5.0\""), "health version 4.5.0");
+        check("ver.core", core.contains("\"4.5.0\""), "status version 4.5.0");
 
         System.out.println("\n===== V4.4.1 TEST: " + pass + " passed, " + fail + " failed =====");
         System.exit(fail == 0 ? 0 : 1);

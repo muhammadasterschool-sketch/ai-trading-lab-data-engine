@@ -58,13 +58,13 @@ import org.json.JSONObject;
  */
 public class EngineCore implements Runnable {
     // v2.1 — Binance retired: MT5 halal commodities feed (DATA section neeche).
-    private static final String TF = "1m";                 // v4.1 BINANCE timeframe (owner: 1m candles)
-    private static final long TF_MS = 60L * 1000;
+    private static final String TF = "5m";                 // v4.5 OWNER SHIFT: poora system 5m timeframe (3C MASTER ka original M5 design)
+    private static final long TF_MS = 5L * 60 * 1000;
     /** public for StrategyLab backtester */ public static final long TF_MS_PUB = TF_MS;
-    /** v4.4 — PDF pack timeframe (PDF section 11: 1m/5m scalping fees-dominated — 15m entries). */
-    static final String TF15 = "15m";
-    static final long TF15_MS = 15L * 60 * 1000;
-    private static final int ACTIVE_TOP = 40;      // v4.4: 1m scan tier (top-40 by volume) — 15m PDF pack ALL pairs rotate karta hai
+    /** v4.5 — PDF pack timeframe (owner: "pure system ko 5 min ke timeframe par shift kardo" — 15m se 5m). */
+    static final String TF15 = "5m";
+    static final long TF15_MS = 5L * 60 * 1000;
+    private static final int ACTIVE_TOP = 40;      // v4.5: 5m scan tier (top-40 by volume) — 5m PDF pack ALL pairs rotate karta hai
     // ==== 3C STRATEGY CONSTANTS (MASTER PROMPT — kabhi change nahi without owner approval) ====
     public static final double THREEC_BODY_MIN = 0.70;  // C1 & C2 body >= 70% of High-Low range
     public static final int THREEC_WINDOW = 5;          // breakout window: next 5 M5 candles
@@ -315,7 +315,7 @@ public class EngineCore implements Runnable {
     /** v1.4 — the ONE master strategy (35-strategy consensus retired by owner request). */
     public static final String[][] STRATEGY_META = {
             {"3C Breakout (M1) — MASTER", "Price action"},
-            {"PDF PACK S1-S9 (15m, ALL pairs)", "Mechanical"},
+            {"PDF PACK S1-S9 (5m, ALL pairs)", "Mechanical"},
             {"SHAAKUNI SSM playbooks x5", "SMC"}
     };
 
@@ -377,6 +377,22 @@ public class EngineCore implements Runnable {
                 db.log("ERROR", "SYSTEM", "MIGRATION_3C_FAIL", String.valueOf(t));
             }
         }
+        // v4.5 ONE-TIME MIGRATION — 5m system shift (owner: "pure system 5m timeframe").
+        // 1m/15m candle history purge + open trades cancel (unke setups purane TF par
+        // bane the — management semantics 5m par alag). Balances untouched.
+        if (!"1".equals(db.setting("v45_tf5m_migration", "0"))) {
+            long t0 = System.currentTimeMillis();
+            try {
+                db.getWritableDatabase().execSQL(
+                        "UPDATE trades SET exit=entry, pnl=0, status='CANCELLED', closed_at=? WHERE status='OPEN'",
+                        new Object[]{t0});
+                db.getWritableDatabase().execSQL("DELETE FROM candles WHERE tf<>'" + TF + "'");
+                db.setSetting("v45_tf5m_migration", "1");
+                db.log("INFO", "SYSTEM", "MIGRATION_5M", "v4.5 — poora system 5m timeframe (3C + PDF pack + scan). Open trades cancelled (purane TF setups), 1m/15m candles purged. Balances unchanged.");
+            } catch (Throwable t) {
+                db.log("ERROR", "SYSTEM", "MIGRATION_5M_FAIL", String.valueOf(t));
+            }
+        }
         // v3.0 — persistent PRO GUARD state restore (watchdog restart cooldowns wipe fix)
         loadGuardState();
         while (running) {
@@ -418,7 +434,7 @@ public class EngineCore implements Runnable {
         manageOpenTrades();
         refreshCandles();
         scanAndTrade();
-        try { scanPdfPack(); } catch (Throwable t) { db.log("ERROR", "PACK", "SCAN_FAIL", String.valueOf(t)); }   // v4.4 PDF pack (15m, ALL pairs)
+        try { scanPdfPack(); } catch (Throwable t) { db.log("ERROR", "PACK", "SCAN_FAIL", String.valueOf(t)); }   // v4.5 PDF pack (5m, ALL pairs)
         snapshotEquity();
         try { selfLearnTick(); } catch (Throwable ignored) { }   // v4.4 — har 25 closed trades par AI re-weight
         scanCount++;
@@ -543,6 +559,7 @@ public class EngineCore implements Runnable {
                 Candle cd = new Candle();
                 cd.ts = k.getLong(0); cd.o = k.getDouble(1); cd.h = k.getDouble(2);
                 cd.l = k.getDouble(3); cd.c = k.getDouble(4); cd.v = k.getDouble(5);
+                if (!candleOk(cd.ts, cd.o, cd.h, cd.l, cd.c, cd.v)) continue;   // v4.4.2 NaN/zero guard
                 out.add(cd);
             }
             return out;
@@ -554,7 +571,7 @@ public class EngineCore implements Runnable {
      *  in-progress candle hota hai (Binance live deta hai). */
     private List<Candle> fetchFromBinance(String symbol, int limit) { return fetchFromBinance(symbol, limit, TF); }
 
-    /** v4.4 — interval-aware (1m live + 15m PDF pack + 1d/15m AI training).
+    /** v4.5 — interval-aware (5m live + 5m PDF pack + 1d AI training).
      *  Universe gate: BINANCE_PAIRS ya instruments me exchange=BINANCE (ALL coins). */
     private List<Candle> fetchFromBinance(String symbol, int limit, String interval) {
         if (!binanceTradable(symbol)) return null;
@@ -572,6 +589,27 @@ public class EngineCore implements Runnable {
         synchronized (binanceOkCache) { return binanceOkCache.contains(symbol); }
     }
 
+    /** v4.4.2 NaN/zero guard — candle sirf tab DB me jayegi jab OHLC finite + positive ho
+     *  aur high/low ordering sahi ho. NaN DB me ghusa to indicators + entries sab poison. */
+    static boolean candleOk(long ts, double o, double h, double l, double c, double v) {
+        if (ts <= 0) return false;
+        if (!(o > 0) || !(h > 0) || !(l > 0) || !(c > 0)) return false;   // NaN/0/neg — NaN>0 hamesha false
+        if (!(v >= 0)) return false;
+        if (h < Math.max(o, c) - 1e-9 || l > Math.min(o, c) + 1e-9) return false;
+        return true;
+    }
+
+    /** v4.4.2 SAFE MODE quorum latch — hysteresis: ON jab checked>=5 aur fresh<=20%,
+     *  OFF jab fresh>=60%. Ek-do stale symbol (delisted/low-liq pair) global SAFE MODE
+     *  ab trigger nahi karta — poora feed out ho tabhi. Pure static — testable. */
+    static boolean latchSafeMode(boolean prevLatch, int checked, int fresh) {
+        if (checked < 5) return prevLatch;                       // sample chhota — koi change nahi
+        double ratio = fresh * 100.0 / checked;
+        if (!prevLatch && ratio <= 20.0) return true;            // feed outage — latch ON
+        if (prevLatch && ratio >= 60.0) return false;            // recovery — clear
+        return prevLatch;                                        // hysteresis band — hold
+    }
+
     /** v4.1 — Binance klines JSON → Candle list (public static — host-JVM tests ke liye).
      *  Valid OHLC guard (o/h/l/c > 0), ts = openTime ms. */
     public static List<Candle> parseBinanceKlines(String body) {
@@ -581,7 +619,7 @@ public class EngineCore implements Runnable {
             for (int i = 0; i < arr.length(); i++) {
                 JSONArray k = arr.getJSONArray(i);
                 double o = k.getDouble(1), h = k.getDouble(2), l = k.getDouble(3), c = k.getDouble(4);
-                if (o <= 0 || h <= 0 || l <= 0 || c <= 0) continue;
+                if (!candleOk(k.getLong(0), o, h, l, c, k.getDouble(5))) continue;   // v4.4.2 NaN/zero guard
                 Candle cd = new Candle();
                 cd.ts = k.getLong(0);                       // openTime ms
                 cd.o = o; cd.h = h; cd.l = l; cd.c = c;
@@ -629,7 +667,8 @@ public class EngineCore implements Runnable {
             if (ks == null || ks.isEmpty()) continue;
             upsertCandles(s, ks);
         }
-        rotate15m(30);   // v4.4 — PDF pack 15m feed (ALL Binance pairs, rotating)
+        rotate15m(30);   // v4.5 — PDF pack 5m feed (ALL Binance pairs, rotating)
+        updateFeedHealth();   // v4.4.2 — SAFE MODE quorum latch (ek stale symbol global flag flapp nahi karega)
     }
 
     private void upsertCandles(String s, List<Candle> ks) {
@@ -663,13 +702,13 @@ public class EngineCore implements Runnable {
         return out;
     }
 
-    // ================== v4.4 — 15m PDF PACK FEED (rotating, ALL pairs) ==================
+    // ================== v4.5 — 5m PDF PACK FEED (rotating, ALL pairs) ==================
     private final java.util.List<String> rot15 = new ArrayList<>();
     private int rot15Pos = 0;
     private final Map<String, Long> lastEval15 = new HashMap<>();
 
-    /** Har 10s tick par 30 pairs ki 15m candles refresh — 300+ pair universe bhi
-     *  ~2 min me poora cycle (15m candle har 15 min close hoti hai — kaafi hai). */
+    /** Har 10s tick par 30 pairs ki 5m candles refresh — 300+ pair universe bhi
+     *  ~2 min me poora cycle (5m candle har 5 min close hoti hai — kaafi hai). */
     private void rotate15m(int batch) {
         try {
             if (rot15.isEmpty() || rot15Pos >= rot15.size()) {
@@ -703,7 +742,7 @@ public class EngineCore implements Runnable {
             }
             d.execSQL("UPDATE instruments SET last_data_at=? WHERE symbol=?",
                     new Object[]{System.currentTimeMillis(), s});
-            // 7 din se purani 15m purge (DB lean: ~672 bars/pair)
+            // 7 din se purani 5m purge (DB lean: ~2016 bars/pair)
             d.execSQL("DELETE FROM candles WHERE symbol=? AND tf=? AND ts < ?",
                     new Object[]{s, TF15, System.currentTimeMillis() - 7L * 86400000L});
             d.setTransactionSuccessful();
@@ -3348,15 +3387,14 @@ public class EngineCore implements Runnable {
         return eq > 0 ? risk / eq * 100.0 : 0;
     }
 
-    /** STALE-DATA GUARD (audit fix #3; v3.0.1 CRITICAL FIX — "trades nahi lag rahi"):
-     *  Yahoo futures feed sirf CLOSED bars deta hai (in-progress bar nahi), is liye
-     *  newest candle ki age normally 5-11 min hoti hai. Purana 2x TF (10 min) threshold
-     *  lagbhag HAMESHA fail ho jata tha = SAFE MODE permanent = koi entry nahi.
-     *  Ab: threshold setting safe_mode_bars (default 3 bars = 15 min), aur market band
-     *  (weekend / CME 17-18 ET halt) par SAFE MODE nahi lagta — band market stale nahi
-     *  hota, wahan entries live-trigger ki wajah se khud trigger nahi hoti. */
+    /** STALE-DATA GUARD (v4.4.2 REWORK — "data nahi araha hai" flap fix):
+     *  Purana design: EK bhi symbol stale ho to GLOBAL safeMode latch ho jata tha aur
+     *  mixed fresh/stale universe me flag har 10s tick par ON/OFF flapp karta tha —
+     *  dashboard baar-baar "SAFE MODE — data nahi aa raha" banner dikhaata tha.
+     *  Ab: freshData sirf PER-SYMBOL entry gate hai (stale symbol par hi entry nahi,
+     *  uska SL/TP freeze). Global SAFE MODE sirf updateFeedHealth() (quorum latch)
+     *  set karta hai — poora feed out ho tabhi. */
     private boolean freshData(String sym) {
-        if (marketClosedET()) return true;
         long bars = 3;
         try { bars = Math.max(2, Integer.parseInt(db.setting("safe_mode_bars", "3").trim())); } catch (Exception ignored) { }
         Cursor c = db.getReadableDatabase().rawQuery(
@@ -3365,19 +3403,37 @@ public class EngineCore implements Runnable {
         boolean fresh = false;
         if (c.moveToFirst()) fresh = System.currentTimeMillis() - c.getLong(0) < bars * TF_MS;
         c.close();
-        if (!fresh && !safeMode) {
-            safeMode = true;
-            safeModeSince = System.currentTimeMillis();
-            db.log("WARN", "FEED", "SAFE_MODE_ON",
-                    sym + " candle stale (>" + (bars * TF_MS / 60000) + " min, market OPEN hai) — SAFE MODE: naye entries band, open trades ka SL/TP freeze (stale prices par false trigger nahi). Feed recover hote hi auto-clear.");
-            try { Notifier.post(appContext(), "SAFE MODE", "Feed outage — " + sym + " stale. Naye entries band, khuli trades protected."); } catch (Throwable ignored) { }
-        } else if (fresh && safeMode) {
-            // sab symbols fresh ho tabhi clear — conservative: is symbol ki freshness se
-            // global flag clear karna theek hai (feed recover hua)
-            safeMode = false;
-            db.log("INFO", "FEED", "SAFE_MODE_OFF", "feed recovered — normal trading resumed (" + (System.currentTimeMillis() - safeModeSince) / 60000 + " min outage)");
-        }
         return fresh;
+    }
+
+    /** v4.4.2 — global feed health (SAFE MODE quorum latch). refreshCandles() ke end me
+     *  call: active symbols ki newest TF candle age dekh kar fresh ratio nikaalta hai.
+     *  Latch ON sirf jab >=5 symbols checked aur <=20% fresh (asli feed outage);
+     *  clear jab >=60% fresh. Ek-do delisted/low-liq pairs ab flag flapp nahi karte. */
+    private void updateFeedHealth() {
+        try {
+            int checked = 0, freshCnt = 0;
+            Cursor c = db.getReadableDatabase().rawQuery(
+                    "SELECT symbol, MAX(ts) FROM candles WHERE tf='" + TF + "' AND symbol IN (SELECT symbol FROM instruments WHERE status='ACTIVE' AND exchange='BINANCE') GROUP BY symbol", null);
+            long now = System.currentTimeMillis();
+            while (c.moveToNext() && checked < 200) {
+                checked++;
+                if (now - c.getLong(1) < 3 * TF_MS) freshCnt++;
+            }
+            c.close();
+            if (checked == 0) return;   // boot pehla cycle — candles abhi bharni hain
+            boolean prev = safeMode;
+            safeMode = latchSafeMode(prev, checked, freshCnt);
+            if (safeMode && !prev) {
+                safeModeSince = now;
+                db.log("WARN", "FEED", "SAFE_MODE_ON", "feed outage — " + freshCnt + "/" + checked + " symbols fresh (<=20%) — SAFE MODE: naye entries band, open trades ka SL/TP freeze. Feed recover hote hi auto-clear.");
+                try { Notifier.post(appContext(), "SAFE MODE", "Feed outage — candles stale. Naye entries band, khuli trades protected."); } catch (Throwable ignored) { }
+            } else if (!safeMode && prev) {
+                db.log("INFO", "FEED", "SAFE_MODE_OFF", "feed recovered — " + freshCnt + "/" + checked + " symbols fresh — normal trading resumed (" + Math.max(1, (now - safeModeSince) / 60000) + " min outage)");
+            }
+        } catch (Throwable t) {
+            db.log("WARN", "FEED", "FEED_HEALTH_FAIL", String.valueOf(t));
+        }
     }
 
     public boolean isSafeMode() { return safeMode; }
@@ -3878,14 +3934,14 @@ public class EngineCore implements Runnable {
         m.put("scan_count", scanCount);
         m.put("last_scan_at", lastScanAt);
         m.put("strategy_count", 1 + StrategyPack.STRATEGIES.length + 5);
-        m.put("strategy_name", "3C MASTER (M1) + PDF PACK (9 strategies, 15m, ALL pairs) + SHAAKUNI (5 playbooks)");
+        m.put("strategy_name", "3C MASTER (M5) + PDF PACK (9 strategies, 5m, ALL pairs) + SHAAKUNI (5 playbooks)");
         m.put("pdf_pack", "RESTORED v4.4 — S1 EMA pullback · S2 BB squeeze · S3 Supertrend+ADX · S4 VWAP · S5 PDH/PDL · S6 Funding+OI · S7 Candle patterns · S8 Dow pullback · S9 Gann 50%");
         m.put("risk_pct", riskPct());
         m.put("risk_scaling", scalingInfo("3C_MASTER"));
         m.put("min_trades_scaling", MIN_TRADES_BEFORE_SCALING);
         m.put("limits", "UNLIMITED daily P/L (owner) — heat/bucket/event/session caps default OFF opt-in");
         // v4.4 status
-        m.put("version", "4.4.1");
+        m.put("version", "4.5.0");
         boolean mktClosed = marketClosedET();
         m.put("safe_mode", safeMode && !mktClosed);   // v3.0.1 — band market par SAFE MODE jhoota lagta tha
         m.put("market_closed", mktClosed);            // v3.0.1 — weekend / CME halt indicator

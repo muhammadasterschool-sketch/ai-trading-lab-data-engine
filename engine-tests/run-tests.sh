@@ -14,7 +14,8 @@ echo "=== compiling engine package + tests ==="
   "$BASE"/android-app/app/src/main/java/com/aitradinglab/engine/*.java \
   "$BASE"/engine-tests/ShaakuniEngineTest.java \
   "$BASE"/engine-tests/V44Test.java \
-  "$BASE"/engine-tests/V441Test.java 2>&1 | grep -v "^Note:" || true
+  "$BASE"/engine-tests/V441Test.java \
+  "$BASE"/engine-tests/V442Test.java 2>&1 | grep -v "^Note:" || true
 
 echo ""
 echo "=== ShaakuniEngineTest (v4.1 suite) ==="
@@ -25,3 +26,6 @@ echo "=== V44Test (v4.4 pack + AI + universe) ==="
 echo ""
 echo "=== V441Test (v4.4.1 PRO-filter removal guard) ==="
 "$JDK/java" -cp "$OUT:$BASE/engine-tests/org-json.jar:$AJ" com.aitradinglab.engine.V441Test
+echo ""
+echo "=== V442Test (v4.4.2 failover + v4.5.0 5m shift) ==="
+"$JDK/java" -cp "$OUT:$BASE/engine-tests/org-json.jar:$AJ" com.aitradinglab.engine.V442Test

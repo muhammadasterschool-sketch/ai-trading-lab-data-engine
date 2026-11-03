@@ -92,7 +92,7 @@ public class Api {
     private Res get(String path, String auth) throws Exception {
         if ("/".equals(path) || "/index.html".equals(path)) return Res.html(dashboardHtml);
         if ("/api/health".equals(path)) return Res.json(200, new JSONObject()
-                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "4.4.1").put("timeframe", "1m+15m").put("scanner", "24/7").put("strategy", "3C MASTER (M1) + PDF PACK (9, 15m, ALL Binance pairs) + SHAAKUNI (5) + AI TRAINER"));
+                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "4.5.0").put("timeframe", "5m").put("scanner", "24/7").put("strategy", "3C MASTER (M5) + PDF PACK (9, 5m, ALL Binance pairs) + SHAAKUNI (5) + AI TRAINER"));
 
         Long uid = userId(auth);
         if (uid == null) return Res.error(401, "authentication required");
