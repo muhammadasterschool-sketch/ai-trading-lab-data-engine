@@ -52,6 +52,20 @@ public class HttpServer {
             if (parts.length < 2) { s.close(); return; }
             String method = parts[0], path = parts[1];
 
+            // v4.0 — CORS preflight (iOS/Android shell + browser clients cross-origin fetch)
+            if ("OPTIONS".equals(method)) {
+                OutputStream po = s.getOutputStream();
+                po.write(("HTTP/1.1 204 OK\r\n"
+                        + "Access-Control-Allow-Origin: *\r\n"
+                        + "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
+                        + "Access-Control-Allow-Headers: Content-Type, Authorization\r\n"
+                        + "Access-Control-Max-Age: 86400\r\n"
+                        + "Content-Length: 0\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.UTF_8));
+                po.flush();
+                s.close();
+                return;
+            }
+
             Map<String, String> headers = new HashMap<>();
             String h;
             int contentLength = 0;

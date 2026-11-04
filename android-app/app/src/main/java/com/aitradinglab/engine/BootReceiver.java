@@ -4,13 +4,15 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 
-/** Auto-starts the engine after phone reboot so paper trading never stops. */
+/* loaded from: classes.dex */
 public class BootReceiver extends BroadcastReceiver {
-    @Override public void onReceive(Context context, Intent intent) {
-        if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
+    @Override // android.content.BroadcastReceiver
+    public void onReceive(Context context, Intent intent) {
+        if ("android.intent.action.BOOT_COMPLETED".equals(intent.getAction())) {
             try {
-                context.startForegroundService(new Intent(context, ServerService.class));
-            } catch (Exception ignored) { }
+                context.startForegroundService(new Intent(context, (Class<?>) ServerService.class));
+            } catch (Exception unused) {
+            }
         }
     }
 }

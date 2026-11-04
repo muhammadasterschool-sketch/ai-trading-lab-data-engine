@@ -1,269 +1,370 @@
 package com.aitradinglab.engine;
 
-import org.json.JSONObject;
-
+import com.aitradinglab.engine.EngineCore;
+import com.aitradinglab.engine.StrategyPack;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import org.json.JSONException;
+import org.json.JSONObject;
 
-/**
- * v4.4.0 AI TRAINER — owner request: "ye abhi bhi loss kar raha hai — isko
- * professional aur profitable train karo".
- *
- * Kya karta hai:
- *  1. REAL Binance history par walk-forward backtest (5m execution depth + 1d HTF
- *     regime; BTC/ETH 2017 se daily data — Binance ka aakhri data yahi hai).
- *  2. Har strategy (PDF pack S1-S9 + Shaakuni playbooks SHK1-SHK5) ke trades
- *     collect → WR / PF / expectancy, fees+slippage INCLUDED.
- *  3. IS(70)/OOS(30) split — sirf OOS performance se weight: PF<0.9 → strategy
- *     AUTO-PAUSE (loss-maker), PF>1.3 → boost. Risk phir bhi 1% flat (owner rule) —
- *     weights sirf on/off + priority, risk nahi badalte.
- *  4. Self-learning: har 25 closed trades par live results weights me blend
- *     (engine selfLearn() call karta hai) — live PF<0.7 → auto-pause.
- *
- * Pure core (simulate/stats/weights) host-JVM testable — network glue engine me.
- */
+/* loaded from: classes.dex */
 public class AiTrainer {
 
-    // ================== RESULT TYPES ==================
     public static class Res {
         public String key;
-        public int n = 0, nOos = 0;
-        public double wr = 0, pf = 0, expR = 0;        // full-sample
-        public double oosWr = 0, oosPf = 0;            // out-of-sample (decision basis)
-        public double weight = 1.0; public int enabled = 1;
+        public int n = 0;
+        public int nOos = 0;
+        public double wr = 0.0d;
+        public double pf = 0.0d;
+        public double expR = 0.0d;
+        public double oosWr = 0.0d;
+        public double oosPf = 0.0d;
+        public double weight = 1.0d;
+        public int enabled = 1;
         public String from = "";
     }
 
-    /** Ek simulated/backtested trade. */
+    public interface SigFn {
+        List<StrategyPack.Signal> at(List<EngineCore.Candle> list, int i);
+    }
+
     public static class T {
-        public long ts;        // entry time (ms)
-        public double r;       // R-multiple net of fees
+        public double r;
+        public long ts;
     }
 
-    /** Signal source: index → signals (kya bhi strategy ho). */
-    public interface SigFn { List<StrategyPack.Signal> at(List<EngineCore.Candle> k, int i); }
+    public static int enabledFrom(int i, double d) {
+        return (i != 0 && d < 0.9d) ? 0 : 1;
+    }
 
-    // ================== PURE SIMULATION CORE ==================
-    /** Ek strategy ko closed bars par walk-forward chalao. Entry = NEXT bar open
-     *  (realistic), TP = +2R, BE at +1R, time stop 96 bars, fees+slip INCLUDED.
-     *  Ek waqt me ek position per strategy (safety). */
-    public static List<T> simulate(List<EngineCore.Candle> k, SigFn fn, double feePctSide, double slipBps) {
-        List<T> out = new ArrayList<>();
-        if (k == null || k.size() < 60) return out;
-        int pos = -1;                       // entry index, -1 = flat
-        double entry = 0, sl = 0, tp = 0, risk = 0;
-        boolean buy = false, beDone = false;
-        double slip = slipBps / 10000.0;
-        for (int i = 0; i < k.size() - 1; i++) {
-            if (pos >= 0) {
-                EngineCore.Candle c = k.get(i);
-                // 1) BE move (high/low +1R touch — conservative: close-based nahi)
-                if (!beDone) {
-                    if (buy && c.h >= entry + risk) { sl = Math.max(sl, entry); beDone = true; }
-                    if (!buy && c.l <= entry - risk) { sl = Math.min(sl, entry); beDone = true; }
+    public static double weightFrom(double d) {
+        if (d >= 1.5d) {
+            return 1.3d;
+        }
+        if (d >= 1.3d) {
+            return 1.15d;
+        }
+        if (d >= 1.1d) {
+            return 1.0d;
+        }
+        return d >= 0.9d ? 0.8d : 0.6d;
+    }
+
+    public static List<T> simulate(List<EngineCore.Candle> list, SigFn sigFn, double d, double d2) {
+        List<EngineCore.Candle> list2 = null;
+        ArrayList arrayList = null;
+        double d3 = 0.0d;
+        int i = 0;
+        boolean z = false;
+        boolean z2 = false;
+        double d4 = 0.0d;
+        double d5 = 0.0d;
+        double d6 = 0.0d;
+        List<EngineCore.Candle> list3 = list;
+        ArrayList arrayList2 = new ArrayList();
+        if (list3 == null || list.size() < 60) {
+            return arrayList2;
+        }
+        double d7 = d2 / 10000.0d;
+        double d8 = 0.0d;
+        int i2 = 0;
+        int i3 = -1;
+        boolean z3 = false;
+        boolean z4 = false;
+        double d9 = 0.0d;
+        double d10 = 0.0d;
+        double d11 = 0.0d;
+        while (true) {
+            boolean z5 = true;
+            if (i2 >= list.size() - 1) {
+                return arrayList2;
+            }
+            int i4 = i2;
+            if (i3 >= 0) {
+                EngineCore.Candle candle = list3.get(i4);
+                arrayList = arrayList2;
+                if (!z3) {
+                    if (z4 && candle.h >= d9 + d10) {
+                        d8 = Math.max(d8, d9);
+                        z3 = true;
+                    }
+                    if (!z4 && candle.l <= d9 - d10) {
+                        d8 = Math.min(d8, d9);
+                        z3 = true;
+                    }
                 }
-                // 2) SL/TP (same bar dono touch → SL pehle = conservative)
-                boolean slHit = buy ? c.l <= sl : c.h >= sl;
-                boolean tpHit = buy ? c.h >= tp : c.l <= tp;
-                if (slHit || tpHit || i - pos >= 96) {
-                    double exit = slHit ? sl : (tpHit ? tp : c.c);
-                    double feePx = (entry + exit) * (feePctSide + slip);
-                    double pnl = buy ? (exit - entry - feePx) : (entry - exit - feePx);
+                boolean z6 = !z4 ? candle.h < d8 : candle.l > d8;
+                double d12 = d8;
+                if (!z4 ? candle.l > d11 : candle.h < d11) {
+                    z5 = false;
+                }
+                if (z6 || z5 || i4 - i3 >= 96) {
+                    if (z6) {
+                        d6 = d12;
+                    } else {
+                        d6 = z5 ? d11 : candle.c;
+                    }
+                    double d13 = (z4 ? d6 - d9 : d9 - d6) - ((d9 + d6) * (d + d7));
                     T t = new T();
-                    t.ts = k.get(pos).ts;
-                    t.r = risk > 0 ? pnl / risk : 0;
-                    if (t.r > 2.05) t.r = 2.05;               // TP cap
-                    if (t.r < -1.3) t.r = -1.3;               // gap guard
-                    out.add(t);
-                    pos = -1;
+                    list2 = list;
+                    boolean z7 = z3;
+                    t.ts = list2.get(i3).ts;
+                    t.r = d10 > 0.0d ? d13 / d10 : 0.0d;
+                    if (t.r > 2.05d) {
+                        t.r = 2.05d;
+                    }
+                    if (t.r < -1.3d) {
+                        t.r = -1.3d;
+                    }
+                    arrayList.add(t);
+                    z3 = z7;
+                    d8 = d12;
+                    i3 = -1;
+                } else {
+                    list2 = list;
+                    d8 = d12;
                 }
-                continue;
+            } else {
+                list2 = list3;
+                arrayList = arrayList2;
+                List<StrategyPack.Signal> at = sigFn.at(list2, i4);
+                if (at == null || at.isEmpty()) {
+                    d3 = d8;
+                    i = i3;
+                    z = z3;
+                    z2 = z4;
+                    d4 = d9;
+                    d5 = d10;
+                } else {
+                    StrategyPack.Signal signal = at.get(0);
+                    int i5 = i4 + 1;
+                    d3 = d8;
+                    i = i3;
+                    z = z3;
+                    double d14 = list2.get(i5).o * ("BUY".equals(signal.side) ? d7 + 1.0d : 1.0d - d7);
+                    z2 = z4;
+                    d4 = d9;
+                    d5 = d10;
+                    double abs = Math.abs(signal.refPrice - signal.slPrice);
+                    if (abs > 0.0d && d14 > 0.0d) {
+                        double d15 = signal.slPrice;
+                        boolean equals = "BUY".equals(signal.side);
+                        double d16 = 2.0d * abs;
+                        d11 = equals ? d16 + d14 : d14 - d16;
+                        EngineCore.Candle candle2 = list2.get(i5);
+                        boolean z8 = !equals ? candle2.h < d15 : candle2.l > d15;
+                        if (!equals ? candle2.l > d11 : candle2.h < d11) {
+                            z5 = false;
+                        }
+                        if (z8 || z5) {
+                            double d17 = z8 ? d15 : d11;
+                            double d18 = (equals ? d17 - d14 : d14 - d17) - ((d14 + d17) * (d + d7));
+                            T t2 = new T();
+                            t2.ts = list2.get(i5).ts;
+                            t2.r = abs > 0.0d ? d18 / abs : 0.0d;
+                            if (t2.r > 2.05d) {
+                                t2.r = 2.05d;
+                            }
+                            if (t2.r < -1.3d) {
+                                t2.r = -1.3d;
+                            }
+                            arrayList.add(t2);
+                            z4 = equals;
+                            i3 = -1;
+                        } else {
+                            i3 = i5;
+                            z4 = equals;
+                        }
+                        z3 = false;
+                        d10 = abs;
+                        d9 = d14;
+                        d8 = d15;
+                    }
+                }
+                z4 = z2;
+                i3 = i;
+                d8 = d3;
+                z3 = z;
+                d9 = d4;
+                d10 = d5;
             }
-            List<StrategyPack.Signal> sigs = fn.at(k, i);
-            if (sigs == null || sigs.isEmpty()) continue;
-            StrategyPack.Signal s = sigs.get(0);
-            EngineCore.Candle next = k.get(i + 1);
-            double e = next.o;
-            e = "BUY".equals(s.side) ? e * (1 + slip) : e * (1 - slip);   // slippage
-            double rd = Math.abs(s.refPrice - s.slPrice);
-            if (rd <= 0 || e <= 0) continue;
-            pos = i + 1; entry = e; sl = s.slPrice; buy = "BUY".equals(s.side);
-            risk = rd;
-            tp = buy ? entry + 2 * rd : entry - 2 * rd;
-            beDone = false;
-            // entry bar me hi SL/TP check (gap guard)
-            EngineCore.Candle ec = k.get(pos);
-            boolean slHit = buy ? ec.l <= sl : ec.h >= sl;
-            boolean tpHit = buy ? ec.h >= tp : ec.l <= tp;
-            if (slHit || tpHit) {
-                double exit = slHit ? sl : tp;
-                double feePx = (entry + exit) * (feePctSide + slip);
-                double pnl = buy ? (exit - entry - feePx) : (entry - exit - feePx);
-                T t = new T(); t.ts = k.get(pos).ts; t.r = risk > 0 ? pnl / risk : 0;
-                if (t.r > 2.05) t.r = 2.05; if (t.r < -1.3) t.r = -1.3;
-                out.add(t);
-                pos = -1;
+            arrayList2 = arrayList;
+            i2 = i4 + 1;
+            list3 = list2;
+        }
+    }
+
+    public static double[] stats(List<T> list) {
+        double d = 0.0d;
+        double d2 = 0.0d;
+        double d3 = 0.0d;
+        double d4 = 0.0d;
+        for (T t : list) {
+            d += t.r;
+            if (t.r > 0.0d) {
+                d2 += 1.0d;
+                d3 += t.r;
+            } else if (t.r < 0.0d) {
+                d4 += -t.r;
             }
         }
-        return out;
+        int size = list.size();
+        double d5 = size;
+        return new double[]{d5, size > 0 ? d2 / d5 : 0.0d, d4 > 0.0d ? d3 / d4 : d3 > 0.0d ? 99 : 0, size > 0 ? d / d5 : 0.0d};
     }
 
-    /** [n, winRate 0-1, profitFactor, avgR] — losses ka sum 0 ho to PF = wins>0 ? 99 : 0. */
-    public static double[] stats(List<T> trades) {
-        double w = 0, l = 0, gw = 0, gl = 0, sumR = 0;
-        for (T t : trades) {
-            sumR += t.r;
-            if (t.r > 0) { w++; gw += t.r; } else if (t.r < 0) { l++; gl += -t.r; }
+    public static double[] oosStats(List<T> list, long j) {
+        ArrayList arrayList = new ArrayList();
+        for (T t : list) {
+            if (t.ts >= j) {
+                arrayList.add(t);
+            }
         }
-        int n = trades.size();
-        return new double[]{
-                n,
-                n > 0 ? w / n : 0,
-                gl > 0 ? gw / gl : (gw > 0 ? 99 : 0),
-                n > 0 ? sumR / n : 0
-        };
+        return stats(arrayList);
     }
 
-    /** OOS (entryTs >= splitTs) subset stats. */
-    public static double[] oosStats(List<T> trades, long splitTs) {
-        List<T> oos = new ArrayList<>();
-        for (T t : trades) if (t.ts >= splitTs) oos.add(t);
-        return stats(oos);
-    }
-
-    /** OOS PF → weight (risk 1% flat rehta hai — weight sirf gate/priority). */
-    public static double weightFrom(double oosPf) {
-        if (oosPf >= 1.5) return 1.3;
-        if (oosPf >= 1.3) return 1.15;
-        if (oosPf >= 1.1) return 1.0;
-        if (oosPf >= 0.9) return 0.8;
-        return 0.6;
-    }
-
-    /** OOS PF → enabled (PF<0.9 auto-pause; n==0 neutral-on). */
-    public static int enabledFrom(int oosN, double oosPf) {
-        if (oosN == 0) return 1;
-        return oosPf < 0.9 ? 0 : 1;
-    }
-
-    /** Res → JSON row (JSONException internally wrapped — host android.jar parity). */
-    public static JSONObject resJson(Res r) {
+    public static JSONObject resJson(Res res) {
         try {
-            return new JSONObject()
-                    .put("n", r.n).put("wr", round(r.wr * 100, 1)).put("pf", round(r.pf, 2))
-                    .put("oos_n", r.nOos).put("oos_wr", round(r.oosWr * 100, 1)).put("oos_pf", round(r.oosPf, 2))
-                    .put("exp_r", round(r.expR, 3)).put("w", r.weight).put("on", r.enabled);
-        } catch (org.json.JSONException e) {
+            return new JSONObject().put("n", res.n).put("wr", round(res.wr * 100.0d, 1)).put("pf", round(res.pf, 2)).put("oos_n", res.nOos).put("oos_wr", round(res.oosWr * 100.0d, 1)).put("oos_pf", round(res.oosPf, 2)).put("exp_r", round(res.expR, 3)).put("w", res.weight).put("on", res.enabled);
+        } catch (JSONException unused) {
             return new JSONObject();
         }
     }
 
-    private static double round(double v, int d) {
-        double m = Math.pow(10, d);
-        return Math.round(v * m) / m;
+    private static double round(double d, int i) {
+        return Math.round(d * Math.pow(10.0d, i)) / Math.pow(10.0d, i);
     }
 
-    // ================== SHAAKUNI PLAYBOOK SIGNAL FUNCTIONS (training ke liye) ==================
-    /** SHK1 SSM Sniper Bull: PDL sweep + MSS bull. SHK2: PDH sweep + MSS bear.
-     *  SHK3 Killzone Sweep: killzone + koi bhi sweep (polarity se side).
-     *  SHK4 OB Retest: MSS + untouched OB me price. SHK5 PD Filter: discount + EMA200 up. */
-    public static List<StrategyPack.Signal> shaakuniSignals(List<EngineCore.Candle> k, int i, String which) {
-        List<StrategyPack.Signal> out = new ArrayList<>();
-        EngineCore.Candle c = k.get(i);
-        double a = EngineCore.atr(k, 14);
-        if (Double.isNaN(a) || a <= 0) return out;
-        double px = c.c;
-        double[] d = EngineCore.prevDayHighLow(k.subList(0, i + 1));
-        EngineCore.StructEvent se = EngineCore.structureWalk(k.subList(0, i + 1), 10);
-        StrategyPack.Signal s = null;
-        if ("SHK1_SSM_BULL".equals(which)) {
-            if (d != null && se != null && "BULL".equals(se.dir) && "MSS".equals(se.kind)
-                    && "SWEEP".equals(EngineCore.sweepStatus(k.subList(0, i + 1), d[1], false))) {
-                s = mk("SHK1_SSM_BULL", "BUY", c, a);
+    public static List<StrategyPack.Signal> shaakuniSignals(List<EngineCore.Candle> list, int i, String str) {
+        ArrayList arrayList = new ArrayList();
+        EngineCore.Candle candle = list.get(i);
+        double atr = EngineCore.atr(list, 14);
+        if (Double.isNaN(atr) || atr <= 0.0d) {
+            return arrayList;
+        }
+        double d = candle.c;
+        int i2 = i + 1;
+        double[] prevDayHighLow = EngineCore.prevDayHighLow(list.subList(0, i2));
+        EngineCore.StructEvent structureWalk = EngineCore.structureWalk(list.subList(0, i2), 10);
+        StrategyPack.Signal signal = null;
+        if ("SHK1_SSM_BULL".equals(str)) {
+            if (prevDayHighLow != null && structureWalk != null && "BULL".equals(structureWalk.dir) && "MSS".equals(structureWalk.kind) && "SWEEP".equals(EngineCore.sweepStatus(list.subList(0, i2), prevDayHighLow[1], false))) {
+                signal = mk("SHK1_SSM_BULL", "BUY", candle, atr);
             }
-        } else if ("SHK2_SSM_BEAR".equals(which)) {
-            if (d != null && se != null && "BEAR".equals(se.dir) && "MSS".equals(se.kind)
-                    && "SWEEP".equals(EngineCore.sweepStatus(k.subList(0, i + 1), d[0], true))) {
-                s = mk("SHK2_SSM_BEAR", "SELL", c, a);
+        } else if ("SHK2_SSM_BEAR".equals(str)) {
+            if (prevDayHighLow != null && structureWalk != null && "BEAR".equals(structureWalk.dir) && "MSS".equals(structureWalk.kind) && "SWEEP".equals(EngineCore.sweepStatus(list.subList(0, i2), prevDayHighLow[0], true))) {
+                signal = mk("SHK2_SSM_BEAR", "SELL", candle, atr);
             }
-        } else if ("SHK3_KZ_SWEEP".equals(which)) {
-            String[] ses = EngineCore.sessionNow(c.ts);
-            if ("yes".equals(ses[1]) && d != null) {
-                boolean pdhSweep = "SWEEP".equals(EngineCore.sweepStatus(k.subList(0, i + 1), d[0], true));
-                boolean pdlSweep = "SWEEP".equals(EngineCore.sweepStatus(k.subList(0, i + 1), d[1], false));
-                if (pdlSweep) s = mk("SHK3_KZ_SWEEP", "BUY", c, a);
-                else if (pdhSweep) s = mk("SHK3_KZ_SWEEP", "SELL", c, a);
+        } else if ("SHK3_KZ_SWEEP".equals(str)) {
+            if ("yes".equals(EngineCore.sessionNow(candle.ts)[1]) && prevDayHighLow != null) {
+                boolean equals = "SWEEP".equals(EngineCore.sweepStatus(list.subList(0, i2), prevDayHighLow[0], true));
+                if ("SWEEP".equals(EngineCore.sweepStatus(list.subList(0, i2), prevDayHighLow[1], false))) {
+                    signal = mk("SHK3_KZ_SWEEP", "BUY", candle, atr);
+                } else if (equals) {
+                    signal = mk("SHK3_KZ_SWEEP", "SELL", candle, atr);
+                }
             }
-        } else if ("SHK4_OB_RETEST".equals(which)) {
-            if (se != null) {
-                List<EngineCore.ObZone> obs = EngineCore.orderBlocks(k.subList(0, i + 1), 10);
-                for (EngineCore.ObZone z : obs) {
-                    if (z.mitigated) continue;
-                    if (px >= z.bottom && px <= z.top) {
-                        s = mk("SHK4_OB_RETEST", z.bullish ? "BUY" : "SELL", c, a);
+        } else if ("SHK4_OB_RETEST".equals(str)) {
+            if (structureWalk != null) {
+                Iterator<EngineCore.ObZone> it = EngineCore.orderBlocks(list.subList(0, i2), 10).iterator();
+                while (true) {
+                    if (!it.hasNext()) {
                         break;
+                    }
+                    EngineCore.ObZone next = it.next();
+                    if (!next.mitigated && d >= next.bottom && d <= next.top) {
+                        signal = mk("SHK4_OB_RETEST", next.bullish ? "BUY" : "SELL", candle, atr);
                     }
                 }
             }
-        } else if ("SHK5_PD_EMA200".equals(which)) {
-            if (d != null) {
-                double eq = (d[0] + d[1]) / 2.0;
-                double e200 = emaClose(k, i, 200);
-                if (!Double.isNaN(e200)) {
-                    if (px < eq && px > e200) s = mk("SHK5_PD_EMA200", "BUY", c, a);
-                    else if (px > eq && px < e200) s = mk("SHK5_PD_EMA200", "SELL", c, a);
+        } else if ("SHK5_PD_EMA200".equals(str) && prevDayHighLow != null) {
+            double d2 = (prevDayHighLow[0] + prevDayHighLow[1]) / 2.0d;
+            double emaClose = emaClose(list, i, 200);
+            if (!Double.isNaN(emaClose)) {
+                if (d < d2 && d > emaClose) {
+                    signal = mk("SHK5_PD_EMA200", "BUY", candle, atr);
+                } else if (d > d2 && d < emaClose) {
+                    signal = mk("SHK5_PD_EMA200", "SELL", candle, atr);
                 }
             }
         }
-        if (s != null) out.add(s);
-        return out;
+        StrategyPack.Signal signal2 = signal;
+        if (signal2 != null) {
+            arrayList.add(signal2);
+        }
+        return arrayList;
     }
 
-    private static StrategyPack.Signal mk(String key, String side, EngineCore.Candle c, double a) {
-        StrategyPack.Signal s = new StrategyPack.Signal();
-        s.strategy = key; s.side = side;
-        s.sigTs = c.ts; s.sigIdx = -1; s.refPrice = c.c; s.windowBars = 8;
-        if ("BUY".equals(side)) {
-            s.slPrice = c.l - 1.5 * a; s.boundary = c.l - 2.5 * a;
+    private static StrategyPack.Signal mk(String str, String str2, EngineCore.Candle candle, double d) {
+        StrategyPack.Signal signal = new StrategyPack.Signal();
+        signal.strategy = str;
+        signal.side = str2;
+        signal.sigTs = candle.ts;
+        signal.sigIdx = -1;
+        signal.refPrice = candle.c;
+        signal.windowBars = 8;
+        if ("BUY".equals(str2)) {
+            signal.slPrice = candle.l - (1.5d * d);
+            signal.boundary = candle.l - (d * 2.5d);
         } else {
-            s.slPrice = c.h + 1.5 * a; s.boundary = c.h + 2.5 * a;
+            signal.slPrice = candle.h + (1.5d * d);
+            signal.boundary = candle.h + (d * 2.5d);
         }
-        s.note = "Shaakuni playbook " + key;
-        return s;
+        signal.note = "Shaakuni playbook " + str;
+        return signal;
     }
 
-    private static double emaClose(List<EngineCore.Candle> k, int at, int n) {
-        if (at < n - 1) return Double.NaN;
-        double mult = 2.0 / (n + 1), e = 0; boolean init = false;
-        for (int i = 0; i <= at; i++) {
-            double c = k.get(i).c;
-            e = init ? (c - e) * mult + e : c; init = true;
+    private static double emaClose(List<EngineCore.Candle> list, int i, int i2) {
+        if (i < i2 - 1) {
+            return Double.NaN;
         }
-        return e;
-    }
-
-    // ================== PREV-DAY MAP (S5 ke liye, O(n)) ==================
-    /** Har index ke liye PREVIOUS closed UTC day ka [pdh, pdl] — ek pass me. */
-    public static double[][] prevDayMap(List<EngineCore.Candle> k) {
-        TreeMap<Long, double[]> days = new TreeMap<>();
-        double[][] out = new double[k.size()][];
-        long curDay = -1; double hi = 0, lo = 0;
-        for (int i = 0; i < k.size(); i++) {
-            EngineCore.Candle c = k.get(i);
-            long day = c.ts / 86400000L;
-            if (day != curDay) {
-                if (curDay > 0) days.put(curDay, new double[]{hi, lo});
-                curDay = day; hi = c.h; lo = c.l;
-            } else {
-                if (c.h > hi) hi = c.h;
-                if (c.l < lo) lo = c.l;
+        double d = 2.0d / (i2 + 1);
+        int i3 = 0;
+        double d2 = 0.0d;
+        boolean z = false;
+        while (i3 <= i) {
+            double d3 = list.get(i3).c;
+            if (z) {
+                d3 = ((d3 - d2) * d) + d2;
             }
-            Map.Entry<Long, double[]> prev = days.lastEntry();
-            out[i] = prev == null ? null : prev.getValue();
+            d2 = d3;
+            i3++;
+            z = true;
         }
-        return out;
+        return d2;
+    }
+
+    public static double[][] prevDayMap(List<EngineCore.Candle> list) {
+        TreeMap treeMap = new TreeMap();
+        double[][] dArr = new double[list.size()][];
+        long j = -1;
+        double d = 0.0d;
+        double d2 = 0.0d;
+        for (int i = 0; i < list.size(); i++) {
+            EngineCore.Candle candle = list.get(i);
+            long j2 = candle.ts / 86400000;
+            if (j2 != j) {
+                if (j > 0) {
+                    treeMap.put(Long.valueOf(j), new double[]{d, d2});
+                }
+                double d3 = candle.h;
+                d2 = candle.l;
+                d = d3;
+                j = j2;
+            } else {
+                if (candle.h > d) {
+                    d = candle.h;
+                }
+                if (candle.l < d2) {
+                    d2 = candle.l;
+                }
+            }
+            Map.Entry lastEntry = treeMap.lastEntry();
+            dArr[i] = lastEntry == null ? null : (double[]) lastEntry.getValue();
+        }
+        return dArr;
     }
 }

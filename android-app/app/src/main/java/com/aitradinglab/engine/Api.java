@@ -2,1448 +2,1708 @@ package com.aitradinglab.engine;
 
 import android.content.Context;
 import android.database.Cursor;
-import java.util.Locale;
+import android.database.sqlite.SQLiteDatabase;
+import android.os.Build;
+import android.os.PowerManager;
+import android.util.Log;
+import com.aitradinglab.engine.EngineCore;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.net.URLDecoder;
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.TimeZone;
+import java.util.function.BiFunction;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** REST API + auth flow + dashboard hosting — mirrors the cloud engine's API shapes. */
+/* loaded from: classes.dex */
 public class Api {
+    private final Context appCtx;
+    private final String dashboardHtml;
+    private final Db db;
+    private final EngineCore engine;
+    private String query = "";
+
     public static class Res {
         public int status = 200;
         public String contentType = "application/json";
         public String body = "{}";
-        public static Res json(int code, Object o) {
-            Res r = new Res();
-            r.status = code;
-            r.body = o instanceof String ? (String) o : o.toString();
-            return r;
+
+        public static Res json(int i, Object obj) {
+            Res res = new Res();
+            res.status = i;
+            res.body = obj instanceof String ? (String) obj : obj.toString();
+            return res;
         }
-        public static Res error(int code, String msg) { try { return json(code, new JSONObject().put("error", msg)); } catch (Exception e) { return json(code, "{\"error\":\"error\"}"); } }
-        public static Res html(String s) {
-            Res r = new Res();
-            r.contentType = "text/html; charset=utf-8";
-            r.body = s;
-            return r;
-        }
-    }
 
-    private final Db db;
-    private final EngineCore engine;
-    private final String dashboardHtml;
-    private final Context appCtx;
-
-    public Api(Context ctx, Db db, EngineCore engine) {
-        this.db = db;
-        this.engine = engine;
-        this.appCtx = ctx.getApplicationContext();
-        String html = "";
-        try {
-            java.io.InputStream is = ctx.getAssets().open("dashboard.html");
-            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
-            byte[] buf = new byte[8192]; int n;
-            while ((n = is.read(buf)) > 0) bo.write(buf, 0, n);
-            html = new String(bo.toByteArray(), "UTF-8");
-        } catch (Exception e) {
-            html = "<html><body><h2>AI Trading Lab</h2><p>dashboard asset missing</p></body></html>";
-        }
-        this.dashboardHtml = html;
-    }
-
-    // ================== ROUTER ==================
-    private String query = ""; // v1.2 — raw query string for /api/history/csv?y=...&m=...
-
-    public Res route(String method, String rawPath, String authHeader, String body) {
-        String path = rawPath;
-        int q = path.indexOf('?');
-        if (q >= 0) { query = path.substring(q + 1); path = path.substring(0, q); } else query = "";
-        String m = method.toUpperCase();
-
-        if ("OPTIONS".equals(m)) return Res.json(200, "{}");
-
-        try {
-            if ("GET".equals(m)) return get(path, authHeader);
-            if ("POST".equals(m)) return post(path, authHeader, body);
-            if ("DELETE".equals(m)) return delete(path, authHeader);
-            return Res.error(405, "method not allowed");
-        } catch (Throwable e) {
-            // v5.3: never swallow the cause — surface it so the user can report the REAL problem
-            String cause = e.getClass().getSimpleName() + ": " + e.getMessage();
+        public static Res error(int i, String str) {
             try {
-                android.util.Log.e("ATL.API", path + " failed — " + cause);
-                db.log("ERROR", "API", "REQUEST_FAIL", path + " — " + cause);
-            } catch (Throwable ignored) { }
-            return Res.error(500, "server error — " + cause + " (screenshot this and report)");
-        }
-    }
-
-    private Long userId(String authHeader) {
-        if (authHeader == null) return null;
-        String token = authHeader.startsWith("Bearer ") ? authHeader.substring(7) : authHeader;
-        Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT user_id FROM sessions WHERE token=?", new String[]{token});
-        Long uid = c.moveToFirst() ? c.getLong(0) : null;
-        c.close();
-        return uid;
-    }
-
-    // ================== GET ==================
-    private Res get(String path, String auth) throws Exception {
-        if ("/".equals(path) || "/index.html".equals(path)) return Res.html(dashboardHtml);
-        if ("/api/health".equals(path)) return Res.json(200, new JSONObject()
-                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "1.1").put("timeframe", "5m").put("scanner", "24/7").put("strategy", "3C MASTER (M5) + PDF PACK (9, 5m) + 5M PLAYBOOK (4, guide-tuned) + SHAAKUNI (5) + AI TRAINER"));
-
-        Long uid = userId(auth);
-        if (uid == null) return Res.error(401, "authentication required");
-
-        if ("/api/dashboard".equals(path)) return dashboard(uid);
-        if ("/api/instruments".equals(path)) return instruments();
-        if (path.startsWith("/api/indicators")) return indicators(path);
-        if ("/api/news".equals(path)) return news();
-        if ("/api/trades".equals(path)) return trades(uid);
-        if ("/api/strategies".equals(path)) {   // v1.2 Strategy Lab listing
-            if (engine == null || engine.lab == null) return Res.error(503, "Lab shuru ho raha hai — refresh karein");
-            return Res.json(200, engine.lab.listStrategies());
-        }
-        if ("/api/history".equals(path)) return history(uid);            // v1.2 year→month→day archive
-        if ("/api/history/csv".equals(path)) return historyCsv(uid);     // v1.2 month CSV export
-        if ("/api/logs".equals(path)) return logs();
-        if ("/api/brokers".equals(path)) return brokers();
-        if ("/api/settings".equals(path)) return settings();
-        if (path.startsWith("/api/candles")) return candles(path, uid == null ? 0 : uid);   // v1.8 chart (v3.0 + trade overlay)
-        if ("/api/analytics".equals(path)) return analytics(uid);    // v3.0 EDGE ANALYTICS
-        if (path.startsWith("/api/seasonality")) return seasonality(path);  // v3.0 seasonal edge
-        if ("/api/audit.csv".equals(path)) return auditCsv(uid);     // v3.0 audit trail export
-        if ("/api/ai_status".equals(path)) return aiStatus();        // v4.4 AI trainer status + weights
-        if ("/api/pack".equals(path)) return packStatus();           // v4.4 PDF pack status
-        // v5.7 FULL MOBILE CONTROL — owner admin endpoints (role=ADMIN required)
-        if ("/api/admin/users".equals(path)) return adminUsers(uid);
-        if ("/api/admin/invites".equals(path)) return adminInvites(uid);
-        if ("/api/admin/alerts".equals(path)) return adminAlerts(uid);
-        return Res.error(404, "not found");
-    }
-
-    /** v4.4 — AI trainer status + weights (Home > AI TRAINER card). */
-    private Res aiStatus() {
-        if (engine == null) return Res.error(503, "engine not ready");
-        JSONObject o = new JSONObject();
-        try {
-            long trainedAt = 0;
-            try { trainedAt = Long.parseLong(db.setting("ai_trained_at", "0").trim()); } catch (Throwable ignored) { }
-            o.put("trained_at", trainedAt);
-            o.put("auto_train", "1".equals(db.setting("ai_auto_train", "1")));
-            o.put("running", engine.aiTraining);
-            try { o.put("report", new JSONObject(db.setting("ai_train_report", "{}"))); } catch (Throwable ignored) { }
-            try { o.put("weights", new JSONObject(db.setting("ai_weights_v2", "{}"))); } catch (Throwable ignored) { }
-            o.put("fee_edge_on", "1".equals(db.setting("fee_edge_on", "1")));
-            o.put("min_fee_edge_pct", db.setting("min_fee_edge_pct", "0.14"));
-        } catch (Throwable t) { return Res.error(500, String.valueOf(t)); }
-        return Res.json(200, o);
-    }
-
-    /** v4.4 — PDF pack strategies + toggles. */
-    private Res packStatus() {
-        JSONObject o = new JSONObject();
-        try {
-            JSONArray arr = new JSONArray();
-            for (String[] s : com.aitradinglab.engine.StrategyPack.STRATEGIES) {
-                arr.put(new JSONObject()
-                        .put("key", s[0]).put("name", s[1]).put("rating", s[2])
-                        .put("on", "1".equals(db.setting("pack_" + s[0].toLowerCase(Locale.ROOT), "1"))));
+                return json(i, new JSONObject().put("error", str));
+            } catch (Exception unused) {
+                return json(i, "{\"error\":\"error\"}");
             }
-            o.put("strategies", arr);
-            // v1.1 TUNED default OFF — replay data: PDF pack 5m par PF 0.38-0.60 (fees bleed); owner toggle ON kar sakta hai
-            o.put("pack_on", "1".equals(db.setting("pack_on", "0")));
-        } catch (Throwable t) { return Res.error(500, String.valueOf(t)); }
-        return Res.json(200, o);
+        }
+
+        public static Res html(String str) {
+            Res res = new Res();
+            res.contentType = "text/html; charset=utf-8";
+            res.body = str;
+            return res;
+        }
     }
 
-    // v4.4 — isAdmin() neeche v5.7 section me already hai (duplicate hataya gaya)
+    public Api(Context context, Db db, EngineCore engineCore) {
+        String str = null;
+        this.db = db;
+        this.engine = engineCore;
+        this.appCtx = context.getApplicationContext();
+        try {
+            InputStream open = context.getAssets().open("dashboard.html");
+            ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+            byte[] bArr = new byte[8192];
+            while (true) {
+                int read = open.read(bArr);
+                if (read <= 0) {
+                    break;
+                } else {
+                    byteArrayOutputStream.write(bArr, 0, read);
+                }
+            }
+            str = new String(byteArrayOutputStream.toByteArray(), "UTF-8");
+        } catch (Exception unused) {
+            str = "<html><body><h2>AI Trading Lab</h2><p>dashboard asset missing</p></body></html>";
+        }
+        this.dashboardHtml = str;
+    }
 
-    // ================== POST ==================
-    private Res post(String path, String auth, String body) throws Exception {
-        // ---- public auth endpoints ----
-        if ("/api/auth/register".equals(path)) return register(body);
-        if ("/api/auth/login".equals(path)) return login(body);
-        if ("/api/auth/verify2fa".equals(path)) return verify2fa(body);
-        if ("/api/auth/reset".equals(path)) return resetPassword(body);
+    public Res route(String str, String str2, String str3, String str4) {
+        int indexOf = str2.indexOf(63);
+        if (indexOf >= 0) {
+            this.query = str2.substring(indexOf + 1);
+            str2 = str2.substring(0, indexOf);
+        } else {
+            this.query = "";
+        }
+        String upperCase = str.toUpperCase();
+        if ("OPTIONS".equals(upperCase)) {
+            return Res.json(200, "{}");
+        }
+        try {
+            return "GET".equals(upperCase) ? get(str2, str3) : "POST".equals(upperCase) ? post(str2, str3, str4) : "DELETE".equals(upperCase) ? delete(str2, str3) : Res.error(405, "method not allowed");
+        } catch (Throwable th) {
+            String str5 = th.getClass().getSimpleName() + ": " + th.getMessage();
+            try {
+                Log.e("ATL.API", str2 + " failed — " + str5);
+                this.db.log("ERROR", "API", "REQUEST_FAIL", str2 + " — " + str5);
+            } catch (Throwable unused) {
+            }
+            return Res.error(500, "server error — " + str5 + " (screenshot this and report)");
+        }
+    }
 
-        Long uid = userId(auth);
-        if (uid == null) return Res.error(401, "authentication required");
+    private Long userId(String str) {
+        if (str == null) {
+            return null;
+        }
+        if (str.startsWith("Bearer ")) {
+            str = str.substring(7);
+        }
+        Cursor rawQuery = this.db.getReadableDatabase().rawQuery("SELECT user_id FROM sessions WHERE token=?", new String[]{str});
+        Long valueOf = rawQuery.moveToFirst() ? Long.valueOf(rawQuery.getLong(0)) : null;
+        rawQuery.close();
+        return valueOf;
+    }
 
-        if ("/api/auth/logout".equals(path)) return logout(auth);
-        if ("/api/trades/close".equals(path)) return closeTrade(uid, body);
-        if ("/api/brokers".equals(path)) return addBroker(body);
-        if ("/api/brokers/test".equals(path)) return testBroker(body);
-        if ("/api/instruments/scan".equals(path)) {
-            if (engine != null) engine.forceDiscovery();
-            db.log("INFO", "DISCOVERY", "MANUAL_SCAN", "user triggered discovery + news scan");
+    private Res get(String str, String str2) throws Exception {
+        if ("/".equals(str) || "/index.html".equals(str)) {
+            return Res.html(this.dashboardHtml);
+        }
+        if ("/api/health".equals(str)) {
+            return Res.json(200, new JSONObject().put("ok", true).put("engine", "ai-trading-lab-phone").put("device", Build.MANUFACTURER + " " + Build.MODEL).put("android", Build.VERSION.SDK_INT).put("version", "1.1").put("timeframe", "5m").put("scanner", "24/7").put("strategy", "3C MASTER (M5) + PDF PACK (9, 5m) + 5M PLAYBOOK (4, guide-tuned) + SHAAKUNI (5) + AI TRAINER"));
+        }
+        Long userId = userId(str2);
+        if (userId == null) {
+            return Res.error(401, "authentication required");
+        }
+        if ("/api/dashboard".equals(str)) {
+            return dashboard(userId.longValue());
+        }
+        if ("/api/instruments".equals(str)) {
+            return instruments();
+        }
+        if (str.startsWith("/api/indicators")) {
+            return indicators(str);
+        }
+        if ("/api/news".equals(str)) {
+            return news();
+        }
+        if ("/api/trades".equals(str)) {
+            return trades(userId.longValue());
+        }
+        if ("/api/strategies".equals(str)) {
+            EngineCore engineCore = this.engine;
+            if (engineCore == null || engineCore.lab == null) {
+                return Res.error(503, "Lab shuru ho raha hai — refresh karein");
+            }
+            return Res.json(200, this.engine.lab.listStrategies());
+        }
+        if ("/api/history".equals(str)) {
+            return history(userId.longValue());
+        }
+        if ("/api/history/csv".equals(str)) {
+            return historyCsv(userId.longValue());
+        }
+        if ("/api/logs".equals(str)) {
+            return logs();
+        }
+        if ("/api/brokers".equals(str)) {
+            return brokers();
+        }
+        if ("/api/settings".equals(str)) {
+            return settings();
+        }
+        if (str.startsWith("/api/candles")) {
+            return candles(str, userId == null ? 0L : userId.longValue());
+        }
+        return "/api/analytics".equals(str) ? analytics(userId.longValue()) : str.startsWith("/api/seasonality") ? seasonality(str) : "/api/audit.csv".equals(str) ? auditCsv(userId.longValue()) : "/api/ai_status".equals(str) ? aiStatus() : "/api/pack".equals(str) ? packStatus() : "/api/admin/users".equals(str) ? adminUsers(userId.longValue()) : "/api/admin/invites".equals(str) ? adminInvites(userId.longValue()) : "/api/admin/alerts".equals(str) ? adminAlerts(userId.longValue()) : Res.error(404, "not found");
+    }
+
+    private Res aiStatus() {
+        long j = 0L;
+        if (this.engine == null) {
+            return Res.error(503, "engine not ready");
+        }
+        JSONObject jSONObject = new JSONObject();
+        try {
+            j = Long.parseLong(this.db.setting("ai_trained_at", "0").trim());
+        } catch (Throwable unused) {
+            j = 0;
+        }
+        try {
+            jSONObject.put("trained_at", j);
+            jSONObject.put("auto_train", "1".equals(this.db.setting("ai_auto_train", "1")));
+            jSONObject.put("running", this.engine.aiTraining);
+            try {
+                jSONObject.put("report", new JSONObject(this.db.setting("ai_train_report", "{}")));
+            } catch (Throwable unused2) {
+            }
+            try {
+                jSONObject.put("weights", new JSONObject(this.db.setting("ai_weights_v2", "{}")));
+            } catch (Throwable unused3) {
+            }
+            jSONObject.put("fee_edge_on", "1".equals(this.db.setting("fee_edge_on", "1")));
+            jSONObject.put("min_fee_edge_pct", this.db.setting("min_fee_edge_pct", "0.14"));
+            return Res.json(200, jSONObject);
+        } catch (Throwable th) {
+            return Res.error(500, String.valueOf(th));
+        }
+    }
+
+    private Res packStatus() {
+        JSONObject jSONObject = new JSONObject();
+        try {
+            JSONArray jSONArray = new JSONArray();
+            for (String[] strArr : StrategyPack.STRATEGIES) {
+                jSONArray.put(new JSONObject().put("key", strArr[0]).put("name", strArr[1]).put("rating", strArr[2]).put("on", "1".equals(this.db.setting("pack_" + strArr[0].toLowerCase(Locale.ROOT), "1"))));
+            }
+            jSONObject.put("strategies", jSONArray);
+            jSONObject.put("pack_on", "1".equals(this.db.setting("pack_on", "0")));
+            return Res.json(200, jSONObject);
+        } catch (Throwable th) {
+            return Res.error(500, String.valueOf(th));
+        }
+    }
+
+    private Res post(String str, String str2, String str3) throws Exception {
+        if ("/api/auth/register".equals(str)) {
+            return register(str3);
+        }
+        if ("/api/auth/login".equals(str)) {
+            return login(str3);
+        }
+        if ("/api/auth/verify2fa".equals(str)) {
+            return verify2fa(str3);
+        }
+        if ("/api/auth/reset".equals(str)) {
+            return resetPassword(str3);
+        }
+        Long userId = userId(str2);
+        if (userId == null) {
+            return Res.error(401, "authentication required");
+        }
+        if ("/api/auth/logout".equals(str)) {
+            return logout(str2);
+        }
+        if ("/api/trades/close".equals(str)) {
+            return closeTrade(userId.longValue(), str3);
+        }
+        if ("/api/brokers".equals(str)) {
+            return addBroker(str3);
+        }
+        if ("/api/brokers/test".equals(str)) {
+            return testBroker(str3);
+        }
+        if ("/api/instruments/scan".equals(str)) {
+            EngineCore engineCore = this.engine;
+            if (engineCore != null) {
+                engineCore.forceDiscovery();
+            }
+            this.db.log("INFO", "DISCOVERY", "MANUAL_SCAN", "user triggered discovery + news scan");
             return Res.json(200, new JSONObject().put("ok", true).put("message", "Discovery + news scan started"));
         }
-        if ("/api/settings".equals(path)) return saveSettings(body);
-        // v1.2 — owner ka apna paper amount: set ANY paper balance
-        if ("/api/balance".equals(path)) return setBalance(uid, body);
-        // v4.4 — TRAIN AI (owner/ADMIN only): Binance history walk-forward
-        if ("/api/ai_train".equals(path)) {
-            if (!isAdmin(uid)) return Res.error(403, "sirf owner (ADMIN) AI train kar sakta hai");
-            if (engine == null) return Res.error(503, "engine not ready");
-            engine.trainAiAsync();
-            db.log("INFO", "AI", "TRAIN_TRIGGERED", "owner ne TRAIN AI dabaya — Binance history walk-forward shuru (15m depth + 1d 2017→)");
+        if ("/api/settings".equals(str)) {
+            return saveSettings(str3);
+        }
+        if ("/api/balance".equals(str)) {
+            return setBalance(userId.longValue(), str3);
+        }
+        if ("/api/ai_train".equals(str)) {
+            if (!isAdmin(userId.longValue())) {
+                return Res.error(403, "sirf owner (ADMIN) AI train kar sakta hai");
+            }
+            EngineCore engineCore2 = this.engine;
+            if (engineCore2 == null) {
+                return Res.error(503, "engine not ready");
+            }
+            engineCore2.trainAiAsync();
+            this.db.log("INFO", "AI", "TRAIN_TRIGGERED", "owner ne TRAIN AI dabaya — Binance history walk-forward shuru (15m depth + 1d 2017→)");
             return Res.json(200, new JSONObject().put("ok", true).put("message", "AI training shuru — Binance history (top-12 pairs, 15m depth + 1d HTF) walk-forward chal raha hai. 5-15 min; report Home > AI TRAINER card me aayegi."));
         }
-        // v1.2 Strategy Lab — add/compile/watch/backtest/paper/approve
-        if ("/api/strategies".equals(path)) {
-            if (engine == null || engine.lab == null) return Res.error(503, "Lab shuru ho raha hai — refresh karein");
-            return strategyAction(engine.lab, body);
+        if (!"/api/strategies".equals(str)) {
+            return "/api/admin/users".equals(str) ? adminUserAction(userId.longValue(), str3) : "/api/admin/invites".equals(str) ? adminInviteAction(userId.longValue(), str3) : "/api/admin/alerts".equals(str) ? adminAlertAction(userId.longValue(), str3) : Res.error(404, "not found");
         }
-        // v5.7 FULL MOBILE CONTROL — owner admin actions
-        if ("/api/admin/users".equals(path)) return adminUserAction(uid, body);
-        if ("/api/admin/invites".equals(path)) return adminInviteAction(uid, body);
-        if ("/api/admin/alerts".equals(path)) return adminAlertAction(uid, body);
-        return Res.error(404, "not found");
+        EngineCore engineCore3 = this.engine;
+        if (engineCore3 == null || engineCore3.lab == null) {
+            return Res.error(503, "Lab shuru ho raha hai — refresh karein");
+        }
+        return strategyAction(this.engine.lab, str3);
     }
 
-    private Res delete(String path, String auth) throws Exception {
-        Long uid = userId(auth);
-        if (uid == null) return Res.error(401, "authentication required");
-        if (path.startsWith("/api/brokers/")) {
-            String id = path.substring("/api/brokers/".length());
-            db.getWritableDatabase().execSQL("DELETE FROM brokers WHERE id=?", new Object[]{Long.parseLong(id)});
-            db.log("INFO", "BROKER", "REMOVED", "broker #" + id + " removed");
+    private Res delete(String str, String str2) throws Exception {
+        if (userId(str2) == null) {
+            return Res.error(401, "authentication required");
+        }
+        if (str.startsWith("/api/brokers/")) {
+            String substring = str.substring(13);
+            this.db.getWritableDatabase().execSQL("DELETE FROM brokers WHERE id=?", new Object[]{Long.valueOf(Long.parseLong(substring))});
+            this.db.log("INFO", "BROKER", "REMOVED", "broker #" + substring + " removed");
             return Res.json(200, new JSONObject().put("ok", true));
         }
         return Res.error(404, "not found");
     }
 
-    // ================== AUTH FLOW ==================
-    private Res register(String body) throws Exception {
-        JSONObject o = HttpServer.jObj(body);
-        String name = HttpServer.jStr(o, "name");
-        String email = HttpServer.jStr(o, "email").toLowerCase();
-        String pw = HttpServer.jStr(o, "password");
-        String invite = HttpServer.jStr(o, "invitationCode");
-
-        if (name.length() < 2 || name.length() > 60) return Res.error(400, "Enter your full name (2-60 characters)");
-        if (!email.matches("[^\\s@]+@[^\\s@]+\\.[^\\s@]+")) return Res.error(400, "Enter a valid email address");
-        if (pw.length() < 8 || !pw.matches(".*[A-Za-z].*") || !pw.matches(".*[0-9].*"))
+    /* JADX WARN: Multi-variable type inference failed */
+    private Res register(String str) throws Exception {
+        String str2 = null;
+        JSONObject jObj = HttpServer.jObj(str);
+        String jStr = HttpServer.jStr(jObj, "name");
+        String lowerCase = HttpServer.jStr(jObj, "email").toLowerCase();
+        String jStr2 = HttpServer.jStr(jObj, "password");
+        String jStr3 = HttpServer.jStr(jObj, "invitationCode");
+        if (jStr.length() < 2 || jStr.length() > 60) {
+            return Res.error(400, "Enter your full name (2-60 characters)");
+        }
+        if (!lowerCase.matches("[^\\s@]+@[^\\s@]+\\.[^\\s@]+")) {
+            return Res.error(400, "Enter a valid email address");
+        }
+        if (jStr2.length() < 8 || !jStr2.matches(".*[A-Za-z].*") || !jStr2.matches(".*[0-9].*")) {
             return Res.error(400, "Password must be 8+ characters with letters and numbers");
-
-        String err = Auth.checkInvite(db, invite);
-        if (err != null) return Res.error(403, err);
-
-        Cursor ex = db.getReadableDatabase().rawQuery("SELECT id FROM users WHERE email=?", new String[]{email});
-        if (ex.moveToFirst()) { ex.close(); return Res.error(409, "An account with this email already exists. Sign in instead."); }
-        ex.close();
-
-        Cursor cnt = db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM users", null);
-        boolean first = cnt.moveToFirst() && cnt.getInt(0) == 0; cnt.close();
-        // v1.9 OWNER GATE — sirf pehla account kabhi ADMIN banta hai (owner);
-        // baaki SAB registrations TRADER + approved=0 (PENDING) — owner ke APPROVE
-        // karne ke baad hi login possible. Second admin ban hi nahi sakta.
-        String role = first ? "ADMIN" : "TRADER";
-        int approved = first ? 1 : 0;
-        // v2.1 OWNER TRADING GATE — registration approve hone ke baad bhi TRADING tabhi
-        // chalegi jab owner Control > Users me ENABLE TRADING dabaye. Owner khud auto-on.
-        int tradeOk = first ? 1 : 0;
-
-        String secret = Auth.totpSecret();
-        db.getWritableDatabase().execSQL(
-                "INSERT INTO users(email, name, pw_hash, role, totp_secret, totp_enabled, active, approved, trade_ok, created_at) VALUES(?,?,?,?,?,0,1,?,?,?)",
-                new Object[]{email, name, Auth.hashPw(pw), role, secret, approved, tradeOk, System.currentTimeMillis()});
-        Cursor nc = db.getReadableDatabase().rawQuery("SELECT id FROM users WHERE email=?", new String[]{email});
-        long uid = nc.moveToFirst() ? nc.getLong(0) : -1; nc.close();
-        db.getWritableDatabase().execSQL(
-                "INSERT OR IGNORE INTO accounts(user_id, balance, start_balance, peak, day_start, day_ts) VALUES(?,100,100,100,100,?)",
-                new Object[]{uid, System.currentTimeMillis() / 86400000L});
-        db.log("INFO", "AUTH", "REGISTER", email + " (" + role + ") — account created, " + (first ? "owner (auto-approved)" : "PENDING owner approval"));
-        // v1.9 — owner ko alert TEEN tareeqon se, foran:
-        //   1) persistent in-app row (Control tab feed — reboots survive karta hai)
-        //   2) high-importance status-bar notification (Notifier)
-        //   3) system ledger entry (log above)
-        // PENDING registration par approval bhi Home par banner banta hai.
-        String code = invite == null ? "" : invite.trim().toUpperCase();
-        String alertBody = first
-                ? name + " (" + email + ") OWNER account ban gaya — role ADMIN (auto-approved, trading enabled)"
-                : "APPROVAL ZAROORI — " + name + " (" + email + ") ne invite code " + code
-                        + " se register kiya · role TRADER · Control > Users me APPROVE dabayen (tabhi login hoga) · uske baad ENABLE TRADING bhi dabayen (tabhi trade karega)";
+        }
+        String checkInvite = Auth.checkInvite(this.db, jStr3);
+        if (checkInvite != null) {
+            return Res.error(403, checkInvite);
+        }
+        Cursor rawQuery = this.db.getReadableDatabase().rawQuery("SELECT id FROM users WHERE email=?", new String[]{lowerCase});
+        if (rawQuery.moveToFirst()) {
+            rawQuery.close();
+            return Res.error(409, "An account with this email already exists. Sign in instead.");
+        }
+        rawQuery.close();
+        Cursor rawQuery2 = this.db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM users", null);
+        int i = (rawQuery2.moveToFirst() && rawQuery2.getInt(0) == 0) ? 1 : 0;
+        rawQuery2.close();
+        String str3 = i != 0 ? "ADMIN" : "TRADER";
+        this.db.getWritableDatabase().execSQL("INSERT INTO users(email, name, pw_hash, role, totp_secret, totp_enabled, active, approved, trade_ok, created_at) VALUES(?,?,?,?,?,0,1,?,?,?)", new Object[]{lowerCase, jStr, Auth.hashPw(jStr2), str3, Auth.totpSecret(), Integer.valueOf(i), Integer.valueOf(i), Long.valueOf(System.currentTimeMillis())});
+        Cursor rawQuery3 = this.db.getReadableDatabase().rawQuery("SELECT id FROM users WHERE email=?", new String[]{lowerCase});
+        long j = rawQuery3.moveToFirst() ? rawQuery3.getLong(0) : -1L;
+        rawQuery3.close();
+        this.db.getWritableDatabase().execSQL("INSERT OR IGNORE INTO accounts(user_id, balance, start_balance, peak, day_start, day_ts) VALUES(?,100,100,100,100,?)", new Object[]{Long.valueOf(j), Long.valueOf(System.currentTimeMillis() / 86400000)});
+        this.db.log("INFO", "AUTH", "REGISTER", lowerCase + " (" + str3 + ") — account created, " + (i != 0 ? "owner (auto-approved)" : "PENDING owner approval"));
+        String upperCase = jStr3 == null ? "" : jStr3.trim().toUpperCase();
         try {
-            String meta = new JSONObject().put("email", email).put("name", name)
-                    .put("invite", code).put("role", role).put("pending", first ? 0 : 1).toString();
-            db.getWritableDatabase().execSQL(
-                    "INSERT INTO notifications(kind, title, body, meta, read, created_at) VALUES('REGISTER',?,?,?,0,?)",
-                    new Object[]{first ? "Owner account created — " + name : "New registration — APPROVE karein: " + name,
-                            alertBody, meta, System.currentTimeMillis()});
-        } catch (Throwable ignored) { /* feed row is best-effort — registration must succeed */ }
-        Notifier.registration(appCtx, name, email, role, code, first);
-        return Res.json(200, new JSONObject().put("ok", true)
-                .put("pending", first ? 0 : 1)
-                .put("message", first
-                        ? "Owner account created. Sign in karein — dashboard foran khulega."
-                        : "Registration submitted! Owner ko notification chala gaya — wo APPROVE karega, phir ENABLE TRADING karega. Uske baad aap sign in karke trade kar sakenge."));
+            str2 = "pending";
+            try {
+                this.db.getWritableDatabase().execSQL("INSERT INTO notifications(kind, title, body, meta, read, created_at) VALUES('REGISTER',?,?,?,0,?)", new Object[]{(i != 0 ? new StringBuilder("Owner account created — ") : new StringBuilder("New registration — APPROVE karein: ")).append(jStr).toString(), i != 0 ? jStr + " (" + lowerCase + ") OWNER account ban gaya — role ADMIN (auto-approved, trading enabled)" : "APPROVAL ZAROORI — " + jStr + " (" + lowerCase + ") ne invite code " + upperCase + " se register kiya · role TRADER · Control > Users me APPROVE dabayen (tabhi login hoga) · uske baad ENABLE TRADING bhi dabayen (tabhi trade karega)", new JSONObject().put("email", lowerCase).put("name", jStr).put("invite", upperCase).put("role", str3).put(str2, i ^ 1).toString(), Long.valueOf(System.currentTimeMillis())});
+            } catch (Throwable unused) {
+            }
+        } catch (Throwable unused2) {
+            str2 = "pending";
+        }
+        Notifier.registration(this.appCtx, jStr, lowerCase, str3, upperCase, i != 0);
+        return Res.json(200, new JSONObject().put("ok", true).put(str2, i ^ 1).put("message", i != 0 ? "Owner account created. Sign in karein — dashboard foran khulega." : "Registration submitted! Owner ko notification chala gaya — wo APPROVE karega, phir ENABLE TRADING karega. Uske baad aap sign in karke trade kar sakenge."));
     }
 
-    private Res login(String body) throws Exception {
-        JSONObject o = HttpServer.jObj(body);
-        String name = HttpServer.jStr(o, "name").toLowerCase();
-        String email = HttpServer.jStr(o, "email").toLowerCase();
-        String pw = HttpServer.jStr(o, "password");
-
-        Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT id, name, pw_hash, active, totp_enabled, totp_secret, approved FROM users WHERE email=?", new String[]{email});
-        if (!c.moveToFirst()) {
-            c.close();
-            // v5.9.1 — fresh-install guidance: if this device has NO accounts at all,
-            // the user is looking at a wiped/reinstalled app, not a wrong password.
-            Cursor cnt = db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM users", null);
-            boolean noAccounts = cnt.moveToFirst() && cnt.getInt(0) == 0; cnt.close();
-            if (noAccounts) return Res.error(401,
-                    "Is device par abhi koi account nahi hai (naya install). Pehle REGISTER tab se account banayen (invite code owner se lein), phir sign in karein.");
+    private Res login(String str) throws Exception {
+        JSONObject jObj = HttpServer.jObj(str);
+        String lowerCase = HttpServer.jStr(jObj, "name").toLowerCase();
+        String lowerCase2 = HttpServer.jStr(jObj, "email").toLowerCase();
+        String jStr = HttpServer.jStr(jObj, "password");
+        Cursor rawQuery = this.db.getReadableDatabase().rawQuery("SELECT id, name, pw_hash, active, totp_enabled, totp_secret, approved FROM users WHERE email=?", new String[]{lowerCase2});
+        if (!rawQuery.moveToFirst()) {
+            rawQuery.close();
+            Cursor rawQuery2 = this.db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM users", null);
+            boolean z = rawQuery2.moveToFirst() && rawQuery2.getInt(0) == 0;
+            rawQuery2.close();
+            if (z) {
+                return Res.error(401, "Is device par abhi koi account nahi hai (naya install). Pehle REGISTER tab se account banayen (invite code owner se lein), phir sign in karein.");
+            }
             return Res.error(401, "Invalid email or password — ya name match nahi hua. Exact wahi name aur email likhein jo registration par use hua tha.");
         }
-        long uid = c.getLong(0);
-        String storedName = c.getString(1) == null ? "" : c.getString(1).trim().toLowerCase();
-        String hash = c.getString(2);
-        int active = c.getInt(3), totpEnabled = c.getInt(4);
-        String secret = c.getString(5);
-        int approved = c.getInt(6);
-        c.close();
-
-        if (!Auth.verifyPw(pw, hash)) return Res.error(401, "Invalid email or password");
-        if (name.isEmpty() || !name.equals(storedName))
+        long j = rawQuery.getLong(0);
+        String lowerCase3 = rawQuery.getString(1) == null ? "" : rawQuery.getString(1).trim().toLowerCase();
+        String string = rawQuery.getString(2);
+        int i = rawQuery.getInt(3);
+        rawQuery.getInt(4);
+        rawQuery.getString(5);
+        int i2 = rawQuery.getInt(6);
+        rawQuery.close();
+        if (!Auth.verifyPw(jStr, string)) {
+            return Res.error(401, "Invalid email or password");
+        }
+        if (lowerCase.isEmpty() || !lowerCase.equals(lowerCase3)) {
             return Res.error(401, "Name does not match this account — enter the exact name used at registration");
-        if (active == 0) return Res.error(403, "Account deactivated");
-        // v1.9 OWNER GATE — PENDING registration login NAHI kar sakta jab tak owner
-        // APPROVE na kare. Owner ko dobara notification bhi jata hai (best-effort).
-        if (approved == 0) {
-            Notifier.post(appCtx, "Approval pending — " + storedName,
-                    storedName + " (" + email + ") login karne ki koshish kar raha hai lekin abhi PENDING hai. Settings > Control > Users me APPROVE dabayen.");
+        }
+        if (i == 0) {
+            return Res.error(403, "Account deactivated");
+        }
+        if (i2 == 0) {
+            Notifier.post(this.appCtx, "Approval pending — " + lowerCase3, lowerCase3 + " (" + lowerCase2 + ") login karne ki koshish kar raha hai lekin abhi PENDING hai. Settings > Control > Users me APPROVE dabayen.");
             try {
-                db.getWritableDatabase().execSQL(
-                        "INSERT INTO notifications(kind, title, body, meta, read, created_at) VALUES('PENDING_LOGIN',?,?,?,0,?)",
-                        new Object[]{"PENDING user login try kar raha hai: " + storedName,
-                                storedName + " (" + email + ") ne login try kiya — account abhi bhi approval ka intezar kar raha hai. Control > Users me APPROVE karein.",
-                                "{}", System.currentTimeMillis()});
-            } catch (Throwable ignored) { }
-            db.log("INFO", "AUTH", "LOGIN_BLOCKED_PENDING", email + " — login refused, owner approval chahiye");
+                this.db.getWritableDatabase().execSQL("INSERT INTO notifications(kind, title, body, meta, read, created_at) VALUES('PENDING_LOGIN',?,?,?,0,?)", new Object[]{"PENDING user login try kar raha hai: " + lowerCase3, lowerCase3 + " (" + lowerCase2 + ") ne login try kiya — account abhi bhi approval ka intezar kar raha hai. Control > Users me APPROVE karein.", "{}", Long.valueOf(System.currentTimeMillis())});
+            } catch (Throwable unused) {
+            }
+            this.db.log("INFO", "AUTH", "LOGIN_BLOCKED_PENDING", lowerCase2 + " — login refused, owner approval chahiye");
             return Res.error(403, "Account PENDING approval — owner ne abhi approve nahi kiya. Registration par owner ko notification chala hai; jaise hi wo APPROVE karega, aap sign in kar sakenge.");
         }
-
-        // v5.5 DIRECT ENTRY — no TOTP wall on the phone engine.
-        // This server runs on the owner's own device at 127.0.0.1 and is invite-only;
-        // the authenticator-app enrollment blocked the owner from ever reaching the
-        // dashboard. Password + name + email match is the full check here. TOTP stays
-        // enabled on the cloud engine only.
-        db.getWritableDatabase().execSQL(
-                "UPDATE users SET totp_enabled=0 WHERE id=?", new Object[]{uid});
-        String token = Auth.token();
-        db.getWritableDatabase().execSQL("INSERT INTO sessions(token, user_id, created_at) VALUES(?,?,?)",
-                new Object[]{token, uid, System.currentTimeMillis()});
-        JSONObject user = new JSONObject().put("id", uid).put("email", email).put("name", storedName);
-        Cursor r = db.getReadableDatabase().rawQuery("SELECT role FROM users WHERE id=?", new String[]{String.valueOf(uid)});
-        if (r.moveToFirst()) user.put("role", r.getString(0));
-        r.close();
-        db.log("INFO", "AUTH", "LOGIN", email + " signed in (direct entry)");
-        return Res.json(200, new JSONObject().put("ok", true).put("token", token).put("user", user)
-                .put("message", "Welcome back — opening the trading engine"));
+        this.db.getWritableDatabase().execSQL("UPDATE users SET totp_enabled=0 WHERE id=?", new Object[]{Long.valueOf(j)});
+        String str2 = Auth.token();
+        this.db.getWritableDatabase().execSQL("INSERT INTO sessions(token, user_id, created_at) VALUES(?,?,?)", new Object[]{str2, Long.valueOf(j), Long.valueOf(System.currentTimeMillis())});
+        JSONObject put = new JSONObject().put("id", j).put("email", lowerCase2).put("name", lowerCase3);
+        Cursor rawQuery3 = this.db.getReadableDatabase().rawQuery("SELECT role FROM users WHERE id=?", new String[]{String.valueOf(j)});
+        if (rawQuery3.moveToFirst()) {
+            put.put("role", rawQuery3.getString(0));
+        }
+        rawQuery3.close();
+        this.db.log("INFO", "AUTH", "LOGIN", lowerCase2 + " signed in (direct entry)");
+        return Res.json(200, new JSONObject().put("ok", true).put("token", str2).put("user", put).put("message", "Welcome back — opening the trading engine"));
     }
 
-    private Res verify2fa(String body) throws Exception {
-        JSONObject o = HttpServer.jObj(body);
-        String email = HttpServer.jStr(o, "email").toLowerCase();
-        String code = HttpServer.jStr(o, "code");
-
-        Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT id, totp_secret FROM users WHERE email=?", new String[]{email});
-        if (!c.moveToFirst()) { c.close(); return Res.error(401, "invalid session"); }
-        long uid = c.getLong(0); String secret = c.getString(1);
-        c.close();
-
-        if (!Auth.verifyTotp(secret, code)) return Res.error(401, "Invalid or expired code — try the next one");
-        db.getWritableDatabase().execSQL("UPDATE users SET totp_enabled=1 WHERE id=?", new Object[]{uid});
-
-        String token = Auth.token();
-        db.getWritableDatabase().execSQL("INSERT INTO sessions(token, user_id, created_at) VALUES(?,?,?)",
-                new Object[]{token, uid, System.currentTimeMillis()});
-        Cursor u = db.getReadableDatabase().rawQuery("SELECT email, name, role FROM users WHERE id=?", new String[]{String.valueOf(uid)});
-        JSONObject user = new JSONObject().put("id", uid);
-        if (u.moveToFirst()) user.put("email", u.getString(0)).put("name", u.getString(1)).put("role", u.getString(2));
-        u.close();
-        db.log("INFO", "AUTH", "LOGIN", email + " signed in (2FA verified)");
-        return Res.json(200, new JSONObject().put("ok", true).put("token", token).put("user", user));
+    private Res verify2fa(String str) throws Exception {
+        JSONObject jObj = HttpServer.jObj(str);
+        String lowerCase = HttpServer.jStr(jObj, "email").toLowerCase();
+        String jStr = HttpServer.jStr(jObj, "code");
+        Cursor rawQuery = this.db.getReadableDatabase().rawQuery("SELECT id, totp_secret FROM users WHERE email=?", new String[]{lowerCase});
+        if (!rawQuery.moveToFirst()) {
+            rawQuery.close();
+            return Res.error(401, "invalid session");
+        }
+        long j = rawQuery.getLong(0);
+        String string = rawQuery.getString(1);
+        rawQuery.close();
+        if (!Auth.verifyTotp(string, jStr)) {
+            return Res.error(401, "Invalid or expired code — try the next one");
+        }
+        this.db.getWritableDatabase().execSQL("UPDATE users SET totp_enabled=1 WHERE id=?", new Object[]{Long.valueOf(j)});
+        String str2 = Auth.token();
+        this.db.getWritableDatabase().execSQL("INSERT INTO sessions(token, user_id, created_at) VALUES(?,?,?)", new Object[]{str2, Long.valueOf(j), Long.valueOf(System.currentTimeMillis())});
+        Cursor rawQuery2 = this.db.getReadableDatabase().rawQuery("SELECT email, name, role FROM users WHERE id=?", new String[]{String.valueOf(j)});
+        JSONObject put = new JSONObject().put("id", j);
+        if (rawQuery2.moveToFirst()) {
+            put.put("email", rawQuery2.getString(0)).put("name", rawQuery2.getString(1)).put("role", rawQuery2.getString(2));
+        }
+        rawQuery2.close();
+        this.db.log("INFO", "AUTH", "LOGIN", lowerCase + " signed in (2FA verified)");
+        return Res.json(200, new JSONObject().put("ok", true).put("token", str2).put("user", put));
     }
 
-    /**
-     * v5.3 self-service recovery: name + email + master invitation code + new password.
-     * Validates the invitation WITHOUT consuming a use, matches name+email against the
-     * existing account, resets the password AND returns 2FA to enrollment state so the
-     * user re-enrolls with a fresh secret. Local device only — the phone DB is the
-     * source of truth for phone-mode accounts.
-     */
-    private Res resetPassword(String body) throws Exception {
-        JSONObject o = HttpServer.jObj(body);
-        String name = HttpServer.jStr(o, "name");
-        String email = HttpServer.jStr(o, "email").toLowerCase();
-        String invite = HttpServer.jStr(o, "invitationCode");
-        String pw = HttpServer.jStr(o, "newPassword");
-
-        if (name.length() < 2) return Res.error(400, "Enter the full name on the account");
-        if (!email.matches("[^\\s@]+@[^\\s@]+\\.[^\\s@]+")) return Res.error(400, "Enter a valid email address");
-        if (pw.length() < 8 || !pw.matches(".*[A-Za-z].*") || !pw.matches(".*[0-9].*"))
+    private Res resetPassword(String str) throws Exception {
+        JSONObject jObj = HttpServer.jObj(str);
+        String jStr = HttpServer.jStr(jObj, "name");
+        String lowerCase = HttpServer.jStr(jObj, "email").toLowerCase();
+        String jStr2 = HttpServer.jStr(jObj, "invitationCode");
+        String jStr3 = HttpServer.jStr(jObj, "newPassword");
+        if (jStr.length() < 2) {
+            return Res.error(400, "Enter the full name on the account");
+        }
+        if (!lowerCase.matches("[^\\s@]+@[^\\s@]+\\.[^\\s@]+")) {
+            return Res.error(400, "Enter a valid email address");
+        }
+        if (jStr3.length() < 8 || !jStr3.matches(".*[A-Za-z].*") || !jStr3.matches(".*[0-9].*")) {
             return Res.error(400, "New password must be 8+ characters with letters and numbers");
-
-        // master invite must be valid (no use consumed — recovery is not registration)
-        String raw = invite == null ? "" : invite.trim().toUpperCase();
-        Cursor ic = db.getReadableDatabase().rawQuery(
-                "SELECT active FROM invites WHERE code=?", new String[]{raw});
-        boolean valid = ic.moveToFirst() && ic.getInt(0) == 1;
-        ic.close();
-        if (!valid) return Res.error(403, "Valid invitation code required to reset a password");
-
-        Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT id, name FROM users WHERE email=?", new String[]{email});
-        if (!c.moveToFirst()) {
-            c.close();
-            Cursor cnt = db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM users", null);
-            boolean noAccounts = cnt.moveToFirst() && cnt.getInt(0) == 0; cnt.close();
-            if (noAccounts) return Res.error(404,
-                    "No account found with this email on this device — naya install hai, is liye purana account maujood nahi. REGISTER tab se pehle account banayen.");
+        }
+        Cursor rawQuery = this.db.getReadableDatabase().rawQuery("SELECT active FROM invites WHERE code=?", new String[]{jStr2 == null ? "" : jStr2.trim().toUpperCase()});
+        boolean z = rawQuery.moveToFirst() && rawQuery.getInt(0) == 1;
+        rawQuery.close();
+        if (!z) {
+            return Res.error(403, "Valid invitation code required to reset a password");
+        }
+        Cursor rawQuery2 = this.db.getReadableDatabase().rawQuery("SELECT id, name FROM users WHERE email=?", new String[]{lowerCase});
+        if (!rawQuery2.moveToFirst()) {
+            rawQuery2.close();
+            Cursor rawQuery3 = this.db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM users", null);
+            boolean z2 = rawQuery3.moveToFirst() && rawQuery3.getInt(0) == 0;
+            rawQuery3.close();
+            if (z2) {
+                return Res.error(404, "No account found with this email on this device — naya install hai, is liye purana account maujood nahi. REGISTER tab se pehle account banayen.");
+            }
             return Res.error(404, "No account found with this email on this device — email check karein ya REGISTER tab se account banayen.");
         }
-        long uid = c.getLong(0);
-        String storedName = c.getString(1) == null ? "" : c.getString(1).trim().toLowerCase();
-        c.close();
-        if (!name.trim().toLowerCase().equals(storedName))
+        long j = rawQuery2.getLong(0);
+        String lowerCase2 = rawQuery2.getString(1) != null ? rawQuery2.getString(1).trim().toLowerCase() : "";
+        rawQuery2.close();
+        if (!jStr.trim().toLowerCase().equals(lowerCase2)) {
             return Res.error(401, "Name does not match this account — enter the exact name used at registration");
-
-        db.getWritableDatabase().execSQL(
-                "UPDATE users SET pw_hash=?, totp_enabled=0, totp_secret=? WHERE id=?",
-                new Object[]{Auth.hashPw(pw), Auth.totpSecret(), uid});
-        db.getWritableDatabase().execSQL("DELETE FROM sessions WHERE user_id=?", new Object[]{uid});
-        db.log("INFO", "AUTH", "PASSWORD_RESET", email + " — password reset via invitation code, 2FA re-enrollment required");
-        return Res.json(200, new JSONObject().put("ok", true)
-                .put("message", "Password changed. Sign in with your new password, then re-enroll 2FA when the setup key is shown."));
+        }
+        this.db.getWritableDatabase().execSQL("UPDATE users SET pw_hash=?, totp_enabled=0, totp_secret=? WHERE id=?", new Object[]{Auth.hashPw(jStr3), Auth.totpSecret(), Long.valueOf(j)});
+        this.db.getWritableDatabase().execSQL("DELETE FROM sessions WHERE user_id=?", new Object[]{Long.valueOf(j)});
+        this.db.log("INFO", "AUTH", "PASSWORD_RESET", lowerCase + " — password reset via invitation code, 2FA re-enrollment required");
+        return Res.json(200, new JSONObject().put("ok", true).put("message", "Password changed. Sign in with your new password, then re-enroll 2FA when the setup key is shown."));
     }
 
-    private Res logout(String auth) throws Exception {
-        String token = auth != null && auth.startsWith("Bearer ") ? auth.substring(7) : auth;
-        if (token != null) db.getWritableDatabase().execSQL("DELETE FROM sessions WHERE token=?", new String[]{token});
+    private Res logout(String str) throws Exception {
+        if (str != null && str.startsWith("Bearer ")) {
+            str = str.substring(7);
+        }
+        if (str != null) {
+            this.db.getWritableDatabase().execSQL("DELETE FROM sessions WHERE token=?", new String[]{str});
+        }
         return Res.json(200, new JSONObject().put("ok", true));
     }
 
-    // ================== DATA ENDPOINTS ==================
-    private Res dashboard(long uid) throws Exception {
-        Cursor a = db.getReadableDatabase().rawQuery(
-                "SELECT balance, start_balance, peak, day_start FROM accounts WHERE user_id=?", new String[]{String.valueOf(uid)});
-        double bal = 100, start = 100, peak = 100, dayStart = 100;
-        if (a.moveToFirst()) { bal = a.getDouble(0); start = a.getDouble(1); peak = a.getDouble(2); dayStart = a.getDouble(3); }
-        a.close();
-
-        Cursor oc = db.getReadableDatabase().rawQuery(
-                "SELECT COUNT(*) FROM trades WHERE user_id=? AND status='OPEN'", new String[]{String.valueOf(uid)});
-        int openCount = 0;
-        if (oc.moveToFirst()) openCount = oc.getInt(0);
-        oc.close();
-
-        // v1.6 — REAL-TIME floating P/L: OPEN trades ka unrealized profit/loss live price
-        // par (latest candle close — live candle included, engine har 10s refresh karta hai).
-        // Owner request: "kitna plus mein trades ja rahi hai ya loss — zyada loss avoid kar pao".
-        double openPnl = 0;
-        Cursor fc = db.getReadableDatabase().rawQuery(
-                "SELECT symbol, side, qty, entry FROM trades WHERE user_id=? AND status='OPEN'", new String[]{String.valueOf(uid)});
-        while (fc.moveToNext()) {
-            double price = livePrice(fc.getString(0));
-            if (Double.isNaN(price)) continue;
-            double qty = fc.getDouble(2), entry = fc.getDouble(3);
-            openPnl += ("BUY".equals(fc.getString(1)) ? price - entry : entry - price) * qty;
+    private Res dashboard(long j) throws Exception {
+        double d = 0.0d;
+        double d2 = 0.0d;
+        double d3 = 0.0d;
+        double d4 = 0.0d;
+        int i = 0;
+        int i2 = 0;
+        double d5 = 0.0d;
+        JSONArray jSONArray = null;
+        JSONObject jSONObject = null;
+        Cursor rawQuery = this.db.getReadableDatabase().rawQuery("SELECT balance, start_balance, peak, day_start FROM accounts WHERE user_id=?", new String[]{String.valueOf(j)});
+        int i3 = 3;
+        int i4 = 2;
+        if (rawQuery.moveToFirst()) {
+            d = rawQuery.getDouble(0);
+            d2 = rawQuery.getDouble(1);
+            d3 = rawQuery.getDouble(2);
+            d4 = rawQuery.getDouble(3);
+        } else {
+            d = 100.0d;
+            d2 = 100.0d;
+            d3 = 100.0d;
+            d4 = 100.0d;
         }
-        fc.close();
-
-        Cursor tc = db.getReadableDatabase().rawQuery(
-                "SELECT COUNT(*), IFNULL(SUM(pnl),0), IFNULL(SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END),0) FROM trades WHERE user_id=? AND status='CLOSED'", new String[]{String.valueOf(uid)});
-        int closed = 0; double totalPnl = 0; int wins = 0;
-        if (tc.moveToFirst()) { closed = tc.getInt(0); totalPnl = tc.getDouble(1); wins = tc.getInt(2); }
-        tc.close();
-
-        // equity sparkline (last 48 points)
-        JSONArray eq = new JSONArray();
-        Cursor ec = db.getReadableDatabase().rawQuery(
-                "SELECT value FROM (SELECT value, ts FROM equity ORDER BY ts DESC LIMIT 48) ORDER BY ts", null);
-        while (ec.moveToNext()) eq.put(round2(ec.getDouble(0)));
-        ec.close();
-
-        // v5.3: engine can be null if its init failed — dashboard must still load
-        JSONObject eng = new JSONObject();
-        try { if (engine != null) eng = new JSONObject(engine.status()); } catch (Throwable t) { }
-        // v1.3 24/7 — battery-optimization status: engine exemption ke baghair OEM
-        // (One UI etc.) process sula deta hai. Dashboard Home iska RED banner dikhata hai.
+        rawQuery.close();
+        Cursor rawQuery2 = this.db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM trades WHERE user_id=? AND status='OPEN'", new String[]{String.valueOf(j)});
+        int i5 = rawQuery2.moveToFirst() ? rawQuery2.getInt(0) : 0;
+        rawQuery2.close();
+        Cursor rawQuery3 = this.db.getReadableDatabase().rawQuery("SELECT symbol, side, qty, entry FROM trades WHERE user_id=? AND status='OPEN'", new String[]{String.valueOf(j)});
+        double d6 = 0.0d;
+        while (rawQuery3.moveToNext()) {
+            double livePrice = livePrice(rawQuery3.getString(0));
+            if (!Double.isNaN(livePrice)) {
+                double d7 = rawQuery3.getDouble(i4);
+                double d8 = rawQuery3.getDouble(i3);
+                d6 += ("BUY".equals(rawQuery3.getString(1)) ? livePrice - d8 : d8 - livePrice) * d7;
+                i3 = 3;
+                i4 = 2;
+            }
+        }
+        rawQuery3.close();
+        Cursor rawQuery4 = this.db.getReadableDatabase().rawQuery("SELECT COUNT(*), IFNULL(SUM(pnl),0), IFNULL(SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END),0) FROM trades WHERE user_id=? AND status='CLOSED'", new String[]{String.valueOf(j)});
+        if (rawQuery4.moveToFirst()) {
+            i = rawQuery4.getInt(0);
+            d5 = rawQuery4.getDouble(1);
+            i2 = rawQuery4.getInt(2);
+        } else {
+            i = 0;
+            i2 = 0;
+            d5 = 0.0d;
+        }
+        rawQuery4.close();
+        JSONArray jSONArray2 = new JSONArray();
+        int i6 = i2;
+        Cursor rawQuery5 = this.db.getReadableDatabase().rawQuery("SELECT value FROM (SELECT value, ts FROM equity ORDER BY ts DESC LIMIT 48) ORDER BY ts", null);
+        while (rawQuery5.moveToNext()) {
+            jSONArray2.put(round2(rawQuery5.getDouble(0)));
+            i = i;
+        }
+        int i7 = i;
+        rawQuery5.close();
+        JSONObject jSONObject2 = new JSONObject();
         try {
-            android.os.PowerManager pm = (android.os.PowerManager) appCtx.getSystemService(android.content.Context.POWER_SERVICE);
-            eng.put("battery_ok", pm != null && pm.isIgnoringBatteryOptimizations(appCtx.getPackageName()));
-        } catch (Throwable t) { eng.put("battery_ok", true); }
-        try { eng.put("watchdog", "9-min Doze-safe alarm + thread watchdog + swipe-kill restart"); } catch (Throwable t) { }
-
-        // v5.7: full identity on the dashboard payload — boot path uses it to restore
-        // USER (role drives Control-tab visibility) without a separate /api/me round trip
-        Cursor uc = db.getReadableDatabase().rawQuery(
-                "SELECT email, name, role FROM users WHERE id=?", new String[]{String.valueOf(uid)});
-        JSONObject me = new JSONObject().put("id", uid);
-        if (uc.moveToFirst()) me.put("email", uc.getString(0)).put("name", uc.getString(1)).put("role", uc.getString(2));
-        uc.close();
-
-        return Res.json(200, new JSONObject()
-                .put("balance", round2(bal))
-                .put("start", round2(start))
-                .put("totalPnl", round2(totalPnl))
-                .put("pnlPct", round2((bal - start) / start * 100))
-                .put("dayPnlPct", round2((bal - dayStart) / dayStart * 100))
-                .put("drawdownPct", round2(peak > 0 ? (bal - peak) / peak * 100 : 0))
-                // v3.0 — peak ab ratchet hota hai (true HWM drawdown) + portfolio heat + bucket exposure
-                .put("trueDD", true)
-                .put("heat", round2(engine != null ? engine.heatRiskPct(uid) : 0))
-                .put("heatCap", engine != null ? engine.heatMaxPct() : 0)
-                .put("exposure", new JSONObject()
-                        .put("METAL", round2(engine != null ? engine.bucketRiskPct(uid, "METAL") : 0))
-                        .put("ENERGY", round2(engine != null ? engine.bucketRiskPct(uid, "ENERGY") : 0))
-                        .put("AGRI", round2(engine != null ? engine.bucketRiskPct(uid, "AGRI") : 0)))
-                .put("safeMode", engine != null && engine.isSafeMode())
-                .put("openCount", openCount).put("openPnl", round2(openPnl))
-                .put("equityNow", round2(bal + openPnl))
-                .put("closedCount", closed).put("winRate", closed > 0 ? round2(wins * 100.0 / closed) : 0)
-                .put("equity", eq)
-                .put("engine", eng)
-                .put("user", me));
+            if (this.engine != null) {
+                jSONObject2 = new JSONObject(this.engine.status());
+            }
+        } catch (Throwable unused) {
+        }
+        try {
+            PowerManager powerManager = (PowerManager) this.appCtx.getSystemService("power");
+            jSONObject2.put("battery_ok", powerManager != null && powerManager.isIgnoringBatteryOptimizations(this.appCtx.getPackageName()));
+        } catch (Throwable unused2) {
+            jSONObject2.put("battery_ok", true);
+        }
+        try {
+            jSONObject2.put("watchdog", "9-min Doze-safe alarm + thread watchdog + swipe-kill restart");
+        } catch (Throwable unused3) {
+        }
+        JSONObject jSONObject3 = jSONObject2;
+        Cursor rawQuery6 = this.db.getReadableDatabase().rawQuery("SELECT email, name, role FROM users WHERE id=?", new String[]{String.valueOf(j)});
+        JSONObject put = new JSONObject().put("id", j);
+        if (rawQuery6.moveToFirst()) {
+            jSONArray = jSONArray2;
+            jSONObject = put;
+            put.put("email", rawQuery6.getString(0)).put("name", rawQuery6.getString(1)).put("role", rawQuery6.getString(2));
+        } else {
+            jSONArray = jSONArray2;
+            jSONObject = put;
+        }
+        rawQuery6.close();
+        JSONObject put2 = new JSONObject().put("balance", round2(d)).put("start", round2(d2)).put("totalPnl", round2(d5)).put("pnlPct", round2(((d - d2) / d2) * 100.0d)).put("dayPnlPct", round2(((d - d4) / d4) * 100.0d)).put("drawdownPct", round2(d3 > 0.0d ? ((d - d3) / d3) * 100.0d : 0.0d)).put("trueDD", true);
+        EngineCore engineCore = this.engine;
+        JSONObject put3 = put2.put("heat", round2(engineCore != null ? engineCore.heatRiskPct(j) : 0.0d));
+        EngineCore engineCore2 = this.engine;
+        JSONObject put4 = put3.put("heatCap", engineCore2 != null ? engineCore2.heatMaxPct() : 0.0d);
+        JSONObject jSONObject4 = new JSONObject();
+        EngineCore engineCore3 = this.engine;
+        JSONObject put5 = jSONObject4.put("METAL", round2(engineCore3 != null ? engineCore3.bucketRiskPct(j, "METAL") : 0.0d));
+        EngineCore engineCore4 = this.engine;
+        JSONObject put6 = put5.put("ENERGY", round2(engineCore4 != null ? engineCore4.bucketRiskPct(j, "ENERGY") : 0.0d));
+        EngineCore engineCore5 = this.engine;
+        JSONObject put7 = put4.put("exposure", put6.put("AGRI", round2(engineCore5 != null ? engineCore5.bucketRiskPct(j, "AGRI") : 0.0d)));
+        EngineCore engineCore6 = this.engine;
+        return Res.json(200, put7.put("safeMode", engineCore6 != null && engineCore6.isSafeMode()).put("openCount", i5).put("openPnl", round2(d6)).put("equityNow", round2(d + d6)).put("closedCount", i7).put("winRate", i7 > 0 ? round2((i6 * 100.0d) / i7) : 0.0d).put("equity", jSONArray).put("engine", jSONObject3).put("user", jSONObject));
     }
 
     private Res instruments() throws Exception {
-        JSONArray arr = new JSONArray();
-        Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT symbol, exchange, asset_class, status, discovered_at, IFNULL(last_data_at,0), note FROM instruments ORDER BY CASE status WHEN 'ACTIVE' THEN 0 WHEN 'WATCHING' THEN 1 ELSE 2 END, priority DESC", null);
-        int active = 0, watching = 0, pending = 0;
-        while (c.moveToNext()) {
-            String st = c.getString(3);
-            if ("ACTIVE".equals(st)) active++; else if ("WATCHING".equals(st)) watching++; else pending++;
-            arr.put(new JSONObject()
-                    .put("symbol", c.getString(0)).put("exchange", c.getString(1))
-                    .put("assetClass", c.getString(2)).put("status", st)
-                    .put("discoveredAt", c.getLong(4)).put("lastDataAt", c.getLong(5))
-                    .put("note", c.getString(6)));
+        JSONArray jSONArray = new JSONArray();
+        Cursor rawQuery = this.db.getReadableDatabase().rawQuery("SELECT symbol, exchange, asset_class, status, discovered_at, IFNULL(last_data_at,0), note FROM instruments ORDER BY CASE status WHEN 'ACTIVE' THEN 0 WHEN 'WATCHING' THEN 1 ELSE 2 END, priority DESC", null);
+        int i = 0;
+        int i2 = 0;
+        int i3 = 0;
+        while (rawQuery.moveToNext()) {
+            String string = rawQuery.getString(3);
+            if ("ACTIVE".equals(string)) {
+                i++;
+            } else if ("WATCHING".equals(string)) {
+                i2++;
+            } else {
+                i3++;
+            }
+            jSONArray.put(new JSONObject().put("symbol", rawQuery.getString(0)).put("exchange", rawQuery.getString(1)).put("assetClass", rawQuery.getString(2)).put("status", string).put("discoveredAt", rawQuery.getLong(4)).put("lastDataAt", rawQuery.getLong(5)).put("note", rawQuery.getString(6)));
         }
-        c.close();
-        return Res.json(200, new JSONObject()
-                .put("instruments", arr).put("active", active).put("watching", watching)
-                .put("pending", pending).put("total", arr.length()));
+        rawQuery.close();
+        return Res.json(200, new JSONObject().put("instruments", jSONArray).put("active", i).put("watching", i2).put("pending", i3).put("total", jSONArray.length()));
     }
 
-    /** v5.9 — PDF encyclopedia indicator library + live values for one symbol. */
-    private static double safeD(double d) { return Double.isNaN(d) || Double.isInfinite(d) ? 0 : d; }
+    private static double safeD(double d) {
+        if (Double.isNaN(d) || Double.isInfinite(d)) {
+            return 0.0d;
+        }
+        return d;
+    }
 
-    private Res indicators(String path) throws Exception {
-        String symbol = "BTCUSDT";
-        int q = path.indexOf("?symbol=");
-        if (q > 0) symbol = path.substring(q + 8).toUpperCase().trim();
-        if (engine == null) return Res.error(503, "engine not ready");
-        Map<String, Object> snap = engine.indicatorSnapshot(symbol);
-        snap.remove("library"); // String[][] can't go straight into JSONObject
-        JSONObject o = new JSONObject();
-        for (Map.Entry<String, Object> e : snap.entrySet()) {
-            Object v = e.getValue();
-            if (v instanceof double[]) {
-                JSONArray a = new JSONArray();
-                for (double d : (double[]) v) a.put(safeD(d));
-                o.put(e.getKey(), a);
-            } else if (v instanceof Object[]) {
-                JSONArray a = new JSONArray();
-                for (Object d : (Object[]) v) a.put(d == null ? "" : String.valueOf(d));
-                o.put(e.getKey(), a);
-            } else if (v instanceof Map) {
-                JSONObject sub = new JSONObject();
-                for (Map.Entry<?, ?> se : ((Map<?, ?>) v).entrySet()) {
-                    Object sv = se.getValue();
-                    if (sv instanceof Number) sub.put(String.valueOf(se.getKey()), safeD(((Number) sv).doubleValue()));
-                    else sub.put(String.valueOf(se.getKey()), String.valueOf(sv));
+    private Res indicators(String str) throws Exception {
+        int indexOf = str.indexOf("?symbol=");
+        String trim = indexOf > 0 ? str.substring(indexOf + 8).toUpperCase().trim() : "BTCUSDT";
+        EngineCore engineCore = this.engine;
+        if (engineCore == null) {
+            return Res.error(503, "engine not ready");
+        }
+        Map<String, Object> indicatorSnapshot = engineCore.indicatorSnapshot(trim);
+        indicatorSnapshot.remove("library");
+        JSONObject jSONObject = new JSONObject();
+        Iterator<Map.Entry<String, Object>> it = indicatorSnapshot.entrySet().iterator();
+        while (true) {
+            int i = 0;
+            if (!it.hasNext()) {
+                break;
+            }
+            Map.Entry<String, Object> next = it.next();
+            Object value = next.getValue();
+            if (value instanceof double[]) {
+                JSONArray jSONArray = new JSONArray();
+                double[] dArr = (double[]) value;
+                int length = dArr.length;
+                while (i < length) {
+                    jSONArray.put(safeD(dArr[i]));
+                    i++;
                 }
-                o.put(e.getKey(), sub);
-            } else if (v instanceof Number) {
-                o.put(e.getKey(), safeD(((Number) v).doubleValue()));
-            } else if (v instanceof Boolean) {
-                o.put(e.getKey(), (Boolean) v);
+                jSONObject.put(next.getKey(), jSONArray);
+            } else if (value instanceof Object[]) {
+                JSONArray jSONArray2 = new JSONArray();
+                Object[] objArr = (Object[]) value;
+                int length2 = objArr.length;
+                while (i < length2) {
+                    Object obj = objArr[i];
+                    jSONArray2.put(obj == null ? "" : String.valueOf(obj));
+                    i++;
+                }
+                jSONObject.put(next.getKey(), jSONArray2);
+            } else if (value instanceof Map) {
+                JSONObject jSONObject2 = new JSONObject();
+                for (Map.Entry entry : ((Map<Object, Object>) value).entrySet()) {
+                    Object value2 = entry.getValue();
+                    if (value2 instanceof Number) {
+                        jSONObject2.put(String.valueOf(entry.getKey()), safeD(((Number) value2).doubleValue()));
+                    } else {
+                        jSONObject2.put(String.valueOf(entry.getKey()), String.valueOf(value2));
+                    }
+                }
+                jSONObject.put(next.getKey(), jSONObject2);
+            } else if (value instanceof Number) {
+                jSONObject.put(next.getKey(), safeD(((Number) value).doubleValue()));
+            } else if (value instanceof Boolean) {
+                jSONObject.put(next.getKey(), (Boolean) value);
             } else {
-                o.put(e.getKey(), String.valueOf(v));
+                jSONObject.put(next.getKey(), String.valueOf(value));
             }
         }
-        JSONArray lib = new JSONArray();
-        for (String[] row : EngineCore.INDICATOR_LIBRARY) {
-            lib.put(new JSONArray().put(row[0]).put(row[1]).put(row[2]));
+        JSONArray jSONArray3 = new JSONArray();
+        for (String[] strArr : EngineCore.INDICATOR_LIBRARY) {
+            jSONArray3.put(new JSONArray().put(strArr[0]).put(strArr[1]).put(strArr[2]));
         }
-        o.put("library", lib);
-        return Res.json(200, o);
+        jSONObject.put("library", jSONArray3);
+        return Res.json(200, jSONObject);
     }
 
     private Res news() throws Exception {
-        JSONArray arr = new JSONArray();
-        Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT ts, source, headline, sentiment, impact FROM news ORDER BY id DESC LIMIT 60", null);
-        while (c.moveToNext()) {
-            arr.put(new JSONObject().put("ts", c.getLong(0)).put("source", c.getString(1))
-                    .put("headline", c.getString(2)).put("sentiment", c.getString(3)).put("impact", c.getString(4)));
+        JSONArray jSONArray = new JSONArray();
+        Cursor rawQuery = this.db.getReadableDatabase().rawQuery("SELECT ts, source, headline, sentiment, impact FROM news ORDER BY id DESC LIMIT 60", null);
+        while (true) {
+            if (!rawQuery.moveToNext()) {
+                break;
+            }
+            jSONArray.put(new JSONObject().put("ts", rawQuery.getLong(0)).put("source", rawQuery.getString(1)).put("headline", rawQuery.getString(2)).put("sentiment", rawQuery.getString(3)).put("impact", rawQuery.getString(4)));
         }
-        c.close();
-        return Res.json(200, new JSONObject().put("news", arr)
-                .put("pauseActive", System.currentTimeMillis() < enginePauseUntil()));
+        rawQuery.close();
+        return Res.json(200, new JSONObject().put("news", jSONArray).put("pauseActive", System.currentTimeMillis() < enginePauseUntil()));
     }
 
     private long enginePauseUntil() {
         try {
-            if (engine == null) return 0;
-            JSONObject st = new JSONObject(engine.status());
-            return st.optBoolean("news_pause") ? System.currentTimeMillis() + 1000 : 0;
-        } catch (Throwable t) { return 0; }
+            if (this.engine != null && new JSONObject(this.engine.status()).optBoolean("news_pause")) {
+                return System.currentTimeMillis() + 1000;
+            }
+            return 0L;
+        } catch (Throwable unused) {
+            return 0L;
+        }
     }
 
-    /** v1.6 — latest price for a symbol: most recent candle close (live candle included). */
-    private double livePrice(String sym) {
-        Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT c FROM candles WHERE symbol=? AND tf='5m' ORDER BY ts DESC LIMIT 1", new String[]{sym});
-        double p = Double.NaN;
-        if (c.moveToFirst()) p = c.getDouble(0);
-        c.close();
-        return p;
+    private double livePrice(String str) {
+        // v1.4: engine ka 1-second LIVE TICK pehle (fresh <10s), warna candle fallback
+        EngineCore engineCore = this.engine;
+        if (engineCore != null) {
+            try {
+                double p = engineCore.livePrice(str);
+                if (p > 0.0d && !Double.isNaN(p)) {
+                    return p;
+                }
+            } catch (Throwable unused) {
+            }
+        }
+        Cursor rawQuery = this.db.getReadableDatabase().rawQuery("SELECT c FROM candles WHERE symbol=? AND tf='5m' ORDER BY ts DESC LIMIT 1", new String[]{str});
+        double d = rawQuery.moveToFirst() ? rawQuery.getDouble(0) : Double.NaN;
+        rawQuery.close();
+        return d;
     }
 
-    private Res trades(long uid) throws Exception {
-        JSONArray arr = new JSONArray();
-        double floating = 0; int fCount = 0;
-        Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT id, symbol, side, qty, entry, sl, tp, exit, pnl, status, strategy, consensus, opened_at, closed_at, IFNULL(r_mult,0), IFNULL(mfe,0), IFNULL(mae,0), IFNULL(tca_bps,0), IFNULL(council,0), IFNULL(win_prob,0) FROM trades WHERE user_id=? ORDER BY id DESC LIMIT 100", new String[]{String.valueOf(uid)});
-        while (c.moveToNext()) {
-            String status = c.getString(9);
-            JSONObject t = new JSONObject()
-                    .put("id", c.getLong(0)).put("symbol", c.getString(1)).put("side", c.getString(2))
-                    .put("qty", c.getDouble(3)).put("entry", c.getDouble(4)).put("sl", c.getDouble(5))
-                    .put("tp", c.getDouble(6)).put("exit", c.isNull(7) ? JSONObject.NULL : c.getDouble(7))
-                    .put("pnl", c.isNull(8) ? JSONObject.NULL : round2(c.getDouble(8)))
-                    .put("status", status).put("strategy", c.getString(10))
-                    .put("consensus", c.getDouble(11)).put("openedAt", c.getLong(12))
-                    .put("closedAt", c.isNull(13) ? 0 : c.getLong(13))
-                    // v3.0 — QUANT PRO journal columns (R-multiple, MFE/MAE, TCA, council, ML)
-                    .put("rMult", c.getDouble(14)).put("mfe", round2(c.getDouble(15)))
-                    .put("mae", round2(c.getDouble(16))).put("tcaBps", c.getDouble(17))
-                    .put("council", c.getInt(18)).put("winProb", c.getDouble(19));
-            // v1.6 — OPEN trade par LIVE price + unrealized P/L (+ R multiple for 3C trades):
-            // abhi ka plus/minus dikhe to owner bada loss hone se pehle react kar sake.
-            if ("OPEN".equals(status)) {
-                double price = livePrice(c.getString(1));
-                if (!Double.isNaN(price)) {
-                    double qty = c.getDouble(3), entry = c.getDouble(4), tp = c.getDouble(6);
-                    double pl = ("BUY".equals(c.getString(2)) ? price - entry : entry - price) * qty;
-                    t.put("price", price).put("pnlLive", round2(pl));
-                    floating += pl; fCount++;
-                    String strat = c.getString(10);
-                    if (strat != null && strat.startsWith("3C")) {
-                        double rDist = Math.abs(tp - entry) / 3.0;
-                        if (rDist > 0 && qty > 0) t.put("rNow", Math.round(pl / (rDist * qty) * 100.0) / 100.0);
+    private Res trades(long j) throws Exception {
+        JSONArray jSONArray = null;
+        Api api = this;
+        JSONArray jSONArray2 = new JSONArray();
+        int i = 1;
+        int i2 = 0;
+        Cursor rawQuery = api.db.getReadableDatabase().rawQuery("SELECT id, symbol, side, qty, entry, sl, tp, exit, pnl, status, strategy, consensus, opened_at, closed_at, IFNULL(r_mult,0), IFNULL(mfe,0), IFNULL(mae,0), IFNULL(tca_bps,0), IFNULL(council,0), IFNULL(win_prob,0) FROM trades WHERE user_id=? ORDER BY id DESC LIMIT 100", new String[]{String.valueOf(j)});
+        int i3 = 0;
+        double d = 0.0d;
+        while (rawQuery.moveToNext()) {
+            String string = rawQuery.getString(9);
+            double d2 = d;
+            JSONObject put = new JSONObject().put("id", rawQuery.getLong(i2)).put("symbol", rawQuery.getString(i)).put("side", rawQuery.getString(2)).put("qty", rawQuery.getDouble(3)).put("entry", rawQuery.getDouble(4)).put("sl", rawQuery.getDouble(5)).put("tp", rawQuery.getDouble(6)).put("exit", rawQuery.isNull(7) ? JSONObject.NULL : Double.valueOf(rawQuery.getDouble(7))).put("pnl", rawQuery.isNull(8) ? JSONObject.NULL : Double.valueOf(round2(rawQuery.getDouble(8)))).put("status", string).put("strategy", rawQuery.getString(10)).put("consensus", rawQuery.getDouble(11)).put("openedAt", rawQuery.getLong(12)).put("closedAt", rawQuery.isNull(13) ? 0L : rawQuery.getLong(13)).put("rMult", rawQuery.getDouble(14)).put("mfe", round2(rawQuery.getDouble(15))).put("mae", round2(rawQuery.getDouble(16))).put("tcaBps", rawQuery.getDouble(17)).put("council", rawQuery.getInt(18)).put("winProb", rawQuery.getDouble(19));
+            if ("OPEN".equals(string)) {
+                double livePrice = api.livePrice(rawQuery.getString(i));
+                if (!Double.isNaN(livePrice)) {
+                    double d3 = rawQuery.getDouble(3);
+                    double d4 = rawQuery.getDouble(4);
+                    double d5 = rawQuery.getDouble(6);
+                    double d6 = ("BUY".equals(rawQuery.getString(2)) ? livePrice - d4 : d4 - livePrice) * d3;
+                    jSONArray = jSONArray2;
+                    put.put("price", livePrice).put("pnlLive", round2(d6));
+                    double d7 = d2 + d6;
+                    i3++;
+                    String string2 = rawQuery.getString(10);
+                    if (string2 != null && string2.startsWith("3C")) {
+                        if (Math.abs(d5 - d4) / 3.0d > 0.0d && d3 > 0.0d) {
+                            put.put("rNow", Math.round((d6 / (Math.abs(d5 - d4) * d3)) * 100.0d) / 100.0d);
+                        }
                     }
+                    d2 = d7;
+                    jSONArray.put(put);
+                    api = this;
+                    jSONArray2 = jSONArray;
+                    d = d2;
+                    i = 1;
+                    i2 = 0;
                 }
             }
-            arr.put(t);
+            jSONArray = jSONArray2;
+            jSONArray.put(put);
+            api = this;
+            jSONArray2 = jSONArray;
+            d = d2;
+            i = 1;
+            i2 = 0;
         }
-        c.close();
-        return Res.json(200, new JSONObject().put("trades", arr)
-                .put("floating", round2(floating)).put("floatingCount", fCount));
+        rawQuery.close();
+        return Res.json(200, new JSONObject().put("trades", jSONArray2).put("floating", round2(d)).put("floatingCount", i3));
     }
 
     private Res logs() throws Exception {
-        JSONArray arr = new JSONArray();
-        Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT ts, level, component, event, details FROM logs ORDER BY id DESC LIMIT 150", null);
-        while (c.moveToNext()) {
-            arr.put(new JSONObject().put("ts", c.getLong(0)).put("level", c.getString(1))
-                    .put("component", c.getString(2)).put("event", c.getString(3)).put("details", c.getString(4)));
+        JSONArray jSONArray = new JSONArray();
+        Cursor rawQuery = this.db.getReadableDatabase().rawQuery("SELECT ts, level, component, event, details FROM logs ORDER BY id DESC LIMIT 150", null);
+        while (rawQuery.moveToNext()) {
+            jSONArray.put(new JSONObject().put("ts", rawQuery.getLong(0)).put("level", rawQuery.getString(1)).put("component", rawQuery.getString(2)).put("event", rawQuery.getString(3)).put("details", rawQuery.getString(4)));
         }
-        c.close();
-        return Res.json(200, new JSONObject().put("logs", arr));
+        rawQuery.close();
+        return Res.json(200, new JSONObject().put("logs", jSONArray));
     }
 
-    // ================== v3.0 EDGE ANALYTICS (FreqUI + Jesse + LEAN patterns) ==================
-
-    /** GET /api/analytics — daily P&L (30d), per-symbol table, monthly heatmap,
-     *  R-multiple histogram, fee drag — dashboard Insights cards ka data. */
-    private Res analytics(long uid) throws Exception {
-        // 1) Daily P&L last 30 days (FreqUI Profit page pattern)
-        JSONArray daily = new JSONArray();
-        Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT CAST(closed_at/86400000 AS INTEGER) d, SUM(pnl), COUNT(*) FROM trades "
-                        + "WHERE user_id=? AND status='CLOSED' AND closed_at >= ? GROUP BY d ORDER BY d",
-                new String[]{String.valueOf(uid), String.valueOf(System.currentTimeMillis() - 30L * 86400000)});
-        while (c.moveToNext())
-            daily.put(new JSONObject().put("day", c.getLong(0)).put("pnl", round2(c.getDouble(1))).put("n", c.getInt(2)));
-        c.close();
-        // 2) Per-symbol performance table (FreqUI Performance page pattern)
-        JSONArray syms = new JSONArray();
-        Cursor cs = db.getReadableDatabase().rawQuery(
-                "SELECT symbol, COUNT(*), SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END), IFNULL(SUM(pnl),0), "
-                        + "IFNULL(SUM(CASE WHEN pnl>0 THEN pnl ELSE 0 END),0), IFNULL(SUM(CASE WHEN pnl<=0 THEN -pnl ELSE 0 END),0), "
-                        + "IFNULL(AVG(closed_at-opened_at),0), IFNULL(AVG(r_mult),0) FROM trades "
-                        + "WHERE user_id=? AND status='CLOSED' GROUP BY symbol ORDER BY SUM(pnl) DESC", new String[]{String.valueOf(uid)});
-        while (cs.moveToNext()) {
-            int n = cs.getInt(1); int w = cs.getInt(2);
-            double gl = cs.getDouble(5);
-            syms.put(new JSONObject().put("symbol", cs.getString(0)).put("n", n).put("wins", w)
-                    .put("winrate", n > 0 ? Math.round(w * 1000.0 / n) / 10.0 : 0)
-                    .put("net", round2(cs.getDouble(3)))
-                    .put("pf", gl > 0 ? Math.round(cs.getDouble(4) / gl * 100.0) / 100.0 : (cs.getDouble(4) > 0 ? 99 : 0))
-                    .put("avgMin", Math.round(cs.getDouble(6) / 60000.0)).put("avgR", Math.round(cs.getDouble(7) * 1000.0) / 1000.0));
+    private Res analytics(long j) throws Exception {
+        double d = 0.0d;
+        double d2 = 0.0d;
+        double d3 = 0.0d;
+        JSONArray jSONArray = new JSONArray();
+        int i = 2;
+        int i2 = 0;
+        int i3 = 1;
+        Cursor rawQuery = this.db.getReadableDatabase().rawQuery("SELECT CAST(closed_at/86400000 AS INTEGER) d, SUM(pnl), COUNT(*) FROM trades WHERE user_id=? AND status='CLOSED' AND closed_at >= ? GROUP BY d ORDER BY d", new String[]{String.valueOf(j), String.valueOf(System.currentTimeMillis() - 2592000000L)});
+        while (rawQuery.moveToNext()) {
+            jSONArray.put(new JSONObject().put("day", rawQuery.getLong(0)).put("pnl", round2(rawQuery.getDouble(1))).put("n", rawQuery.getInt(2)));
         }
-        cs.close();
-        // 3) Monthly heatmap (Jesse pattern): year×month net
-        java.util.Map<String, JSONObject> months = new java.util.LinkedHashMap<>();
-        Cursor cm = db.getReadableDatabase().rawQuery(
-                "SELECT CAST(closed_at/86400000 AS INTEGER) d, SUM(pnl) FROM trades "
-                        + "WHERE user_id=? AND status='CLOSED' GROUP BY d", new String[]{String.valueOf(uid)});
-        java.util.Map<String, Double> mSum = new java.util.LinkedHashMap<>();
-        while (cm.moveToNext()) {
-            java.util.Calendar cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"));
-            cal.setTimeInMillis(cm.getLong(0) * 86400000L);
-            String key = cal.get(java.util.Calendar.YEAR) + "-" + String.format(Locale.US, "%02d", cal.get(java.util.Calendar.MONTH) + 1);
-            mSum.merge(key, cm.getDouble(1), Double::sum);
+        rawQuery.close();
+        JSONArray jSONArray2 = new JSONArray();
+        Cursor rawQuery2 = this.db.getReadableDatabase().rawQuery("SELECT symbol, COUNT(*), SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END), IFNULL(SUM(pnl),0), IFNULL(SUM(CASE WHEN pnl>0 THEN pnl ELSE 0 END),0), IFNULL(SUM(CASE WHEN pnl<=0 THEN -pnl ELSE 0 END),0), IFNULL(AVG(closed_at-opened_at),0), IFNULL(AVG(r_mult),0) FROM trades WHERE user_id=? AND status='CLOSED' GROUP BY symbol ORDER BY SUM(pnl) DESC", new String[]{String.valueOf(j)});
+        while (true) {
+            d = 0.0d;
+            if (!rawQuery2.moveToNext()) {
+                break;
+            }
+            int i4 = rawQuery2.getInt(i3);
+            int i5 = rawQuery2.getInt(i);
+            double d4 = rawQuery2.getDouble(5);
+            JSONObject put = new JSONObject().put("symbol", rawQuery2.getString(i2)).put("n", i4).put("wins", i5).put("winrate", i4 > 0 ? Math.round((i5 * 1000.0d) / i4) / 10.0d : 0.0d).put("net", round2(rawQuery2.getDouble(3)));
+            if (d4 > 0.0d) {
+                d3 = Math.round((rawQuery2.getDouble(4) / d4) * 100.0d) / 100.0d;
+            } else {
+                d3 = rawQuery2.getDouble(4) > 0.0d ? 99 : 0;
+            }
+            jSONArray2.put(put.put("pf", d3).put("avgMin", Math.round(rawQuery2.getDouble(6) / 60000.0d)).put("avgR", Math.round(rawQuery2.getDouble(7) * 1000.0d) / 1000.0d));
+            i = 2;
+            i2 = 0;
+            i3 = 1;
         }
-        cm.close();
-        for (java.util.Map.Entry<String, Double> e : mSum.entrySet())
-            months.put(e.getKey(), new JSONObject().put("month", e.getKey()).put("pnl", round2(e.getValue())));
-        // 4) R-multiple histogram (professional journal) — buckets -3..+4+
-        int[] rBuckets = new int[9];   // <-3, -3..-2, -2..-1, -1..0, 0..1, 1..2, 2..3, 3..4, 4+
-        Cursor cr = db.getReadableDatabase().rawQuery(
-                "SELECT r_mult FROM trades WHERE user_id=? AND status='CLOSED' AND r_mult != 0", new String[]{String.valueOf(uid)});
-        while (cr.moveToNext()) {
-            double r = cr.getDouble(0);
-            int b = r < -3 ? 0 : r < -2 ? 1 : r < -1 ? 2 : r < 0 ? 3 : r < 1 ? 4 : r < 2 ? 5 : r < 3 ? 6 : r < 4 ? 7 : 8;
-            rBuckets[b]++;
+        rawQuery2.close();
+        LinkedHashMap linkedHashMap = new LinkedHashMap();
+        int i6 = 0;
+        Cursor rawQuery3 = this.db.getReadableDatabase().rawQuery("SELECT CAST(closed_at/86400000 AS INTEGER) d, SUM(pnl) FROM trades WHERE user_id=? AND status='CLOSED' GROUP BY d", new String[]{String.valueOf(j)});
+        LinkedHashMap linkedHashMap2 = new LinkedHashMap();
+        while (rawQuery3.moveToNext()) {
+            Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
+            calendar.setTimeInMillis(rawQuery3.getLong(i6) * 86400000);
+            linkedHashMap2.merge(calendar.get(1) + "-" + String.format(Locale.US, "%02d", Integer.valueOf(calendar.get(2) + 1)), Double.valueOf(rawQuery3.getDouble(1)), new BiFunction() { // from class: com.aitradinglab.engine.Api$$ExternalSyntheticLambda0
+                @Override // java.util.function.BiFunction
+                public final Object apply(Object obj, Object obj2) {
+                    double sum = 0.0d;
+                    sum = Double.sum(((Double) obj).doubleValue(), ((Double) obj2).doubleValue());
+                    return Double.valueOf(sum);
+                }
+            });
+            i6 = 0;
         }
-        cr.close();
-        JSONArray rh = new JSONArray();
-        for (int v : rBuckets) rh.put(v);
-        // 5) Fee drag + TCA aggregate
-        Cursor cf = db.getReadableDatabase().rawQuery(
-                "SELECT IFNULL(SUM((qty*entry+qty*exit)*0.0005),0), IFNULL(AVG(tca_bps),0), COUNT(*) FROM trades WHERE user_id=? AND status='CLOSED'", new String[]{String.valueOf(uid)});
-        double feeTotal = 0, avgTca = 0; int nAll = 0;
-        if (cf.moveToFirst()) { feeTotal = cf.getDouble(0); avgTca = cf.getDouble(1); nAll = cf.getInt(2); }
-        cf.close();
-        return Res.json(200, new JSONObject().put("ok", true)
-                .put("daily", daily).put("symbols", syms)
-                .put("monthly", new JSONArray(months.values()))
-                .put("rHist", rh)
-                .put("fees", round2(feeTotal)).put("avgTcaBps", Math.round(avgTca * 100.0) / 100.0).put("nClosed", nAll));
+        rawQuery3.close();
+        for (Map.Entry entry : ((Map<Object, Object>) linkedHashMap2).entrySet()) {
+            linkedHashMap.put((String) entry.getKey(), new JSONObject().put("month", entry.getKey()).put("pnl", round2(((Double) entry.getValue()).doubleValue())));
+        }
+        int[] iArr = new int[9];
+        int i7 = 0;
+        Cursor rawQuery4 = this.db.getReadableDatabase().rawQuery("SELECT r_mult FROM trades WHERE user_id=? AND status='CLOSED' AND r_mult != 0", new String[]{String.valueOf(j)});
+        while (rawQuery4.moveToNext()) {
+            double d5 = rawQuery4.getDouble(i7);
+            char c = d5 < -3.0d ? (char) 0 : d5 < -2.0d ? (char) 1 : d5 < -1.0d ? (char) 2 : d5 < 0.0d ? (char) 3 : d5 < 1.0d ? (char) 4 : d5 < 2.0d ? (char) 5 : d5 < 3.0d ? (char) 6 : d5 < 4.0d ? (char) 7 : '\b';
+            iArr[c] = iArr[c] + 1;
+            i7 = 0;
+        }
+        rawQuery4.close();
+        JSONArray jSONArray3 = new JSONArray();
+        for (int i8 = 0; i8 < 9; i8++) {
+            jSONArray3.put(iArr[i8]);
+        }
+        int i9 = 0;
+        Cursor rawQuery5 = this.db.getReadableDatabase().rawQuery("SELECT IFNULL(SUM((qty*entry+qty*exit)*0.0005),0), IFNULL(AVG(tca_bps),0), COUNT(*) FROM trades WHERE user_id=? AND status='CLOSED'", new String[]{String.valueOf(j)});
+        if (rawQuery5.moveToFirst()) {
+            d = rawQuery5.getDouble(0);
+            d2 = rawQuery5.getDouble(1);
+            i9 = rawQuery5.getInt(2);
+        } else {
+            d2 = 0.0d;
+        }
+        rawQuery5.close();
+        return Res.json(200, new JSONObject().put("ok", true).put("daily", jSONArray).put("symbols", jSONArray2).put("monthly", new JSONArray(linkedHashMap.values())).put("rHist", jSONArray3).put("fees", round2(d)).put("avgTcaBps", Math.round(d2 * 100.0d) / 100.0d).put("nClosed", i9));
     }
 
-    /** GET /api/seasonality?symbol=XAUUSD — 5y monthly seasonal edge (seasonality.ai pattern). */
-    private Res seasonality(String path) throws Exception {
-        String sym = "BTCUSDT";
-        int q = path.indexOf("?symbol=");
-        if (q > 0) sym = path.substring(q + 8).toUpperCase(Locale.US).trim();
-        if (!sym.matches("[A-Z0-9]{4,20}")) return Res.error(400, "Symbol galat");
-        if (engine == null) return Res.error(503, "engine band hai");
-        JSONObject se = engine.seasonality(sym, q > 0 && path.contains("refresh=1"));
-        if (se == null) return Res.error(503, "Seasonality data abhi fetch nahi hua — dobara try karein");
-        return Res.json(200, new JSONObject().put("ok", true).put("seasonality", se));
+    private Res seasonality(String str) throws Exception {
+        int indexOf = str.indexOf("?symbol=");
+        String trim = indexOf > 0 ? str.substring(indexOf + 8).toUpperCase(Locale.US).trim() : "BTCUSDT";
+        if (!trim.matches("[A-Z0-9]{4,20}")) {
+            return Res.error(400, "Symbol galat");
+        }
+        EngineCore engineCore = this.engine;
+        if (engineCore == null) {
+            return Res.error(503, "engine band hai");
+        }
+        JSONObject seasonality = engineCore.seasonality(trim, indexOf > 0 && str.contains("refresh=1"));
+        if (seasonality == null) {
+            return Res.error(503, "Seasonality data abhi fetch nahi hua — dobara try karein");
+        }
+        return Res.json(200, new JSONObject().put("ok", true).put("seasonality", seasonality));
     }
 
-    /** GET /api/audit.csv — full audit trail export (trades + orders) — LIVE READY compliance. */
-    private Res auditCsv(long uid) throws Exception {
+    private Res auditCsv(long j) throws Exception {
         StringBuilder sb = new StringBuilder("type,id,trade_id,symbol,side,qty_or_status,price,source_or_entry,status_or_exit,ts\n");
-        Cursor t = db.getReadableDatabase().rawQuery(
-                "SELECT id, symbol, side, qty, entry, exit, pnl, status, strategy, opened_at, closed_at, IFNULL(r_mult,0), IFNULL(tca_bps,0) FROM trades WHERE user_id=? ORDER BY id", new String[]{String.valueOf(uid)});
-        while (t.moveToNext()) {
-            sb.append("TRADE,").append(t.getLong(0)).append(",").append(t.getLong(0)).append(',').append(t.getString(1))
-                    .append(',').append(t.getString(2)).append(',').append(t.getDouble(3)).append(',')
-                    .append(t.getDouble(4)).append(',').append(t.getString(7)).append(',')
-                    .append(t.isNull(5) ? "" : t.getDouble(5)).append(',').append(t.isNull(6) ? 0 : t.getDouble(6))
-                    .append(",").append(t.getString(8)).append(',').append(t.getLong(9)).append(',')
-                    .append(t.isNull(10) ? 0 : t.getLong(10)).append(',').append(t.getDouble(11)).append(',').append(t.getDouble(12)).append('\n');
+        int i = 0;
+        Cursor rawQuery = this.db.getReadableDatabase().rawQuery("SELECT id, symbol, side, qty, entry, exit, pnl, status, strategy, opened_at, closed_at, IFNULL(r_mult,0), IFNULL(tca_bps,0) FROM trades WHERE user_id=? ORDER BY id", new String[]{String.valueOf(j)});
+        while (rawQuery.moveToNext()) {
+            sb.append("TRADE,").append(rawQuery.getLong(0)).append(",").append(rawQuery.getLong(0)).append(',').append(rawQuery.getString(1)).append(',').append(rawQuery.getString(2)).append(',').append(rawQuery.getDouble(3)).append(',').append(rawQuery.getDouble(4)).append(',').append(rawQuery.getString(7)).append(',').append(rawQuery.isNull(5) ? "" : Double.valueOf(rawQuery.getDouble(5))).append(',').append(rawQuery.isNull(6) ? 0.0d : rawQuery.getDouble(6)).append(",").append(rawQuery.getString(8)).append(',').append(rawQuery.getLong(9)).append(',').append(rawQuery.isNull(10) ? 0L : rawQuery.getLong(10)).append(',').append(rawQuery.getDouble(11)).append(',').append(rawQuery.getDouble(12)).append('\n');
         }
-        t.close();
-        Cursor o = db.getReadableDatabase().rawQuery(
-                "SELECT id, trade_id, symbol, side, type, price, qty, status, source, ts FROM orders ORDER BY id", null);
-        while (o.moveToNext()) {
-            sb.append("ORDER,").append(o.getLong(0)).append(',').append(o.getLong(1)).append(',').append(o.getString(2))
-                    .append(',').append(o.getString(3)).append(',').append(o.getString(8)).append(',')
-                    .append(o.getDouble(5)).append(',').append(o.getDouble(6)).append(',')
-                    .append(o.getString(4)).append(',').append(o.getString(7)).append(',').append(o.getLong(9)).append('\n');
+        rawQuery.close();
+        Cursor rawQuery2 = this.db.getReadableDatabase().rawQuery("SELECT id, trade_id, symbol, side, type, price, qty, status, source, ts FROM orders ORDER BY id", null);
+        while (rawQuery2.moveToNext()) {
+            sb.append("ORDER,").append(rawQuery2.getLong(i)).append(',').append(rawQuery2.getLong(1)).append(',').append(rawQuery2.getString(2)).append(',').append(rawQuery2.getString(3)).append(',').append(rawQuery2.getString(8)).append(',').append(rawQuery2.getDouble(5)).append(',').append(rawQuery2.getDouble(6)).append(',').append(rawQuery2.getString(4)).append(',').append(rawQuery2.getString(7)).append(',').append(rawQuery2.getLong(9)).append('\n');
+            i = 0;
         }
-        o.close();
-        Res r = new Res();
-        r.contentType = "text/csv; charset=utf-8";
-        r.body = sb.toString();
-        db.log("INFO", "AUDIT", "AUDIT_EXPORT", "user #" + uid + " — full audit trail (trades + orders) exported");
-        return r;
+        rawQuery2.close();
+        Res res = new Res();
+        res.contentType = "text/csv; charset=utf-8";
+        res.body = sb.toString();
+        this.db.log("INFO", "AUDIT", "AUDIT_EXPORT", "user #" + j + " — full audit trail (trades + orders) exported");
+        return res;
     }
 
     private Res brokers() throws Exception {
-        JSONArray arr = new JSONArray();
-        Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT id, name, kind, IFNULL(server,''), status, added_at FROM brokers ORDER BY id DESC", null);
-        while (c.moveToNext()) {
-            arr.put(new JSONObject().put("id", c.getLong(0)).put("name", c.getString(1))
-                    .put("kind", c.getString(2)).put("server", c.getString(3))
-                    .put("status", c.getString(4)).put("addedAt", c.getLong(5)));
+        JSONArray jSONArray = new JSONArray();
+        Cursor rawQuery = this.db.getReadableDatabase().rawQuery("SELECT id, name, kind, IFNULL(server,''), status, added_at FROM brokers ORDER BY id DESC", null);
+        while (rawQuery.moveToNext()) {
+            jSONArray.put(new JSONObject().put("id", rawQuery.getLong(0)).put("name", rawQuery.getString(1)).put("kind", rawQuery.getString(2)).put("server", rawQuery.getString(3)).put("status", rawQuery.getString(4)).put("addedAt", rawQuery.getLong(5)));
         }
-        c.close();
-        return Res.json(200, new JSONObject().put("brokers", arr));
+        rawQuery.close();
+        return Res.json(200, new JSONObject().put("brokers", jSONArray));
     }
 
-    private Res addBroker(String body) throws Exception {
-        JSONObject o = HttpServer.jObj(body);
-        String name = HttpServer.jStr(o, "name");
-        String kind = HttpServer.jStr(o, "kind");
-        String server = HttpServer.jStr(o, "server");
-        String key = HttpServer.jStr(o, "apiKey");
-        String secret = HttpServer.jStr(o, "apiSecret");
-        String login = HttpServer.jStr(o, "login");
-        String pw = HttpServer.jStr(o, "password");
-
-        if (name.length() < 2) return Res.error(400, "Enter a broker name");
-        boolean mt5 = kind.toUpperCase(Locale.US).contains("MT");
-        // v2.1 — MT5/MT4 account API key nahi use karta: Login + Password + Server kaafi
-        if (mt5 && (login.isEmpty() || pw.isEmpty()))
+    private Res addBroker(String str) throws Exception {
+        JSONObject jObj = HttpServer.jObj(str);
+        String jStr = HttpServer.jStr(jObj, "name");
+        String jStr2 = HttpServer.jStr(jObj, "kind");
+        String jStr3 = HttpServer.jStr(jObj, "server");
+        String jStr4 = HttpServer.jStr(jObj, "apiKey");
+        String jStr5 = HttpServer.jStr(jObj, "apiSecret");
+        String jStr6 = HttpServer.jStr(jObj, "login");
+        String jStr7 = HttpServer.jStr(jObj, "password");
+        if (jStr.length() < 2) {
+            return Res.error(400, "Enter a broker name");
+        }
+        boolean contains = jStr2.toUpperCase(Locale.US).contains("MT");
+        if (contains && (jStr6.isEmpty() || jStr7.isEmpty())) {
             return Res.error(400, "MT5/MT4 ke liye Login + Password zaroori hain (API key optional hai)");
-        if (!mt5 && key.length() < 8) return Res.error(400, "Enter the API key from your broker");
-        db.getWritableDatabase().execSQL(
-                "INSERT INTO brokers(name, kind, api_key, api_secret, login, password, server, status, added_at) VALUES(?,?,?,?,?,?,?,'SAVED',?)",
-                new Object[]{name, kind.isEmpty() ? "MT5" : kind, key, secret, login, pw, server, System.currentTimeMillis()});
-        db.log("INFO", "BROKER", "ADDED", name + " (" + (kind.isEmpty() ? "MT5" : kind)
-                + (server.isEmpty() ? "" : " @ " + server) + ") — credentials saved on this device");
-        return Res.json(200, new JSONObject().put("ok", true)
-                .put("message", "Broker saved. Credentials is device par safe hain — live trading phase me connect hoga. (Paper trading abhi chal rahi hai — MT5 data feed se.)"));
+        }
+        if (!contains && jStr4.length() < 8) {
+            return Res.error(400, "Enter the API key from your broker");
+        }
+        this.db.getWritableDatabase().execSQL("INSERT INTO brokers(name, kind, api_key, api_secret, login, password, server, status, added_at) VALUES(?,?,?,?,?,?,?,'SAVED',?)", new Object[]{jStr, jStr2.isEmpty() ? "MT5" : jStr2, jStr4, jStr5, jStr6, jStr7, jStr3, Long.valueOf(System.currentTimeMillis())});
+        Db db = this.db;
+        StringBuilder append = new StringBuilder().append(jStr).append(" (");
+        if (jStr2.isEmpty()) {
+            jStr2 = "MT5";
+        }
+        db.log("INFO", "BROKER", "ADDED", append.append(jStr2).append(jStr3.isEmpty() ? "" : " @ " + jStr3).append(") — credentials saved on this device").toString());
+        return Res.json(200, new JSONObject().put("ok", true).put("message", "Broker saved. Credentials is device par safe hain — live trading phase me connect hoga. (Paper trading abhi chal rahi hai — MT5 data feed se.)"));
     }
 
-    private Res testBroker(String body) throws Exception {
-        JSONObject o = HttpServer.jObj(body);
-        String name = HttpServer.jStr(o, "name");
-        return Res.json(200, new JSONObject().put("ok", true)
-                .put("message", name + " credentials verified as SAVED (local storage). Live connection test happens when live trading is enabled — this build runs paper trading only."));
+    private Res testBroker(String str) throws Exception {
+        return Res.json(200, new JSONObject().put("ok", true).put("message", HttpServer.jStr(HttpServer.jObj(str), "name") + " credentials verified as SAVED (local storage). Live connection test happens when live trading is enabled — this build runs paper trading only."));
     }
 
-    private Res closeTrade(long uid, String body) throws Exception {
-        JSONObject o = HttpServer.jObj(body);
-        long id = o.optLong("id", -1);
-        Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT qty, entry, side FROM trades WHERE id=? AND user_id=? AND status='OPEN'", new String[]{String.valueOf(id), String.valueOf(uid)});
-        if (!c.moveToFirst()) { c.close(); return Res.error(404, "trade not found"); }
-        double qty = c.getDouble(0), entry = c.getDouble(1); String side = c.getString(2);
-        c.close();
-        Cursor cc = db.getReadableDatabase().rawQuery(
-                "SELECT c FROM (SELECT c FROM candles WHERE symbol=(SELECT symbol FROM trades WHERE id=?) ORDER BY ts DESC LIMIT 1)", new String[]{String.valueOf(id)});
-        double price = cc.moveToFirst() ? cc.getDouble(0) : entry; cc.close();
-        double pnl = ("BUY".equals(side) ? price - entry : entry - price) * qty;
-        db.getWritableDatabase().execSQL("UPDATE trades SET exit=?, pnl=?, status='CLOSED', closed_at=? WHERE id=?",
-                new Object[]{price, pnl, System.currentTimeMillis(), id});
-        db.getWritableDatabase().execSQL("UPDATE accounts SET balance=balance+? WHERE user_id=?", new Object[]{pnl, uid});
-        db.log("INFO", "EXECUTOR", "MANUAL_CLOSE", "trade #" + id + " closed by user, pnl=" + String.format(Locale.US, "%.2f", pnl));
-        return Res.json(200, new JSONObject().put("ok", true).put("pnl", round2(pnl)));
+    private Res closeTrade(long j, String str) throws Exception {
+        long optLong = HttpServer.jObj(str).optLong("id", -1L);
+        Cursor rawQuery = this.db.getReadableDatabase().rawQuery("SELECT qty, entry, side, symbol FROM trades WHERE id=? AND user_id=? AND status='OPEN'", new String[]{String.valueOf(optLong), String.valueOf(j)});
+        if (!rawQuery.moveToFirst()) {
+            rawQuery.close();
+            return Res.error(404, "trade not found");
+        }
+        double d = rawQuery.getDouble(0);
+        double d2 = rawQuery.getDouble(1);
+        String string = rawQuery.getString(2);
+        String string4 = rawQuery.getString(3);
+        rawQuery.close();
+        // v1.4: manual close ab 1-second LIVE price par — owner tap kare to market price par hi band ho
+        double d3 = livePrice(string4);
+        if (Double.isNaN(d3) || d3 <= 0.0d) {
+            d3 = d2;
+        }
+        double d4 = ("BUY".equals(string) ? d3 - d2 : d2 - d3) * d;
+        this.db.getWritableDatabase().execSQL("UPDATE trades SET exit=?, pnl=?, status='CLOSED', closed_at=? WHERE id=?", new Object[]{Double.valueOf(d3), Double.valueOf(d4), Long.valueOf(System.currentTimeMillis()), Long.valueOf(optLong)});
+        this.db.getWritableDatabase().execSQL("UPDATE accounts SET balance=balance+? WHERE user_id=?", new Object[]{Double.valueOf(d4), Long.valueOf(j)});
+        this.db.log("INFO", "EXECUTOR", "MANUAL_CLOSE", "trade #" + optLong + " closed by user, pnl=" + String.format(Locale.US, "%.2f", Double.valueOf(d4)));
+        return Res.json(200, new JSONObject().put("ok", true).put("pnl", round2(d4)));
     }
 
     private Res settings() throws Exception {
-        return Res.json(200, new JSONObject()
-                .put("engineOn", "1".equals(db.setting("engine_on", "1")))
-                .put("riskPct", engine != null ? engine.riskPct() : 2.0)
-                // v2.1 — MT5 feed
-                .put("mt5Bridge", db.setting("mt5_bridge", ""))
-                // v1.7 PRO GUARD settings
-                .put("cooldownMin", engine != null ? engine.cooldownMin() : 15)
-                .put("consecLoss", engine != null ? engine.consecLossN() : 3)
-                .put("dailyKillPct", engine != null ? engine.dailyKillPct() : 0)
-                .put("feePct", 0.05)
-                // v1.1 TUNED — TURBO + X7 (dashboard controls ke liye)
-                .put("levCap", engine != null ? engine.levCap() : 0.95)
-                .put("feeBps", db.setting("fee_bps", "5"))
-                .put("x7On", "1".equals(db.setting("x7_on", "1")))
-                // v4.4.1 — PRO FILTER PACK fields REMOVED (filter deleted)
-                // v3.0 QUANT PRO (P1-P5)
-                .put("slipBps", engine != null ? engine.slipBps() : 2)
-                .put("heatMaxPct", engine != null ? engine.heatMaxPct() : 0)
-                .put("bucketMaxPct", engine != null ? engine.bucketMaxPct() : 0)
-                .put("councilMin", engine != null ? engine.councilMin() : 0)
-                .put("eventGate", engine != null && engine.eventGateOn())
-                .put("autoPause", "1".equals(db.setting("auto_pause", "0")))
-                .put("sessionFilter", engine != null && engine.sessionFilterOn())
-                .put("bridgeLive", engine != null && engine.bridgeLive())
-                .put("bridgeLots", engine != null ? engine.bridgeLots() : 0.01)
-                // v4.4 — AI trainer + PDF pack + fee edge
-                .put("aiAutoTrain", "1".equals(db.setting("ai_auto_train", "1")))
-                .put("feeEdgeOn", "1".equals(db.setting("fee_edge_on", "1")))
-                .put("minFeeEdgePct", db.setting("min_fee_edge_pct", "0.14"))
-                .put("packOn", "1".equals(db.setting("pack_on", "0")))   // v1.1 TUNED default OFF (replay: fees bleed)
-                .put("aiTrainedAt", db.setting("ai_trained_at", "0"))
-                .put("feedIntervalSec", db.setting("feed_interval_sec", "60"))
-                .put("labSymbol", db.setting("lab_symbol", "BTCUSDT"))
-                .put("safeMode", engine != null && engine.isSafeMode())
-                .put("version", "4.4"));
-    }
-
-    /** v1.8 — candlestick chart data: GET /api/candles?symbol=XAUUSD&n=60 → 5m candles.
-     *  v3.0 — + open trade overlay (entry/SL/TP levels + side) is symbol par, taake
-     *  Home chart par FreqUI-style trade markers/lines draw ho sakein. */
-    private Res candles(String path, long uid) throws Exception {
-        String sym = qParam("symbol").toUpperCase(Locale.US).trim();
-        if (!sym.matches("[A-Z0-9]{4,20}")) return Res.error(400, "Symbol galat hai (e.g. BTCUSDT)");
-        int n;
-        try { n = Integer.parseInt(qParam("n")); } catch (Exception e) { n = 60; }
-        if (engine == null) return Res.error(503, "engine band hai");
-        List<EngineCore.Candle> ks = engine.recentCandles(sym, n);
-        JSONArray arr = new JSONArray();
-        for (EngineCore.Candle k : ks) {
-            arr.put(new JSONObject().put("ts", k.ts).put("o", k.o).put("h", k.h)
-                    .put("l", k.l).put("c", k.c).put("v", k.v));
+        JSONObject put = new JSONObject().put("engineOn", "1".equals(this.db.setting("engine_on", "1")));
+        EngineCore engineCore = this.engine;
+        JSONObject put2 = put.put("riskPct", engineCore != null ? engineCore.riskPct() : 2.0d).put("mt5Bridge", this.db.setting("mt5_bridge", ""));
+        EngineCore engineCore2 = this.engine;
+        JSONObject put3 = put2.put("cooldownMin", engineCore2 != null ? engineCore2.cooldownMin() : 15);
+        EngineCore engineCore3 = this.engine;
+        JSONObject put4 = put3.put("consecLoss", engineCore3 != null ? engineCore3.consecLossN() : 3);
+        EngineCore engineCore4 = this.engine;
+        JSONObject put5 = put4.put("dailyKillPct", engineCore4 != null ? engineCore4.dailyKillPct() : 0.0d).put("feePct", 0.05d);
+        EngineCore engineCore5 = this.engine;
+        JSONObject put6 = put5.put("levCap", engineCore5 != null ? engineCore5.levCap() : 0.95d).put("feeBps", this.db.setting("fee_bps", "5")).put("x7On", "1".equals(this.db.setting("x7_on", "1")));
+        EngineCore engineCore6 = this.engine;
+        JSONObject put7 = put6.put("slipBps", engineCore6 != null ? engineCore6.slipBps() : 2.0d);
+        EngineCore engineCore7 = this.engine;
+        JSONObject put8 = put7.put("heatMaxPct", engineCore7 != null ? engineCore7.heatMaxPct() : 0.0d);
+        EngineCore engineCore8 = this.engine;
+        JSONObject put9 = put8.put("bucketMaxPct", engineCore8 != null ? engineCore8.bucketMaxPct() : 0.0d);
+        EngineCore engineCore9 = this.engine;
+        boolean z = false;
+        JSONObject put10 = put9.put("councilMin", engineCore9 != null ? engineCore9.councilMin() : 0);
+        EngineCore engineCore10 = this.engine;
+        JSONObject put11 = put10.put("eventGate", engineCore10 != null && engineCore10.eventGateOn()).put("autoPause", "1".equals(this.db.setting("auto_pause", "0")));
+        EngineCore engineCore11 = this.engine;
+        JSONObject put12 = put11.put("sessionFilter", engineCore11 != null && engineCore11.sessionFilterOn());
+        EngineCore engineCore12 = this.engine;
+        JSONObject put13 = put12.put("bridgeLive", engineCore12 != null && engineCore12.bridgeLive());
+        EngineCore engineCore13 = this.engine;
+        JSONObject put14 = put13.put("bridgeLots", engineCore13 != null ? engineCore13.bridgeLots() : 0.01d).put("aiAutoTrain", "1".equals(this.db.setting("ai_auto_train", "1"))).put("feeEdgeOn", "1".equals(this.db.setting("fee_edge_on", "1"))).put("minFeeEdgePct", this.db.setting("min_fee_edge_pct", "0.14")).put("packOn", "1".equals(this.db.setting("pack_on", "0"))).put("aiTrainedAt", this.db.setting("ai_trained_at", "0")).put("feedIntervalSec", this.db.setting("feed_interval_sec", "60")).put("labSymbol", this.db.setting("lab_symbol", "BTCUSDT"));
+        EngineCore engineCore14 = this.engine;
+        if (engineCore14 != null && engineCore14.isSafeMode()) {
+            z = true;
         }
-        JSONObject out = new JSONObject().put("ok", true).put("symbol", sym)
-                .put("candles", arr).put("count", arr.length());
-        // v3.0 — is user ki khuli trade is symbol par (chart overlay ke liye)
-        Cursor ot = db.getReadableDatabase().rawQuery(
-                "SELECT side, entry, sl, tp FROM trades WHERE user_id=? AND symbol=? AND status='OPEN' ORDER BY id DESC LIMIT 1",
-                new String[]{String.valueOf(uid), sym});
-        if (ot.moveToFirst())
-            out.put("trade", new JSONObject().put("side", ot.getString(0)).put("entry", ot.getDouble(1))
-                    .put("sl", ot.getDouble(2)).put("tp", ot.getDouble(3)));
-        ot.close();
-        return Res.json(200, out);
+        return Res.json(200, put14.put("safeMode", z).put("version", "4.4"));
     }
 
-    /** v1.2 — Paper Balance: owner apna paper amount khud set karta hai.
-     *  Body: {amount: number}. $10 – $100,000,000 allowed. Open trades are CANCELLED
-     *  (exit=entry, pnl=0) because they were sized against the old balance; risk
-     *  counters (start/peak/day_start) reset so PnL% aur drawdown naye base se chale. */
-    private Res setBalance(long uid, String body) throws Exception {
-        JSONObject o = HttpServer.jObj(body);
-        double amt = o.optDouble("amount", Double.NaN);
-        if (Double.isNaN(amt) || amt < 10 || amt > 100000000)
+    private Res candles(String str, long j) throws Exception {
+        int i = 0;
+        String trim = qParam("symbol").toUpperCase(Locale.US).trim();
+        if (!trim.matches("[A-Z0-9]{4,20}")) {
+            return Res.error(400, "Symbol galat hai (e.g. BTCUSDT)");
+        }
+        try {
+            i = Integer.parseInt(qParam("n"));
+        } catch (Exception unused) {
+            i = 60;
+        }
+        EngineCore engineCore = this.engine;
+        if (engineCore == null) {
+            return Res.error(503, "engine band hai");
+        }
+        List<EngineCore.Candle> recentCandles = engineCore.recentCandles(trim, i);
+        JSONArray jSONArray = new JSONArray();
+        for (EngineCore.Candle candle : recentCandles) {
+            jSONArray.put(new JSONObject().put("ts", candle.ts).put("o", candle.o).put("h", candle.h).put("l", candle.l).put("c", candle.c).put("v", candle.v));
+        }
+        JSONObject put = new JSONObject().put("ok", true).put("symbol", trim).put("candles", jSONArray).put("count", jSONArray.length());
+        Cursor rawQuery = this.db.getReadableDatabase().rawQuery("SELECT side, entry, sl, tp FROM trades WHERE user_id=? AND symbol=? AND status='OPEN' ORDER BY id DESC LIMIT 1", new String[]{String.valueOf(j), trim});
+        if (rawQuery.moveToFirst()) {
+            put.put("trade", new JSONObject().put("side", rawQuery.getString(0)).put("entry", rawQuery.getDouble(1)).put("sl", rawQuery.getDouble(2)).put("tp", rawQuery.getDouble(3)));
+        }
+        rawQuery.close();
+        return Res.json(200, put);
+    }
+
+    private Res setBalance(long j, String str) throws Exception {
+        double optDouble = HttpServer.jObj(str).optDouble("amount", Double.NaN);
+        if (Double.isNaN(optDouble) || optDouble < 10.0d || optDouble > 1.0E8d) {
             return Res.error(400, "Paper balance $10 se $100,000,000 ke beech set karein");
-        long now = System.currentTimeMillis();
-        db.getWritableDatabase().execSQL(
-                "UPDATE trades SET exit=entry, pnl=0, status='CANCELLED', closed_at=? WHERE user_id=? AND status='OPEN'",
-                new Object[]{now, uid});
-        db.getWritableDatabase().execSQL(
-                "UPDATE accounts SET balance=?, start_balance=?, peak=?, day_start=?, day_ts=? WHERE user_id=?",
-                new Object[]{amt, amt, amt, amt, now / 86400000L, uid});
-        db.log("INFO", "ACCOUNT", "BALANCE_SET", "user #" + uid + " — paper balance set to $"
-                + String.format(Locale.US, "%.2f", amt) + " (open trades cancelled, risk counters reset)");
-        return Res.json(200, new JSONObject().put("ok", true).put("balance", round2(amt))
-                .put("message", "Paper balance set: $" + String.format(Locale.US, "%.0f", amt)
-                        + " — ab 3C MASTER har trade " + (engine != null ? engine.riskPct() : 1.0) + "% risk leggi (Settings > Risk %) — daily loss/profit UNLIMITED"));
+        }
+        long currentTimeMillis = System.currentTimeMillis();
+        this.db.getWritableDatabase().execSQL("UPDATE trades SET exit=entry, pnl=0, status='CANCELLED', closed_at=? WHERE user_id=? AND status='OPEN'", new Object[]{Long.valueOf(currentTimeMillis), Long.valueOf(j)});
+        this.db.getWritableDatabase().execSQL("UPDATE accounts SET balance=?, start_balance=?, peak=?, day_start=?, day_ts=? WHERE user_id=?", new Object[]{Double.valueOf(optDouble), Double.valueOf(optDouble), Double.valueOf(optDouble), Double.valueOf(optDouble), Long.valueOf(currentTimeMillis / 86400000), Long.valueOf(j)});
+        this.db.log("INFO", "ACCOUNT", "BALANCE_SET", "user #" + j + " — paper balance set to $" + String.format(Locale.US, "%.2f", Double.valueOf(optDouble)) + " (open trades cancelled, risk counters reset)");
+        JSONObject put = new JSONObject().put("ok", true).put("balance", round2(optDouble));
+        StringBuilder append = new StringBuilder("Paper balance set: $").append(String.format(Locale.US, "%.0f", Double.valueOf(optDouble))).append(" — ab 3C MASTER har trade ");
+        EngineCore engineCore = this.engine;
+        return Res.json(200, put.put("message", append.append(engineCore != null ? engineCore.riskPct() : 1.0d).append("% risk leggi (Settings > Risk %) — daily loss/profit UNLIMITED").toString()));
     }
 
-    // ================== v1.2 STRATEGY LAB + PERMANENT HISTORY ==================
-
-    /** URL-decoded query param for the current request (api/history/csv uses it). */
-    private String qParam(String key) {
-        if (query == null || query.isEmpty()) return "";
-        for (String p : query.split("&")) {
-            int eq = p.indexOf('=');
-            if (eq <= 0) continue;
-            if (p.substring(0, eq).equals(key)) {
-                try { return java.net.URLDecoder.decode(p.substring(eq + 1), "UTF-8"); }
-                catch (Exception e) { return p.substring(eq + 1); }
+    private String qParam(String str) {
+        String str2 = this.query;
+        if (str2 != null && !str2.isEmpty()) {
+            for (String str3 : this.query.split("&")) {
+                int indexOf = str3.indexOf(61);
+                if (indexOf > 0 && str3.substring(0, indexOf).equals(str)) {
+                    int i = indexOf + 1;
+                    try {
+                        return URLDecoder.decode(str3.substring(i), "UTF-8");
+                    } catch (Exception unused) {
+                        return str3.substring(i);
+                    }
+                }
             }
         }
         return "";
     }
 
-    /** Strategy Lab actions — the whole AI/backtest/paper/live pipeline is driven from here. */
-    private Res strategyAction(StrategyLab lab, String body) throws Exception {
-        JSONObject o = HttpServer.jObj(body);
-        String action = HttpServer.jStr(o, "action");
-        String text = HttpServer.jStr(o, "text");
-        String url = HttpServer.jStr(o, "url");
-        long id = o.optLong("id", -1);
-        JSONObject out;
-        switch (action) {
-            case "add":
-                if (text.isEmpty()) return Res.error(400, "Strategy likhein — kisi bhi zubaan mein");
-                out = lab.addManual(text);
+    private Res strategyAction(StrategyLab strategyLab, String str) throws Exception {
+        JSONObject jObj = null;
+        String jStr = null;
+        String jStr2 = null;
+        String jStr3 = null;
+        long optLong = 0L;
+        JSONObject remove = null;
+        jObj = HttpServer.jObj(str);
+        jStr = HttpServer.jStr(jObj, "action");
+        jStr2 = HttpServer.jStr(jObj, "text");
+        jStr3 = HttpServer.jStr(jObj, "url");
+        optLong = jObj.optLong("id", -1L);
+        jStr.hashCode();
+        switch (jStr) {
+            case "delete":
+                remove = strategyLab.remove(optLong);
                 break;
-            case "yt_add":
-                if (url.isEmpty()) return Res.error(400, "YouTube video ka link dein");
-                out = lab.addYouTube(url);
+            case "set_symbol":
+                String upperCase = HttpServer.jStr(jObj, "symbol").toUpperCase(Locale.US);
+                if (!upperCase.matches("[A-Z0-9]{5,20}")) {
+                    return Res.error(400, "Symbol format galat hai (e.g. BTCUSDT)");
+                }
+                this.db.setSetting("lab_symbol", upperCase);
+                remove = new JSONObject().put("ok", true).put("message", "Backtest symbol: " + upperCase);
                 break;
-            case "yt_channel":
-                if (url.isEmpty()) return Res.error(400, "Channel ka link dein (@handle ya /channel/UC...)");
-                out = lab.subscribeChannel(url);
+            case "reject":
+                remove = strategyLab.reject(optLong);
                 break;
             case "yt_stop":
-                lab.stopChannel();
-                out = new JSONObject().put("ok", true).put("message", "Channel watcher band ho gaya");
+                strategyLab.stopChannel();
+                remove = new JSONObject().put("ok", true).put("message", "Channel watcher band ho gaya");
                 break;
-            case "backtest": out = lab.backtest(id); break;
-            case "paper":    out = lab.startPaper(id); break;
-            case "approve":  out = lab.approve(id); break;
-            case "reject":   out = lab.reject(id); break;
-            case "delete":   out = lab.remove(id); break;
-            case "restore":  out = lab.restore(id); break;   // v1.7 UNDO
-            case "trash":    out = lab.trash(); break;        // v1.7 trash list
-            case "set_symbol": {
-                String sym = HttpServer.jStr(o, "symbol").toUpperCase(Locale.US);
-                if (!sym.matches("[A-Z0-9]{5,20}")) return Res.error(400, "Symbol format galat hai (e.g. BTCUSDT)");
-                db.setSetting("lab_symbol", sym);
-                out = new JSONObject().put("ok", true).put("message", "Backtest symbol: " + sym);
+            case "approve":
+                remove = strategyLab.approve(optLong);
                 break;
-            }
-            default: return Res.error(400, "Unknown action: " + action);
+            case "yt_add":
+                if (!jStr3.isEmpty()) {
+                    remove = strategyLab.addYouTube(jStr3);
+                    break;
+                } else {
+                    return Res.error(400, "YouTube video ka link dein");
+                }
+            case "add":
+                if (!jStr2.isEmpty()) {
+                    remove = strategyLab.addManual(jStr2);
+                    break;
+                } else {
+                    return Res.error(400, "Strategy likhein — kisi bhi zubaan mein");
+                }
+            case "paper":
+                remove = strategyLab.startPaper(optLong);
+                break;
+            case "trash":
+                remove = strategyLab.trash();
+                break;
+            case "restore":
+                remove = strategyLab.restore(optLong);
+                break;
+            case "yt_channel":
+                if (!jStr3.isEmpty()) {
+                    remove = strategyLab.subscribeChannel(jStr3);
+                    break;
+                } else {
+                    return Res.error(400, "Channel ka link dein (@handle ya /channel/UC...)");
+                }
+            case "backtest":
+                remove = strategyLab.backtest(optLong);
+                break;
+            default:
+                return Res.error(400, "Unknown action: " + jStr);
         }
-        if (out == null) return Res.error(502, "AI service fail — thori dair baad dobara try karein");
-        if (!out.optBoolean("ok", true)) return Res.json(502, out);
-        return Res.json(200, out);
+        if (remove == null) {
+            return Res.error(502, "AI service fail — thori dair baad dobara try karein");
+        }
+        return !remove.optBoolean("ok", true) ? Res.json(502, remove) : Res.json(200, remove);
     }
 
-    /**
-     * v1.2 PERMANENT HISTORY — trades kabhi delete nahi hote; ye endpoint poora
-     * archive year → month → day tree mein return karta hai (wins/losses/PnL/volume).
-     */
-    private Res history(long uid) throws Exception {
-        Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT CAST(strftime('%Y', opened_at/1000, 'unixepoch') AS TEXT) y, " +
-                "CAST(strftime('%m', opened_at/1000, 'unixepoch') AS TEXT) m, " +
-                "CAST(strftime('%d', opened_at/1000, 'unixepoch') AS TEXT) d, " +
-                "COUNT(*), IFNULL(SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END),0), IFNULL(ROUND(SUM(pnl),2),0), IFNULL(ROUND(SUM(qty*entry),2),0) " +
-                "FROM trades WHERE user_id=? AND status='CLOSED' AND opened_at IS NOT NULL " +
-                "GROUP BY y, m, d ORDER BY y DESC, m DESC, d DESC", new String[]{String.valueOf(uid)});
-        java.util.Map<String, JSONObject> years = new java.util.LinkedHashMap<>();
-        java.util.Map<String, JSONObject> months = new java.util.LinkedHashMap<>();
-        JSONArray dayArr = new JSONArray();
-        while (c.moveToNext()) {
-            String y = c.getString(0), m = c.getString(1), d = c.getString(2);
-            long n = c.getLong(3), w = c.getLong(4);
-            double pnl = c.getDouble(5), vol = c.getDouble(6);
-            JSONObject yo = years.get(y);
-            if (yo == null) {
-                yo = new JSONObject().put("y", y).put("trades", 0).put("wins", 0).put("pnl", 0).put("months", new JSONArray());
-                years.put(y, yo);
+    private Res history(long j) throws Exception {
+        int i = 1;
+        int i2 = 0;
+        Cursor rawQuery = this.db.getReadableDatabase().rawQuery("SELECT CAST(strftime('%Y', opened_at/1000, 'unixepoch') AS TEXT) y, CAST(strftime('%m', opened_at/1000, 'unixepoch') AS TEXT) m, CAST(strftime('%d', opened_at/1000, 'unixepoch') AS TEXT) d, COUNT(*), IFNULL(SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END),0), IFNULL(ROUND(SUM(pnl),2),0), IFNULL(ROUND(SUM(qty*entry),2),0) FROM trades WHERE user_id=? AND status='CLOSED' AND opened_at IS NOT NULL GROUP BY y, m, d ORDER BY y DESC, m DESC, d DESC", new String[]{String.valueOf(j)});
+        LinkedHashMap linkedHashMap = new LinkedHashMap();
+        LinkedHashMap linkedHashMap2 = new LinkedHashMap();
+        JSONArray jSONArray = new JSONArray();
+        while (rawQuery.moveToNext()) {
+            String string = rawQuery.getString(i2);
+            String string2 = rawQuery.getString(i);
+            String string3 = rawQuery.getString(2);
+            long j2 = rawQuery.getLong(3);
+            long j3 = rawQuery.getLong(4);
+            double d = rawQuery.getDouble(5);
+            JSONArray jSONArray2 = jSONArray;
+            double d2 = rawQuery.getDouble(6);
+            JSONObject jSONObject = (JSONObject) linkedHashMap.get(string);
+            Cursor cursor = rawQuery;
+            if (jSONObject == null) {
+                jSONObject = new JSONObject().put("y", string).put("trades", 0).put("wins", 0).put("pnl", 0).put("months", new JSONArray());
+                linkedHashMap.put(string, jSONObject);
             }
-            JSONObject mo = months.get(y + "-" + m);
-            if (mo == null) {
-                mo = new JSONObject().put("m", m).put("y", y).put("trades", 0).put("wins", 0).put("pnl", 0).put("days", new JSONArray());
-                months.put(y + "-" + m, mo);
-                ((JSONArray) yo.get("months")).put(mo);
+            LinkedHashMap linkedHashMap3 = linkedHashMap;
+            JSONObject jSONObject2 = (JSONObject) linkedHashMap2.get(string + "-" + string2);
+            if (jSONObject2 == null) {
+                jSONObject2 = new JSONObject().put("m", string2).put("y", string).put("trades", 0).put("wins", 0).put("pnl", 0).put("days", new JSONArray());
+                linkedHashMap2.put(string + "-" + string2, jSONObject2);
+                ((JSONArray) jSONObject.get("months")).put(jSONObject2);
             }
-            JSONObject day = new JSONObject().put("d", d).put("trades", n).put("wins", w).put("pnl", pnl).put("vol", vol);
-            ((JSONArray) mo.get("days")).put(day);
-            mo.put("trades", mo.optLong("trades") + n).put("wins", mo.optLong("wins") + w)
-                    .put("pnl", Math.round((mo.optDouble("pnl") + pnl) * 100) / 100.0);
-            yo.put("trades", yo.optLong("trades") + n).put("wins", yo.optLong("wins") + w)
-                    .put("pnl", Math.round((yo.optDouble("pnl") + pnl) * 100) / 100.0);
-            dayArr.put(day);
+            JSONObject put = new JSONObject().put("d", string3).put("trades", j2).put("wins", j3).put("pnl", d);
+            JSONObject jSONObject3 = jSONObject;
+            JSONObject put2 = put.put("vol", d2);
+            ((JSONArray) jSONObject2.get("days")).put(put2);
+            jSONObject2.put("trades", jSONObject2.optLong("trades") + j2).put("wins", jSONObject2.optLong("wins") + j3).put("pnl", Math.round((jSONObject2.optDouble("pnl") + d) * 100.0d) / 100.0d);
+            jSONObject3.put("trades", jSONObject3.optLong("trades") + j2).put("wins", jSONObject3.optLong("wins") + j3).put("pnl", Math.round((jSONObject3.optDouble("pnl") + d) * 100.0d) / 100.0d);
+            jSONArray2.put(put2);
+            linkedHashMap2 = linkedHashMap2;
+            jSONArray = jSONArray2;
+            rawQuery = cursor;
+            linkedHashMap = linkedHashMap3;
+            i = 1;
+            i2 = 0;
         }
-        c.close();
-        JSONArray yArr = new JSONArray();
-        for (JSONObject yo : years.values()) yArr.put(yo);
-        return Res.json(200, new JSONObject().put("ok", true).put("years", yArr));
+        rawQuery.close();
+        JSONArray jSONArray3 = new JSONArray();
+        Iterator it = linkedHashMap.values().iterator();
+        while (it.hasNext()) {
+            jSONArray3.put((JSONObject) it.next());
+        }
+        return Res.json(200, new JSONObject().put("ok", true).put("years", jSONArray3));
     }
 
-    /** v1.2 — one month's closed trades as CSV (dashboard JS se file download hoti hai). */
-    private Res historyCsv(long uid) throws Exception {
-        int y, m;
-        try { y = Integer.parseInt(qParam("y")); m = Integer.parseInt(qParam("m")); }
-        catch (Exception e) { return Res.error(400, "y aur m chahiye (e.g. ?y=2026&m=01)"); }
-        if (m < 1 || m > 12 || y < 2020 || y > 2100) return Res.error(400, "Month/year range galat hai");
-        java.util.Calendar cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"));
-        cal.set(y, m - 1, 1, 0, 0, 0); cal.set(java.util.Calendar.MILLISECOND, 0);
-        long from = cal.getTimeInMillis();
-        cal.add(java.util.Calendar.MONTH, 1);
-        long to = cal.getTimeInMillis() - 1;
-        Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT symbol, side, qty, entry, sl, tp, exit, pnl, strategy, consensus, risk, opened_at, closed_at FROM trades " +
-                "WHERE user_id=? AND status='CLOSED' AND opened_at BETWEEN ? AND ? ORDER BY opened_at ASC",
-                new String[]{String.valueOf(uid), String.valueOf(from), String.valueOf(to)});
-        StringBuilder sb = new StringBuilder(
-                "date,symbol,side,qty,entry,sl,tp,exit,pnl,risk_pct,strategy,consensus_pct,opened_at_ms,closed_at_ms\n");
-        java.text.SimpleDateFormat iso = new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US);
-        iso.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
-        int n = 0;
-        while (c.moveToNext()) {
-            sb.append(iso.format(new java.util.Date(c.getLong(11)))).append(',')
-                    .append(c.getString(0)).append(',').append(c.getString(1)).append(',')
-                    .append(c.getDouble(2)).append(',').append(c.getDouble(3)).append(',')
-                    .append(c.getDouble(4)).append(',').append(c.getDouble(5)).append(',')
-                    .append(c.getDouble(6)).append(',').append(c.getDouble(7)).append(',')
-                    .append(c.isNull(10) ? "" : String.format(Locale.US, "%.1f", c.getDouble(10) * 100)).append(',')
-                    .append('"').append(c.getString(8).replace("\"", "'")).append("\",")
-                    .append(c.isNull(9) ? "" : String.format(Locale.US, "%.0f", c.getDouble(9) * 100)).append(',')
-                    .append(c.getLong(11)).append(',').append(c.getLong(12)).append('\n');
-            n++;
+    private Res historyCsv(long j) throws Exception {
+        try {
+            int parseInt = Integer.parseInt(qParam("y"));
+            int parseInt2 = Integer.parseInt(qParam("m"));
+            int i = 1;
+            if (parseInt2 < 1 || parseInt2 > 12 || parseInt < 2020 || parseInt > 2100) {
+                return Res.error(400, "Month/year range galat hai");
+            }
+            Calendar calendar = Calendar.getInstance(TimeZone.getTimeZone("UTC"));
+            calendar.set(parseInt, parseInt2 - 1, 1, 0, 0, 0);
+            int i2 = 0;
+            calendar.set(14, 0);
+            long timeInMillis = calendar.getTimeInMillis();
+            int i3 = 2;
+            calendar.add(2, 1);
+            Cursor rawQuery = this.db.getReadableDatabase().rawQuery("SELECT symbol, side, qty, entry, sl, tp, exit, pnl, strategy, consensus, risk, opened_at, closed_at FROM trades WHERE user_id=? AND status='CLOSED' AND opened_at BETWEEN ? AND ? ORDER BY opened_at ASC", new String[]{String.valueOf(j), String.valueOf(timeInMillis), String.valueOf(calendar.getTimeInMillis() - 1)});
+            StringBuilder sb = new StringBuilder("date,symbol,side,qty,entry,sl,tp,exit,pnl,risk_pct,strategy,consensus_pct,opened_at_ms,closed_at_ms\n");
+            SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US);
+            simpleDateFormat.setTimeZone(TimeZone.getTimeZone("UTC"));
+            int i4 = 0;
+            while (rawQuery.moveToNext()) {
+                String str = "";
+                StringBuilder append = sb.append(simpleDateFormat.format(new Date(rawQuery.getLong(11)))).append(',').append(rawQuery.getString(i2)).append(',').append(rawQuery.getString(i)).append(',').append(rawQuery.getDouble(i3)).append(',').append(rawQuery.getDouble(3)).append(',').append(rawQuery.getDouble(4)).append(',').append(rawQuery.getDouble(5)).append(',').append(rawQuery.getDouble(6)).append(',').append(rawQuery.getDouble(7)).append(',').append(rawQuery.isNull(10) ? "" : String.format(Locale.US, "%.1f", Double.valueOf(rawQuery.getDouble(10) * 100.0d))).append(",\"").append(rawQuery.getString(8).replace("\"", "'")).append("\",");
+                if (!rawQuery.isNull(9)) {
+                    str = String.format(Locale.US, "%.0f", Double.valueOf(rawQuery.getDouble(9) * 100.0d));
+                }
+                append.append(str).append(',').append(rawQuery.getLong(11)).append(',').append(rawQuery.getLong(12)).append('\n');
+                i4++;
+                i3 = 2;
+                i2 = 0;
+                i = 1;
+            }
+            rawQuery.close();
+            Res res = new Res();
+            res.contentType = "text/csv; charset=utf-8";
+            res.body = sb.toString();
+            this.db.log("INFO", "HISTORY", "CSV_EXPORT", "user #" + j + " — " + parseInt + "-" + String.format(Locale.US, "%02d", Integer.valueOf(parseInt2)) + ": " + i4 + " trades exported");
+            return res;
+        } catch (Exception unused) {
+            return Res.error(400, "y aur m chahiye (e.g. ?y=2026&m=01)");
         }
-        c.close();
-        Res r = new Res();
-        r.contentType = "text/csv; charset=utf-8";
-        r.body = sb.toString();
-        db.log("INFO", "HISTORY", "CSV_EXPORT", "user #" + uid + " — " + y + "-" + String.format(Locale.US, "%02d", m) + ": " + n + " trades exported");
-        return r;
     }
 
-    private Res saveSettings(String body) throws Exception {
-        JSONObject o = HttpServer.jObj(body);
-        if (o.has("engineOn")) {
-            boolean on = o.optBoolean("engineOn");
-            db.setSetting("engine_on", on ? "1" : "0");
-            db.log("INFO", "SYSTEM", on ? "ENGINE_ENABLED" : "ENGINE_DISABLED", "user toggled engine");
+    private Res saveSettings(String str) throws Exception {
+        String str2 = null;
+        JSONObject jObj = HttpServer.jObj(str);
+        if (jObj.has("engineOn")) {
+            boolean optBoolean = jObj.optBoolean("engineOn");
+            this.db.setSetting("engine_on", optBoolean ? "1" : "0");
+            this.db.log("INFO", "SYSTEM", optBoolean ? "ENGINE_ENABLED" : "ENGINE_DISABLED", "user toggled engine");
         }
-        // v4.4 — PDF pack + AI trainer + fee-edge settings
-        if (o.has("packOn")) {
-            db.setSetting("pack_on", o.optBoolean("packOn") ? "1" : "0");
-            db.log("INFO", "PACK", "PACK_SET", "PDF Strategy Pack = " + o.optBoolean("packOn"));
+        if (jObj.has("packOn")) {
+            this.db.setSetting("pack_on", jObj.optBoolean("packOn") ? "1" : "0");
+            this.db.log("INFO", "PACK", "PACK_SET", "PDF Strategy Pack = " + jObj.optBoolean("packOn"));
         }
-        if (o.has("packKey") && o.has("packVal")) {
-            String k = o.optString("packKey", "");
-            if (k.matches("[A-Za-z0-9_]+")) {
-                db.setSetting("pack_" + k.toLowerCase(Locale.ROOT), o.optBoolean("packVal") ? "1" : "0");
-                db.log("INFO", "PACK", "STRATEGY_TOGGLE", k + " = " + o.optBoolean("packVal"));
+        if (jObj.has("packKey") && jObj.has("packVal")) {
+            String optString = jObj.optString("packKey", "");
+            if (optString.matches("[A-Za-z0-9_]+")) {
+                this.db.setSetting("pack_" + optString.toLowerCase(Locale.ROOT), jObj.optBoolean("packVal") ? "1" : "0");
+                this.db.log("INFO", "PACK", "STRATEGY_TOGGLE", optString + " = " + jObj.optBoolean("packVal"));
             }
         }
-        if (o.has("aiAutoTrain")) {
-            db.setSetting("ai_auto_train", o.optBoolean("aiAutoTrain") ? "1" : "0");
-            db.log("INFO", "AI", "AUTO_TRAIN_SET", "AI auto-retrain (24h) = " + o.optBoolean("aiAutoTrain"));
+        if (jObj.has("aiAutoTrain")) {
+            this.db.setSetting("ai_auto_train", jObj.optBoolean("aiAutoTrain") ? "1" : "0");
+            this.db.log("INFO", "AI", "AUTO_TRAIN_SET", "AI auto-retrain (24h) = " + jObj.optBoolean("aiAutoTrain"));
         }
-        if (o.has("feeEdgeOn")) {
-            db.setSetting("fee_edge_on", o.optBoolean("feeEdgeOn") ? "1" : "0");
-            db.log("INFO", "GUARD", "FEE_EDGE_SET", "Fee-edge guard = " + o.optBoolean("feeEdgeOn"));
+        if (jObj.has("feeEdgeOn")) {
+            this.db.setSetting("fee_edge_on", jObj.optBoolean("feeEdgeOn") ? "1" : "0");
+            this.db.log("INFO", "GUARD", "FEE_EDGE_SET", "Fee-edge guard = " + jObj.optBoolean("feeEdgeOn"));
         }
-        if (o.has("minFeeEdgePct")) {
-            double v = o.optDouble("minFeeEdgePct", 0.14);
-            if (v < 0 || v > 1) return Res.error(400, "Fee edge 0-1% ke beech set karein (default 0.14% = round-trip fees)");
-            db.setSetting("min_fee_edge_pct", String.valueOf(v));
-            db.log("INFO", "GUARD", "FEE_EDGE_MIN_SET", "Min TP move = " + v + "% (fees+slip round-trip)");
+        if (jObj.has("minFeeEdgePct")) {
+            double optDouble = jObj.optDouble("minFeeEdgePct", 0.14d);
+            if (optDouble < 0.0d || optDouble > 1.0d) {
+                return Res.error(400, "Fee edge 0-1% ke beech set karein (default 0.14% = round-trip fees)");
+            }
+            this.db.setSetting("min_fee_edge_pct", String.valueOf(optDouble));
+            this.db.log("INFO", "GUARD", "FEE_EDGE_MIN_SET", "Min TP move = " + optDouble + "% (fees+slip round-trip)");
         }
-        if (o.has("aiForceKey")) {
-            String k = o.optString("aiForceKey", "");
-            if (k.matches("[A-Za-z0-9_]+")) {
-                db.setSetting("ai_off_" + k, o.optBoolean("aiForceVal", true) ? "1" : "0");
-                if (engine != null) engine.invalidateAiWeights();
-                db.log("INFO", "AI", "STRATEGY_FORCE", k + " owner force " + (o.optBoolean("aiForceVal", true) ? "ON" : "AI-weight"));
+        if (jObj.has("aiForceKey")) {
+            String optString2 = jObj.optString("aiForceKey", "");
+            if (optString2.matches("[A-Za-z0-9_]+")) {
+                this.db.setSetting("ai_off_" + optString2, jObj.optBoolean("aiForceVal", true) ? "1" : "0");
+                EngineCore engineCore = this.engine;
+                if (engineCore != null) {
+                    engineCore.invalidateAiWeights();
+                }
+                this.db.log("INFO", "AI", "STRATEGY_FORCE", optString2 + " owner force " + (jObj.optBoolean("aiForceVal", true) ? "ON" : "AI-weight"));
             }
         }
-        // v1.4 — 3C risk % of equity per trade (MASTER PROMPT: "The user controls risk percentage")
-        // v1.8 — owner "risk increase karoo": range 0.1–20%, default 2%
-        if (o.has("riskPct")) {
-            double r = o.optDouble("riskPct", 2.0);
-            if (r < 0.1 || r > 20) return Res.error(400, "Risk 0.1% se 20% ke beech set karein (3C default 2%)");
-            db.setSetting("risk_pct", String.valueOf(r));
-            db.log("INFO", "RISK", "RISK_SET", "3C per-trade risk = " + r + "% of equity (owner setting)");
+        if (jObj.has("riskPct")) {
+            double optDouble2 = jObj.optDouble("riskPct", 2.0d);
+            if (optDouble2 < 0.1d || optDouble2 > 20.0d) {
+                return Res.error(400, "Risk 0.1% se 20% ke beech set karein (3C default 2%)");
+            }
+            this.db.setSetting("risk_pct", String.valueOf(optDouble2));
+            this.db.log("INFO", "RISK", "RISK_SET", "3C per-trade risk = " + optDouble2 + "% of equity (owner setting)");
         }
-        // v1.1 TUNED — TURBO controls: paper leverage + fee model + X7 toggle
-        if (o.has("levCap")) {
-            double v = o.optDouble("levCap", 0.95);
-            if (v < 0.1 || v > 10) return Res.error(400, "Leverage cap 0.1x–10x ke beech set karein (0.95 = spot, 2/3/5 = TURBO) — PAPER ONLY");
-            db.setSetting("lev_cap", String.valueOf(v));
-            db.log("WARN", "TURBO", "LEV_SET", "paper notional cap = " + v + "x equity"
-                    + (v > 1 ? " — TURBO mode (PAPER ONLY, koi real order nahi)" : " (spot sizing)"));
+        if (jObj.has("levCap")) {
+            double optDouble3 = jObj.optDouble("levCap", 0.0d);
+            if (optDouble3 < 0.0d || optDouble3 > 10.0d) {
+                return Res.error(400, "Leverage cap 0 = UNCAPPED (TRUE risk% sizing — v1.2 default) ya 0.1x–10x — PAPER ONLY");
+            }
+            this.db.setSetting("lev_cap", String.valueOf(optDouble3));
+            this.db.log("WARN", "TURBO", "LEV_SET", optDouble3 <= 0.0d ? "notional cap OFF (UNCAPPED) — har trade ab poora risk% leta hai (default 1%); pehle 0.95 clamp risk ko ~0.05% tak tod raha tha" : ("paper notional cap = " + optDouble3 + "x equity" + (optDouble3 > 1.0d ? " — TURBO mode (PAPER ONLY, koi real order nahi)" : " (spot sizing)")));
         }
-        if (o.has("feeBps")) {
-            double v = o.optDouble("feeBps", 5);
-            if (v < 0 || v > 100) return Res.error(400, "Fee 0–100 bps ke beech set karein (5 = Binance VIP 0.05%, 0 = zero-fee sim)");
-            db.setSetting("fee_bps", String.valueOf(v));
-            db.log("INFO", "TURBO", "FEE_SET", "paper taker fee = " + v + " bps/side" + (v == 0 ? " (zero-fee sim)" : ""));
+        if (jObj.has("feeBps")) {
+            double optDouble4 = jObj.optDouble("feeBps", 5.0d);
+            if (optDouble4 < 0.0d || optDouble4 > 100.0d) {
+                return Res.error(400, "Fee 0–100 bps ke beech set karein (5 = Binance VIP 0.05%, 0 = zero-fee sim)");
+            }
+            this.db.setSetting("fee_bps", String.valueOf(optDouble4));
+            this.db.log("INFO", "TURBO", "FEE_SET", "paper taker fee = " + optDouble4 + " bps/side" + (optDouble4 == 0.0d ? " (zero-fee sim)" : ""));
         }
-        if (o.has("x7On")) {
-            db.setSetting("x7_on", o.optBoolean("x7On") ? "1" : "0");
-            db.log("INFO", "X7", "X7_SET", "X7 REGIME FADE strategy = " + (o.optBoolean("x7On") ? "ON" : "OFF"));
+        if (jObj.has("x7On")) {
+            this.db.setSetting("x7_on", jObj.optBoolean("x7On") ? "1" : "0");
+            this.db.log("INFO", "X7", "X7_SET", "X7 REGIME FADE strategy = ".concat(jObj.optBoolean("x7On") ? "ON" : "OFF"));
         }
-        // v4.4.1 — PRO FILTER PACK toggles REMOVED (filter deleted — owner order)
-        // v1.7 PRO GUARD — SL-loss cooldown minutes (0=off)
-        if (o.has("cooldownMin")) {
-            int c = (int) o.optDouble("cooldownMin", 15);
-            if (c < 0 || c > 240) return Res.error(400, "Cooldown 0–240 minutes ke beech set karein (0 = off)");
-            db.setSetting("cooldown_min", String.valueOf(c));
-            db.log("INFO", "GUARD", "COOLDOWN_SET", "SL-loss cooldown = " + c + " min (owner setting)");
+        if (jObj.has("cooldownMin")) {
+            int optDouble5 = (int) jObj.optDouble("cooldownMin", 15.0d);
+            if (optDouble5 < 0 || optDouble5 > 240) {
+                return Res.error(400, "Cooldown 0–240 minutes ke beech set karein (0 = off)");
+            }
+            this.db.setSetting("cooldown_min", String.valueOf(optDouble5));
+            this.db.log("INFO", "GUARD", "COOLDOWN_SET", "SL-loss cooldown = " + optDouble5 + " min (owner setting)");
         }
-        // v1.7 — consecutive-loss pause trigger count (0=off)
-        if (o.has("consecLoss")) {
-            int n = (int) o.optDouble("consecLoss", 3);
-            if (n < 0 || n > 10) return Res.error(400, "Consecutive losses 0–10 ke beech set karein (0 = off)");
-            db.setSetting("consec_loss", String.valueOf(n));
-            db.log("INFO", "GUARD", "CONSEC_LOSS_SET", "StoplossGuard = " + n + " lagatar SL losses → 1 ghanta pause");
+        if (jObj.has("consecLoss")) {
+            int optDouble6 = (int) jObj.optDouble("consecLoss", 3.0d);
+            if (optDouble6 < 0 || optDouble6 > 10) {
+                return Res.error(400, "Consecutive losses 0–10 ke beech set karein (0 = off)");
+            }
+            this.db.setSetting("consec_loss", String.valueOf(optDouble6));
+            this.db.log("INFO", "GUARD", "CONSEC_LOSS_SET", "StoplossGuard = " + optDouble6 + " lagatar SL losses → 1 ghanta pause");
         }
-        // v1.7 — daily kill switch % (0 = OFF default — owner UNLIMITED chahta hai)
-        if (o.has("dailyKillPct")) {
-            double k = o.optDouble("dailyKillPct", 0);
-            if (k < 0 || k > 90) return Res.error(400, "Daily kill 0–90% ke beech set karein (0 = off)");
-            db.setSetting("daily_kill_pct", String.valueOf(k));
-            db.log("INFO", "GUARD", "DAILY_KILL_SET", "Daily kill switch = " + k + "%" + (k <= 0 ? " (OFF — unlimited)" : ""));
+        if (jObj.has("dailyKillPct")) {
+            double optDouble7 = jObj.optDouble("dailyKillPct", 0.0d);
+            if (optDouble7 < 0.0d || optDouble7 > 90.0d) {
+                return Res.error(400, "Daily kill 0–90% ke beech set karein (0 = off)");
+            }
+            this.db.setSetting("daily_kill_pct", String.valueOf(optDouble7));
+            this.db.log("INFO", "GUARD", "DAILY_KILL_SET", "Daily kill switch = " + optDouble7 + "%" + (optDouble7 <= 0.0d ? " (OFF — unlimited)" : ""));
         }
-        // v2.1 — optional MT5 bridge URL: PC par MetaTrader5 terminal + mt5-bridge.py
-        // chalao aur yahan uska URL dalo — candles phir REAL MT5 terminal se aayengi.
-        if (o.has("mt5Bridge")) {
-            String b = o.optString("mt5Bridge", "").trim();
-            if (b.length() > 300) return Res.error(400, "Bridge URL bohat lamba hai (max 300 chars)");
-            if (!b.isEmpty() && !b.startsWith("http://") && !b.startsWith("https://"))
+        if (jObj.has("mt5Bridge")) {
+            String trim = jObj.optString("mt5Bridge", "").trim();
+            if (trim.length() > 300) {
+                return Res.error(400, "Bridge URL bohat lamba hai (max 300 chars)");
+            }
+            if (!trim.isEmpty() && !trim.startsWith("http://") && !trim.startsWith("https://")) {
                 return Res.error(400, "Bridge URL http:// ya https:// se shuru hona chahiye");
-            db.setSetting("mt5_bridge", b);
-            db.log("INFO", "DATA", "MT5_BRIDGE_SET", b.isEmpty()
-                    ? "MT5 bridge cleared — built-in halal commodities feed use hoga"
-                    : "MT5 bridge set: " + b + " — candles ab MetaTrader5 terminal se aayengi");
+            }
+            this.db.setSetting("mt5_bridge", trim);
+            Db db = this.db;
+            if (trim.isEmpty()) {
+                str2 = "MT5 bridge cleared — built-in halal commodities feed use hoga";
+            } else {
+                str2 = "MT5 bridge set: " + trim + " — candles ab MetaTrader5 terminal se aayengi";
+            }
+            db.log("INFO", "DATA", "MT5_BRIDGE_SET", str2);
         }
-        // ===== v3.0 QUANT PRO settings =====
-        if (o.has("slipBps")) {
-            double v = o.optDouble("slipBps", 2);
-            if (v < 0 || v > 50) return Res.error(400, "Slippage 0–50 bps ke beech set karein (0 = exact fills)");
-            db.setSetting("slip_bps", String.valueOf(v));
-            db.log("INFO", "FILL", "SLIP_SET", "slippage/spread model = " + v + " bps per side");
+        if (jObj.has("slipBps")) {
+            double optDouble8 = jObj.optDouble("slipBps", 2.0d);
+            if (optDouble8 < 0.0d || optDouble8 > 50.0d) {
+                return Res.error(400, "Slippage 0–50 bps ke beech set karein (0 = exact fills)");
+            }
+            this.db.setSetting("slip_bps", String.valueOf(optDouble8));
+            this.db.log("INFO", "FILL", "SLIP_SET", "slippage/spread model = " + optDouble8 + " bps per side");
         }
-        if (o.has("heatMaxPct")) {
-            double v = o.optDouble("heatMaxPct", 0);
-            if (v < 0 || v > 100) return Res.error(400, "Heat cap 0–100% ke beech set karein (0 = OFF/unlimited)");
-            db.setSetting("heat_max_pct", String.valueOf(v));
-            db.log("INFO", "GUARD", "HEAT_SET", "portfolio heat cap = " + v + "%" + (v <= 0 ? " (OFF — unlimited, owner default)" : ""));
+        if (jObj.has("heatMaxPct")) {
+            double optDouble9 = jObj.optDouble("heatMaxPct", 0.0d);
+            if (optDouble9 < 0.0d || optDouble9 > 100.0d) {
+                return Res.error(400, "Heat cap 0–100% ke beech set karein (0 = OFF/unlimited)");
+            }
+            this.db.setSetting("heat_max_pct", String.valueOf(optDouble9));
+            this.db.log("INFO", "GUARD", "HEAT_SET", "portfolio heat cap = " + optDouble9 + "%" + (optDouble9 <= 0.0d ? " (OFF — unlimited, owner default)" : ""));
         }
-        if (o.has("bucketMaxPct")) {
-            double v = o.optDouble("bucketMaxPct", 0);
-            if (v < 0 || v > 100) return Res.error(400, "Bucket cap 0–100% ke beech set karein (0 = OFF)");
-            db.setSetting("bucket_max_pct", String.valueOf(v));
-            db.log("INFO", "GUARD", "BUCKET_SET", "bucket (METAL/ENERGY/AGRI) cap = " + v + "%" + (v <= 0 ? " (OFF)" : ""));
+        if (jObj.has("bucketMaxPct")) {
+            double optDouble10 = jObj.optDouble("bucketMaxPct", 0.0d);
+            if (optDouble10 < 0.0d || optDouble10 > 100.0d) {
+                return Res.error(400, "Bucket cap 0–100% ke beech set karein (0 = OFF)");
+            }
+            this.db.setSetting("bucket_max_pct", String.valueOf(optDouble10));
+            this.db.log("INFO", "GUARD", "BUCKET_SET", "bucket (METAL/ENERGY/AGRI) cap = " + optDouble10 + "%" + (optDouble10 <= 0.0d ? " (OFF)" : ""));
         }
-        if (o.has("councilMin")) {
-            int v = (int) o.optDouble("councilMin", 0);
-            if (v < 0 || v > 95) return Res.error(400, "Council min 0–95 ke beech set karein (0 = tag-only, koi block nahi)");
-            db.setSetting("council_min", String.valueOf(v));
-            db.log("INFO", "COUNCIL", "COUNCIL_SET", "Signal Council min confidence = " + v + "%" + (v <= 0 ? " (tag-only mode)" : ""));
+        if (jObj.has("councilMin")) {
+            int optDouble11 = (int) jObj.optDouble("councilMin", 0.0d);
+            if (optDouble11 < 0 || optDouble11 > 95) {
+                return Res.error(400, "Council min 0–95 ke beech set karein (0 = tag-only, koi block nahi)");
+            }
+            this.db.setSetting("council_min", String.valueOf(optDouble11));
+            this.db.log("INFO", "COUNCIL", "COUNCIL_SET", "Signal Council min confidence = " + optDouble11 + "%" + (optDouble11 <= 0 ? " (tag-only mode)" : ""));
         }
-        if (o.has("eventGate")) {
-            db.setSetting("event_gate", o.optBoolean("eventGate") ? "1" : "0");
-            db.log("INFO", "GUARD", "EVENT_GATE_SET", "HIGH-impact news entry pause = " + o.optBoolean("eventGate"));
+        if (jObj.has("eventGate")) {
+            this.db.setSetting("event_gate", jObj.optBoolean("eventGate") ? "1" : "0");
+            this.db.log("INFO", "GUARD", "EVENT_GATE_SET", "HIGH-impact news entry pause = " + jObj.optBoolean("eventGate"));
         }
-        if (o.has("autoPause")) {
-            db.setSetting("auto_pause", o.optBoolean("autoPause") ? "1" : "0");
-            db.log("INFO", "GUARD", "AUTO_PAUSE_SET", "degraded strategy auto-pause = " + o.optBoolean("autoPause"));
+        if (jObj.has("autoPause")) {
+            this.db.setSetting("auto_pause", jObj.optBoolean("autoPause") ? "1" : "0");
+            this.db.log("INFO", "GUARD", "AUTO_PAUSE_SET", "degraded strategy auto-pause = " + jObj.optBoolean("autoPause"));
         }
-        if (o.has("sessionFilter")) {
-            db.setSetting("session_filter", o.optBoolean("sessionFilter") ? "1" : "0");
-            db.log("INFO", "GUARD", "SESSION_SET", "CME halt (17-18 ET) entry filter = " + o.optBoolean("sessionFilter"));
+        if (jObj.has("sessionFilter")) {
+            this.db.setSetting("session_filter", jObj.optBoolean("sessionFilter") ? "1" : "0");
+            this.db.log("INFO", "GUARD", "SESSION_SET", "CME halt (17-18 ET) entry filter = " + jObj.optBoolean("sessionFilter"));
         }
-        if (o.has("bridgeLive")) {
-            db.setSetting("bridge_live", o.optBoolean("bridgeLive") ? "1" : "0");
-            db.log("WARN", "BRIDGE", "BRIDGE_LIVE_SET", "MT5 bridge LIVE MIRROR = " + o.optBoolean("bridgeLive")
-                    + (o.optBoolean("bridgeLive") ? " — paper trades ke saath bridge par real orders jayenge (owner responsibility)" : " (safe: sirf paper)"));
+        if (jObj.has("bridgeLive")) {
+            this.db.setSetting("bridge_live", jObj.optBoolean("bridgeLive") ? "1" : "0");
+            this.db.log("WARN", "BRIDGE", "BRIDGE_LIVE_SET", "MT5 bridge LIVE MIRROR = " + jObj.optBoolean("bridgeLive") + (jObj.optBoolean("bridgeLive") ? " — paper trades ke saath bridge par real orders jayenge (owner responsibility)" : " (safe: sirf paper)"));
         }
-        if (o.has("bridgeLots")) {
-            double v = o.optDouble("bridgeLots", 0.01);
-            if (v < 0.01 || v > 100) return Res.error(400, "Bridge lots 0.01–100 ke beech set karein");
-            db.setSetting("bridge_lots", String.valueOf(v));
-            db.log("INFO", "BRIDGE", "BRIDGE_LOTS_SET", "bridge mirror lot size = " + v);
+        if (jObj.has("bridgeLots")) {
+            double optDouble12 = jObj.optDouble("bridgeLots", 0.01d);
+            if (optDouble12 < 0.01d || optDouble12 > 100.0d) {
+                return Res.error(400, "Bridge lots 0.01–100 ke beech set karein");
+            }
+            this.db.setSetting("bridge_lots", String.valueOf(optDouble12));
+            this.db.log("INFO", "BRIDGE", "BRIDGE_LOTS_SET", "bridge mirror lot size = " + optDouble12);
         }
-        if (o.has("feedIntervalSec")) {
-            int v = (int) o.optDouble("feedIntervalSec", 60);
-            if (v < 20 || v > 600) return Res.error(400, "Feed interval 20–600 seconds ke beech set karein");
-            db.setSetting("feed_interval_sec", String.valueOf(v));
-            db.log("INFO", "DATA", "FEED_INTERVAL_SET", "per-symbol feed refresh = " + v + "s");
+        if (jObj.has("feedIntervalSec")) {
+            int optDouble13 = (int) jObj.optDouble("feedIntervalSec", 60.0d);
+            if (optDouble13 < 20 || optDouble13 > 600) {
+                return Res.error(400, "Feed interval 20–600 seconds ke beech set karein");
+            }
+            this.db.setSetting("feed_interval_sec", String.valueOf(optDouble13));
+            this.db.log("INFO", "DATA", "FEED_INTERVAL_SET", "per-symbol feed refresh = " + optDouble13 + "s");
         }
-        if (o.has("labSymbol")) {
-            String v = o.optString("labSymbol", "BTCUSDT").toUpperCase(Locale.US).trim();
-            if (!v.matches("[A-Z0-9]{4,20}")) return Res.error(400, "Lab symbol galat (e.g. BTCUSDT)");
-            db.setSetting("lab_symbol", v);
-            db.log("INFO", "LAB", "LAB_SYMBOL_SET", "Lab backtest symbol = " + v);
+        if (jObj.has("labSymbol")) {
+            String trim2 = jObj.optString("labSymbol", "BTCUSDT").toUpperCase(Locale.US).trim();
+            if (!trim2.matches("[A-Z0-9]{4,20}")) {
+                return Res.error(400, "Lab symbol galat (e.g. BTCUSDT)");
+            }
+            this.db.setSetting("lab_symbol", trim2);
+            this.db.log("INFO", "LAB", "LAB_SYMBOL_SET", "Lab backtest symbol = " + trim2);
         }
         return settings();
     }
 
-    // ================== v5.7 FULL MOBILE CONTROL (owner admin) ==================
-
-    /** Admin guard — only an active ADMIN-role account may use control endpoints. */
-    private boolean isAdmin(long uid) {
-        Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT role FROM users WHERE id=? AND active=1", new String[]{String.valueOf(uid)});
-        boolean ok = c.moveToFirst() && "ADMIN".equals(c.getString(0));
-        c.close();
-        return ok;
+    private boolean isAdmin(long j) {
+        Cursor rawQuery = this.db.getReadableDatabase().rawQuery("SELECT role FROM users WHERE id=? AND active=1", new String[]{String.valueOf(j)});
+        boolean z = rawQuery.moveToFirst() && "ADMIN".equals(rawQuery.getString(0));
+        rawQuery.close();
+        return z;
     }
 
-    private Res adminGuard(long uid) {
-        return isAdmin(uid) ? null : Res.error(403, "Admin access required — owner account only");
+    private Res adminGuard(long j) {
+        if (isAdmin(j)) {
+            return null;
+        }
+        return Res.error(403, "Admin access required — owner account only");
     }
 
-    /** GET /api/admin/users — full user register for the owner. */
-    private Res adminUsers(long uid) throws Exception {
-        Res g = adminGuard(uid); if (g != null) return g;
-        JSONArray arr = new JSONArray();
-        Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT id, name, email, role, active, created_at, (SELECT COUNT(*) FROM sessions s WHERE s.user_id=u.id), IFNULL(approved,1), IFNULL(trade_ok, CASE WHEN role='ADMIN' THEN 1 ELSE 0 END) FROM users u ORDER BY id", null);
-        while (c.moveToNext()) {
-            arr.put(new JSONObject()
-                    .put("id", c.getLong(0)).put("name", c.getString(1))
-                    .put("email", c.getString(2)).put("role", c.getString(3))
-                    .put("active", c.getInt(4)).put("createdAt", c.getLong(5))
-                    .put("sessions", c.getInt(6)).put("approved", c.getInt(7))
-                    .put("tradeOk", c.getInt(8)));
+    private Res adminUsers(long j) throws Exception {
+        int i = 0;
+        int i2 = 0;
+        int i3 = 0;
+        Res adminGuard = adminGuard(j);
+        if (adminGuard != null) {
+            return adminGuard;
         }
-        c.close();
-        Cursor sc = db.getReadableDatabase().rawQuery("SELECT COUNT(*), IFNULL(SUM(active),0), SUM(CASE WHEN IFNULL(approved,1)=0 THEN 1 ELSE 0 END) FROM users", null);
-        int total = 0, activeUsers = 0, pendingUsers = 0;
-        if (sc.moveToFirst()) { total = sc.getInt(0); activeUsers = sc.getInt(1); pendingUsers = sc.getInt(2); }
-        sc.close();
-        return Res.json(200, new JSONObject().put("users", arr)
-                .put("total", total).put("activeUsers", activeUsers).put("pendingUsers", pendingUsers));
-    }
-
-    /** POST /api/admin/users — {id, action: approve|activate|deactivate|delete}. */
-    private Res adminUserAction(long uid, String body) throws Exception {
-        Res g = adminGuard(uid); if (g != null) return g;
-        JSONObject o = HttpServer.jObj(body);
-        long id = o.optLong("id", -1);
-        String action = HttpServer.jStr(o, "action");
-        if (id <= 0) return Res.error(400, "User id required");
-
-        // v1.9 OWNER GATE — approve: PENDING user ko login permission milta hai
-        if ("approve".equals(action)) {
-            Cursor ec = db.getReadableDatabase().rawQuery("SELECT name, email FROM users WHERE id=?", new String[]{String.valueOf(id)});
-            if (!ec.moveToFirst()) { ec.close(); return Res.error(404, "User not found"); }
-            String nm = ec.getString(0), em = ec.getString(1); ec.close();
-            db.getWritableDatabase().execSQL("UPDATE users SET approved=1 WHERE id=?", new Object[]{id});
-            db.log("INFO", "ADMIN", "USER_APPROVED", nm + " (" + em + ") approved by owner — ab sign in kar sakta hai");
-            return Res.json(200, new JSONObject().put("ok", true)
-                    .put("message", nm + " APPROVED — ab wo sign in kar sakta hai"));
-        }
-
-        // v2.1 OWNER TRADING GATE — {id, action:'trade', value:1|0}:
-        // owner decide karta hai kaun user engine se trade kar sakta hai
-        if ("trade".equals(action)) {
-            int val = o.optInt("value", -1);
-            if (val != 0 && val != 1) return Res.error(400, "value 0 ya 1 required");
-            if (id == uid && val == 0) return Res.error(400, "Apna khud ka trading band nahi kar sakte (aap owner hain)");
-            Cursor ec = db.getReadableDatabase().rawQuery("SELECT name FROM users WHERE id=?", new String[]{String.valueOf(id)});
-            if (!ec.moveToFirst()) { ec.close(); return Res.error(404, "User not found"); }
-            String nm = ec.getString(0); ec.close();
-            db.getWritableDatabase().execSQL("UPDATE users SET trade_ok=? WHERE id=?", new Object[]{val, id});
-            db.log("INFO", "ADMIN", val == 1 ? "TRADING_ENABLED" : "TRADING_DISABLED",
-                    nm + " trading " + (val == 1 ? "ENABLED" : "DISABLED") + " by owner");
-            return Res.json(200, new JSONObject().put("ok", true)
-                    .put("message", nm + " — trading " + (val == 1
-                            ? "ENABLED — ab engine is user ke liye trades kholega"
-                            : "DISABLED — is user ke liye naye trades nahi khulenge")));
-        }
-
-        if ("activate".equals(action) || "deactivate".equals(action)) {
-            if (id == uid) return Res.error(400, "You cannot deactivate your own owner account");
-            boolean on = "activate".equals(action);
-            Cursor ec = db.getReadableDatabase().rawQuery("SELECT id FROM users WHERE id=?", new String[]{String.valueOf(id)});
-            boolean exists = ec.moveToFirst(); ec.close();
-            if (!exists) return Res.error(404, "User not found");
-            db.getWritableDatabase().execSQL("UPDATE users SET active=? WHERE id=?", new Object[]{on ? 1 : 0, id});
-            if (!on) db.getWritableDatabase().execSQL("DELETE FROM sessions WHERE user_id=?", new Object[]{id});
-            db.log("INFO", "ADMIN", on ? "USER_ENABLED" : "USER_DISABLED", "user #" + id + " " + action + "d by owner");
-            return Res.json(200, new JSONObject().put("ok", true)
-                    .put("message", on ? "User enabled — they can sign in again" : "User disabled — all their sessions ended"));
-        }
-
-        if ("delete".equals(action)) {
-            if (id == uid) return Res.error(400, "You cannot delete your own owner account");
-            Cursor rc = db.getReadableDatabase().rawQuery("SELECT role, name FROM users WHERE id=?", new String[]{String.valueOf(id)});
-            if (!rc.moveToFirst()) { rc.close(); return Res.error(404, "User not found"); }
-            String role = rc.getString(0), name = rc.getString(1); rc.close();
-            if ("ADMIN".equals(role)) {
-                Cursor ac = db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM users WHERE role='ADMIN' AND active=1", null);
-                int admins = ac.moveToFirst() ? ac.getInt(0) : 0; ac.close();
-                if (admins <= 1) return Res.error(400, "Cannot delete the last admin account");
+        JSONArray jSONArray = new JSONArray();
+        Cursor rawQuery = this.db.getReadableDatabase().rawQuery("SELECT id, name, email, role, active, created_at, (SELECT COUNT(*) FROM sessions s WHERE s.user_id=u.id), IFNULL(approved,1), IFNULL(trade_ok, CASE WHEN role='ADMIN' THEN 1 ELSE 0 END) FROM users u ORDER BY id", null);
+        while (true) {
+            i = 0;
+            if (!rawQuery.moveToNext()) {
+                break;
             }
-            db.getWritableDatabase().execSQL("DELETE FROM sessions WHERE user_id=?", new Object[]{id});
-            db.getWritableDatabase().execSQL("DELETE FROM accounts WHERE user_id=?", new Object[]{id});
-            db.getWritableDatabase().execSQL("DELETE FROM trades WHERE user_id=?", new Object[]{id});
-            db.getWritableDatabase().execSQL("DELETE FROM users WHERE id=?", new Object[]{id});
-            db.log("INFO", "ADMIN", "USER_DELETED", name + " (#" + id + ") deleted by owner — sessions, paper account, trades removed");
-            return Res.json(200, new JSONObject().put("ok", true).put("message", name + " deleted permanently"));
+            jSONArray.put(new JSONObject().put("id", rawQuery.getLong(0)).put("name", rawQuery.getString(1)).put("email", rawQuery.getString(2)).put("role", rawQuery.getString(3)).put("active", rawQuery.getInt(4)).put("createdAt", rawQuery.getLong(5)).put("sessions", rawQuery.getInt(6)).put("approved", rawQuery.getInt(7)).put("tradeOk", rawQuery.getInt(8)));
+        }
+        rawQuery.close();
+        Cursor rawQuery2 = this.db.getReadableDatabase().rawQuery("SELECT COUNT(*), IFNULL(SUM(active),0), SUM(CASE WHEN IFNULL(approved,1)=0 THEN 1 ELSE 0 END) FROM users", null);
+        if (rawQuery2.moveToFirst()) {
+            i = rawQuery2.getInt(0);
+            i2 = rawQuery2.getInt(1);
+            i3 = rawQuery2.getInt(2);
+        } else {
+            i2 = 0;
+            i3 = 0;
+        }
+        rawQuery2.close();
+        return Res.json(200, new JSONObject().put("users", jSONArray).put("total", i).put("activeUsers", i2).put("pendingUsers", i3));
+    }
+
+    private Res adminUserAction(long j, String str) throws Exception {
+        String str2 = null;
+        Res adminGuard = adminGuard(j);
+        if (adminGuard != null) {
+            return adminGuard;
+        }
+        JSONObject jObj = HttpServer.jObj(str);
+        long optLong = jObj.optLong("id", -1L);
+        String jStr = HttpServer.jStr(jObj, "action");
+        if (optLong <= 0) {
+            return Res.error(400, "User id required");
+        }
+        if ("approve".equals(jStr)) {
+            Cursor rawQuery = this.db.getReadableDatabase().rawQuery("SELECT name, email FROM users WHERE id=?", new String[]{String.valueOf(optLong)});
+            if (!rawQuery.moveToFirst()) {
+                rawQuery.close();
+                return Res.error(404, "User not found");
+            }
+            String string = rawQuery.getString(0);
+            String string2 = rawQuery.getString(1);
+            rawQuery.close();
+            this.db.getWritableDatabase().execSQL("UPDATE users SET approved=1 WHERE id=?", new Object[]{Long.valueOf(optLong)});
+            this.db.log("INFO", "ADMIN", "USER_APPROVED", string + " (" + string2 + ") approved by owner — ab sign in kar sakta hai");
+            return Res.json(200, new JSONObject().put("ok", true).put("message", string + " APPROVED — ab wo sign in kar sakta hai"));
+        }
+        if ("trade".equals(jStr)) {
+            int optInt = jObj.optInt("value", -1);
+            if (optInt != 0 && optInt != 1) {
+                return Res.error(400, "value 0 ya 1 required");
+            }
+            if (optLong == j && optInt == 0) {
+                return Res.error(400, "Apna khud ka trading band nahi kar sakte (aap owner hain)");
+            }
+            Cursor rawQuery2 = this.db.getReadableDatabase().rawQuery("SELECT name FROM users WHERE id=?", new String[]{String.valueOf(optLong)});
+            if (!rawQuery2.moveToFirst()) {
+                rawQuery2.close();
+                return Res.error(404, "User not found");
+            }
+            String string3 = rawQuery2.getString(0);
+            rawQuery2.close();
+            this.db.getWritableDatabase().execSQL("UPDATE users SET trade_ok=? WHERE id=?", new Object[]{Integer.valueOf(optInt), Long.valueOf(optLong)});
+            this.db.log("INFO", "ADMIN", optInt == 1 ? "TRADING_ENABLED" : "TRADING_DISABLED", string3 + " trading " + (optInt == 1 ? "ENABLED" : "DISABLED") + " by owner");
+            JSONObject put = new JSONObject().put("ok", true);
+            StringBuilder append = new StringBuilder().append(string3).append(" — trading ");
+            if (optInt == 1) {
+                str2 = "ENABLED — ab engine is user ke liye trades kholega";
+            } else {
+                str2 = "DISABLED — is user ke liye naye trades nahi khulenge";
+            }
+            return Res.json(200, put.put("message", append.append(str2).toString()));
+        }
+        if ("activate".equals(jStr) || "deactivate".equals(jStr)) {
+            if (optLong == j) {
+                return Res.error(400, "You cannot deactivate your own owner account");
+            }
+            boolean equals = "activate".equals(jStr);
+            Cursor rawQuery3 = this.db.getReadableDatabase().rawQuery("SELECT id FROM users WHERE id=?", new String[]{String.valueOf(optLong)});
+            boolean moveToFirst = rawQuery3.moveToFirst();
+            rawQuery3.close();
+            if (!moveToFirst) {
+                return Res.error(404, "User not found");
+            }
+            this.db.getWritableDatabase().execSQL("UPDATE users SET active=? WHERE id=?", new Object[]{Integer.valueOf(equals ? 1 : 0), Long.valueOf(optLong)});
+            if (!equals) {
+                this.db.getWritableDatabase().execSQL("DELETE FROM sessions WHERE user_id=?", new Object[]{Long.valueOf(optLong)});
+            }
+            this.db.log("INFO", "ADMIN", equals ? "USER_ENABLED" : "USER_DISABLED", "user #" + optLong + " " + jStr + "d by owner");
+            return Res.json(200, new JSONObject().put("ok", true).put("message", equals ? "User enabled — they can sign in again" : "User disabled — all their sessions ended"));
+        }
+        if (!"delete".equals(jStr)) {
+            return Res.error(400, "Unknown action");
+        }
+        if (optLong == j) {
+            return Res.error(400, "You cannot delete your own owner account");
+        }
+        Cursor rawQuery4 = this.db.getReadableDatabase().rawQuery("SELECT role, name FROM users WHERE id=?", new String[]{String.valueOf(optLong)});
+        if (!rawQuery4.moveToFirst()) {
+            rawQuery4.close();
+            return Res.error(404, "User not found");
+        }
+        String string4 = rawQuery4.getString(0);
+        String string5 = rawQuery4.getString(1);
+        rawQuery4.close();
+        if ("ADMIN".equals(string4)) {
+            Cursor rawQuery5 = this.db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM users WHERE role='ADMIN' AND active=1", null);
+            int i = rawQuery5.moveToFirst() ? rawQuery5.getInt(0) : 0;
+            rawQuery5.close();
+            if (i <= 1) {
+                return Res.error(400, "Cannot delete the last admin account");
+            }
+        }
+        this.db.getWritableDatabase().execSQL("DELETE FROM sessions WHERE user_id=?", new Object[]{Long.valueOf(optLong)});
+        this.db.getWritableDatabase().execSQL("DELETE FROM accounts WHERE user_id=?", new Object[]{Long.valueOf(optLong)});
+        this.db.getWritableDatabase().execSQL("DELETE FROM trades WHERE user_id=?", new Object[]{Long.valueOf(optLong)});
+        this.db.getWritableDatabase().execSQL("DELETE FROM users WHERE id=?", new Object[]{Long.valueOf(optLong)});
+        this.db.log("INFO", "ADMIN", "USER_DELETED", string5 + " (#" + optLong + ") deleted by owner — sessions, paper account, trades removed");
+        return Res.json(200, new JSONObject().put("ok", true).put("message", string5 + " deleted permanently"));
+    }
+
+    private Res adminInvites(long j) throws Exception {
+        Res adminGuard = adminGuard(j);
+        if (adminGuard != null) {
+            return adminGuard;
+        }
+        JSONArray jSONArray = new JSONArray();
+        Cursor rawQuery = this.db.getReadableDatabase().rawQuery("SELECT code, label, max_uses, uses, active FROM invites ORDER BY active DESC, code", null);
+        while (rawQuery.moveToNext()) {
+            jSONArray.put(new JSONObject().put("code", rawQuery.getString(0)).put("label", rawQuery.getString(1)).put("maxUses", rawQuery.getInt(2)).put("uses", rawQuery.getInt(3)).put("active", rawQuery.getInt(4)));
+        }
+        rawQuery.close();
+        return Res.json(200, new JSONObject().put("invites", jSONArray).put("total", jSONArray.length()));
+    }
+
+    private Res adminInviteAction(long j, String str) throws Exception {
+        Res adminGuard = adminGuard(j);
+        if (adminGuard != null) {
+            return adminGuard;
+        }
+        JSONObject jObj = HttpServer.jObj(str);
+        String jStr = HttpServer.jStr(jObj, "action");
+        if ("create".equals(jStr)) {
+            String jStr2 = HttpServer.jStr(jObj, "label");
+            char c = 0;
+            int optInt = jObj.optInt("maxUses", 0);
+            if (optInt < 0) {
+                optInt = 0;
+            }
+            if (jStr2.isEmpty()) {
+                jStr2 = "Owner invite — " + new SimpleDateFormat("MMM d", Locale.US).format(new Date());
+            }
+            String str2 = null;
+            int i = 0;
+            while (i < 5 && str2 == null) {
+                String newInviteCode = Auth.newInviteCode();
+                SQLiteDatabase readableDatabase = this.db.getReadableDatabase();
+                String[] strArr = new String[1];
+                strArr[c] = newInviteCode;
+                Cursor rawQuery = readableDatabase.rawQuery("SELECT code FROM invites WHERE code=?", strArr);
+                boolean moveToFirst = rawQuery.moveToFirst();
+                rawQuery.close();
+                if (!moveToFirst) {
+                    str2 = newInviteCode;
+                }
+                i++;
+                c = 0;
+            }
+            if (str2 == null) {
+                return Res.error(500, "Could not generate a unique code — try again");
+            }
+            this.db.getWritableDatabase().execSQL("INSERT OR IGNORE INTO invites(code, label, max_uses, uses, active) VALUES(?,?,?,0,1)", new Object[]{str2, jStr2, Integer.valueOf(optInt)});
+            this.db.log("INFO", "ADMIN", "INVITE_CREATED", str2 + " created by owner — " + jStr2 + (optInt > 0 ? " (max " + optInt + ")" : " (unlimited)"));
+            return Res.json(200, new JSONObject().put("ok", true).put("code", str2).put("message", "Naya invite code ban gaya: " + str2));
+        }
+        String upperCase = HttpServer.jStr(jObj, "code").trim().toUpperCase();
+        if (upperCase.isEmpty()) {
+            return Res.error(400, "Invite code required");
+        }
+        if ("revoke".equals(jStr)) {
+            this.db.getWritableDatabase().execSQL("UPDATE invites SET active=0 WHERE code=?", new Object[]{upperCase});
+            this.db.log("INFO", "ADMIN", "INVITE_REVOKED", upperCase + " revoked by owner — registrations with it now fail");
+            return Res.json(200, new JSONObject().put("ok", true).put("message", upperCase + " revoked — is code se ab koi register nahi kar sakta"));
+        }
+        if ("activate".equals(jStr)) {
+            this.db.getWritableDatabase().execSQL("UPDATE invites SET active=1 WHERE code=?", new Object[]{upperCase});
+            this.db.log("INFO", "ADMIN", "INVITE_ENABLED", upperCase + " re-enabled by owner");
+            return Res.json(200, new JSONObject().put("ok", true).put("message", upperCase + " enabled again"));
         }
         return Res.error(400, "Unknown action");
     }
 
-    /** GET /api/admin/invites — all invitation codes with usage. */
-    private Res adminInvites(long uid) throws Exception {
-        Res g = adminGuard(uid); if (g != null) return g;
-        JSONArray arr = new JSONArray();
-        Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT code, label, max_uses, uses, active FROM invites ORDER BY active DESC, code", null);
-        while (c.moveToNext()) {
-            arr.put(new JSONObject().put("code", c.getString(0)).put("label", c.getString(1))
-                    .put("maxUses", c.getInt(2)).put("uses", c.getInt(3)).put("active", c.getInt(4)));
+    private Res adminAlerts(long j) throws Exception {
+        Res adminGuard = adminGuard(j);
+        if (adminGuard != null) {
+            return adminGuard;
         }
-        c.close();
-        return Res.json(200, new JSONObject().put("invites", arr).put("total", arr.length()));
-    }
-
-    /** POST /api/admin/invites — {action: create|revoke|activate}. */
-    private Res adminInviteAction(long uid, String body) throws Exception {
-        Res g = adminGuard(uid); if (g != null) return g;
-        JSONObject o = HttpServer.jObj(body);
-        String action = HttpServer.jStr(o, "action");
-
-        if ("create".equals(action)) {
-            String label = HttpServer.jStr(o, "label");
-            int maxUses = o.optInt("maxUses", 0);
-            if (maxUses < 0) maxUses = 0;
-            if (label.isEmpty()) label = "Owner invite — " + new java.text.SimpleDateFormat("MMM d", Locale.US).format(new java.util.Date());
-            String code = null;
-            for (int t = 0; t < 5 && code == null; t++) {
-                String cand = Auth.newInviteCode();
-                Cursor cc = db.getReadableDatabase().rawQuery("SELECT code FROM invites WHERE code=?", new String[]{cand});
-                boolean taken = cc.moveToFirst(); cc.close();
-                if (!taken) code = cand;
+        JSONArray jSONArray = new JSONArray();
+        Cursor rawQuery = this.db.getReadableDatabase().rawQuery("SELECT id, kind, title, body, meta, read, created_at FROM notifications ORDER BY id DESC LIMIT 100", null);
+        while (true) {
+            if (!rawQuery.moveToNext()) {
+                break;
             }
-            if (code == null) return Res.error(500, "Could not generate a unique code — try again");
-            db.getWritableDatabase().execSQL(
-                    "INSERT OR IGNORE INTO invites(code, label, max_uses, uses, active) VALUES(?,?,?,0,1)",
-                    new Object[]{code, label, maxUses});
-            db.log("INFO", "ADMIN", "INVITE_CREATED", code + " created by owner — " + label + (maxUses > 0 ? " (max " + maxUses + ")" : " (unlimited)"));
-            return Res.json(200, new JSONObject().put("ok", true).put("code", code)
-                    .put("message", "Naya invite code ban gaya: " + code));
+            JSONObject jSONObject = new JSONObject();
+            jSONObject.put("id", rawQuery.getLong(0)).put("kind", rawQuery.getString(1)).put("title", rawQuery.getString(2)).put("body", rawQuery.getString(3)).put("read", rawQuery.getInt(5)).put("createdAt", rawQuery.getLong(6));
+            try {
+                jSONObject.put("meta", new JSONObject(rawQuery.getString(4)));
+            } catch (Throwable unused) {
+                jSONObject.put("meta", new JSONObject());
+            }
+            jSONArray.put(jSONObject);
         }
-
-        String code = HttpServer.jStr(o, "code").trim().toUpperCase();
-        if (code.isEmpty()) return Res.error(400, "Invite code required");
-        if ("revoke".equals(action)) {
-            db.getWritableDatabase().execSQL("UPDATE invites SET active=0 WHERE code=?", new Object[]{code});
-            db.log("INFO", "ADMIN", "INVITE_REVOKED", code + " revoked by owner — registrations with it now fail");
-            return Res.json(200, new JSONObject().put("ok", true).put("message", code + " revoked — is code se ab koi register nahi kar sakta"));
-        }
-        if ("activate".equals(action)) {
-            db.getWritableDatabase().execSQL("UPDATE invites SET active=1 WHERE code=?", new Object[]{code});
-            db.log("INFO", "ADMIN", "INVITE_ENABLED", code + " re-enabled by owner");
-            return Res.json(200, new JSONObject().put("ok", true).put("message", code + " enabled again"));
-        }
-        return Res.error(400, "Unknown action");
+        rawQuery.close();
+        Cursor rawQuery2 = this.db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM notifications WHERE read=0", null);
+        int i = rawQuery2.moveToFirst() ? rawQuery2.getInt(0) : 0;
+        rawQuery2.close();
+        return Res.json(200, new JSONObject().put("alerts", jSONArray).put("unreadCount", i));
     }
 
-    /** GET /api/admin/alerts — in-app alert feed (latest 100) + unread count. */
-    private Res adminAlerts(long uid) throws Exception {
-        Res g = adminGuard(uid); if (g != null) return g;
-        JSONArray arr = new JSONArray();
-        Cursor c = db.getReadableDatabase().rawQuery(
-                "SELECT id, kind, title, body, meta, read, created_at FROM notifications ORDER BY id DESC LIMIT 100", null);
-        while (c.moveToNext()) {
-            JSONObject n = new JSONObject();
-            n.put("id", c.getLong(0)).put("kind", c.getString(1)).put("title", c.getString(2))
-                    .put("body", c.getString(3)).put("read", c.getInt(5)).put("createdAt", c.getLong(6));
-            try { n.put("meta", new JSONObject(c.getString(4))); } catch (Throwable t) { n.put("meta", new JSONObject()); }
-            arr.put(n);
+    private Res adminAlertAction(long j, String str) throws Exception {
+        Res adminGuard = adminGuard(j);
+        if (adminGuard != null) {
+            return adminGuard;
         }
-        c.close();
-        Cursor uc = db.getReadableDatabase().rawQuery("SELECT COUNT(*) FROM notifications WHERE read=0", null);
-        int unread = uc.moveToFirst() ? uc.getInt(0) : 0; uc.close();
-        return Res.json(200, new JSONObject().put("alerts", arr).put("unreadCount", unread));
-    }
-
-    /** POST /api/admin/alerts — {action: read-all | read | clear} (+ optional id). */
-    private Res adminAlertAction(long uid, String body) throws Exception {
-        Res g = adminGuard(uid); if (g != null) return g;
-        JSONObject o = HttpServer.jObj(body);
-        String action = HttpServer.jStr(o, "action");
-        if ("read-all".equals(action)) {
-            db.getWritableDatabase().execSQL("UPDATE notifications SET read=1 WHERE read=0");
+        JSONObject jObj = HttpServer.jObj(str);
+        String jStr = HttpServer.jStr(jObj, "action");
+        if ("read-all".equals(jStr)) {
+            this.db.getWritableDatabase().execSQL("UPDATE notifications SET read=1 WHERE read=0");
             return Res.json(200, new JSONObject().put("ok", true).put("message", "Saare alerts parh liye gaye"));
         }
-        if ("read".equals(action)) {
-            long id = o.optLong("id", -1);
-            if (id > 0) db.getWritableDatabase().execSQL("UPDATE notifications SET read=1 WHERE id=?", new Object[]{id});
+        if ("read".equals(jStr)) {
+            long optLong = jObj.optLong("id", -1L);
+            if (optLong > 0) {
+                this.db.getWritableDatabase().execSQL("UPDATE notifications SET read=1 WHERE id=?", new Object[]{Long.valueOf(optLong)});
+            }
             return Res.json(200, new JSONObject().put("ok", true));
         }
-        if ("clear".equals(action)) {
-            db.getWritableDatabase().execSQL("DELETE FROM notifications WHERE read=1");
+        if ("clear".equals(jStr)) {
+            this.db.getWritableDatabase().execSQL("DELETE FROM notifications WHERE read=1");
             return Res.json(200, new JSONObject().put("ok", true).put("message", "Read alerts cleared"));
         }
         return Res.error(400, "Unknown action");
     }
 
-    static double round2(double v) { return Math.round(v * 100.0) / 100.0; }
+    static double round2(double d) {
+        return Math.round(d * 100.0d) / 100.0d;
+    }
 }

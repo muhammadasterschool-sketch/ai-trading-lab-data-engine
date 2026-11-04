@@ -1,25 +1,38 @@
 package com.aitradinglab.monitor;
 
 import android.app.Application;
+import android.util.Log;
+import java.io.FileOutputStream;
+import java.lang.Thread;
 
-/**
- * Installs the global crash net BEFORE any activity or service runs.
- * Any uncaught crash is written to last-crash.txt; the next successful start
- * feeds it into the engine's system ledger (Logs tab) so no crash is ever invisible.
- */
+/* loaded from: classes.dex */
 public class AtlApp extends Application {
-    @Override public void onCreate() {
+    @Override // android.app.Application
+    public void onCreate() {
         super.onCreate();
-        final Thread.UncaughtExceptionHandler prev = Thread.getDefaultUncaughtExceptionHandler();
-        Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
-            try {
-                String st = android.util.Log.getStackTraceString(e);
-                if (st.length() > 4000) st = st.substring(0, 4000);
-                java.io.OutputStream os = openFileOutput("last-crash.txt", MODE_PRIVATE);
-                os.write(("time=" + System.currentTimeMillis() + "\nthread=" + t.getName() + "\n" + st).getBytes());
-                os.close();
-            } catch (Exception ignored) { }
-            if (prev != null) prev.uncaughtException(t, e);
+        final Thread.UncaughtExceptionHandler defaultUncaughtExceptionHandler = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() { // from class: com.aitradinglab.monitor.AtlApp$$ExternalSyntheticLambda0
+            @Override // java.lang.Thread.UncaughtExceptionHandler
+            public final void uncaughtException(Thread thread, Throwable th) {
+                AtlApp.this.lambda$onCreate$0(defaultUncaughtExceptionHandler, thread, th);
+            }
         });
+    }
+
+    /* JADX INFO: Access modifiers changed from: private */
+    public /* synthetic */ void lambda$onCreate$0(Thread.UncaughtExceptionHandler uncaughtExceptionHandler, Thread thread, Throwable th) {
+        try {
+            String stackTraceString = Log.getStackTraceString(th);
+            if (stackTraceString.length() > 4000) {
+                stackTraceString = stackTraceString.substring(0, 4000);
+            }
+            FileOutputStream openFileOutput = openFileOutput("last-crash.txt", 0);
+            openFileOutput.write(("time=" + System.currentTimeMillis() + "\nthread=" + thread.getName() + "\n" + stackTraceString).getBytes());
+            openFileOutput.close();
+        } catch (Exception unused) {
+        }
+        if (uncaughtExceptionHandler != null) {
+            uncaughtExceptionHandler.uncaughtException(thread, th);
+        }
     }
 }

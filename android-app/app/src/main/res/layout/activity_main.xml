@@ -1,66 +1,59 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:background="@color/bg"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@color/bg">
-
+    android:layout_height="match_parent">
     <WebView
         android:id="@+id/webview"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
-
+        android:layout_height="match_parent"/>
     <LinearLayout
-        android:id="@+id/error_view"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:orientation="vertical"
         android:gravity="center"
+        android:orientation="vertical"
+        android:id="@+id/error_view"
         android:padding="32dp"
-        android:visibility="gone">
-
+        android:visibility="gone"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
         <ImageView
             android:layout_width="64dp"
             android:layout_height="64dp"
             android:src="@mipmap/ic_launcher"
-            android:contentDescription="@string/app_name" />
-
+            android:contentDescription="@string/app_name"/>
         <TextView
+            android:textSize="17sp"
+            android:textStyle="bold"
+            android:textColor="@color/text_primary"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:text="@string/offline_title"
-            android:textColor="@color/text_primary"
-            android:textSize="17sp"
-            android:textStyle="bold" />
-
+            android:text="@string/offline_title"/>
         <TextView
+            android:textSize="13sp"
+            android:textColor="@color/text_secondary"
+            android:gravity="center"
             android:id="@+id/error_text"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:gravity="center"
             android:text="@string/err_unreachable"
-            android:textColor="@color/text_secondary"
-            android:textSize="13sp"
-            android:lineSpacingExtra="3dp" />
-
+            android:lineSpacingExtra="3dp"/>
         <Button
+            android:textStyle="bold"
+            android:textColor="#09090b"
             android:id="@+id/btn_retry"
             android:layout_width="220dp"
             android:layout_height="50dp"
             android:layout_marginTop="24dp"
             android:text="@string/retry"
-            android:textColor="#09090B"
-            android:textStyle="bold"
-            android:backgroundTint="@color/gold" />
-
+            android:backgroundTint="@color/gold"/>
         <Button
+            android:textColor="@color/text_secondary"
             android:id="@+id/btn_change_server"
+            android:background="@android:color/transparent"
             android:layout_width="220dp"
             android:layout_height="50dp"
             android:layout_marginTop="10dp"
-            android:text="@string/change_server"
-            android:textColor="@color/text_secondary"
-            android:background="@android:color/transparent" />
+            android:text="@string/change_server"/>
     </LinearLayout>
 </FrameLayout>

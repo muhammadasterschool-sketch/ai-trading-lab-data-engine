@@ -338,7 +338,7 @@ function enterApp(){
   if(USER && USER.role==='ADMIN'){
     pollAlerts(); setInterval(pollAlerts, 30000);
   }
-  go('dash'); setInterval(refresh, 15000);
+  go('dash'); setInterval(refresh, 3000);
 }
 function pollAlerts(){
   api('/api/admin/alerts').then(function(r){
@@ -975,7 +975,7 @@ function renderTrades(){
         '<br><span class="mut" style="font-size:10px">'+esc(t.strategy)+' · '+(t.consensus*100).toFixed(0)+'% · '+fmtTime(t.openedAt)+'</span></td>' +
         '<td style="text-align:right">qty '+t.qty.toFixed(5)+'<br>entry '+t.entry.toFixed(4)+liveCell+'</td>' +
         (t.status==='OPEN'
-          ? '<td style="text-align:right"><button class="pill ACTIVE" style="border:0" onclick="closeTrade('+t.id+')">CLOSE</button></td>'
+          ? '<td style="text-align:right"><button class="pill ACTIVE" style="border:0" onclick="closeTrade('+t.id+',this)">CLOSE</button></td>'
           : '<td style="text-align:right"><b style="color:'+(t.pnl>=0?'#4ade80':'#f87171')+'">'+(t.pnl>=0?'+':'')+t.pnl.toFixed(2)+'</b>'+
             (t.rMult?' <span class="mut" style="font-size:10px">'+(t.rMult>0?'+':'')+t.rMult.toFixed(2)+'R</span>':'')+
             '<br><span class="mut" style="font-size:10px">'+t.status+' '+fmtTime(t.closedAt)+(t.tcaBps?' · TCA '+t.tcaBps.toFixed(1)+'bps':'')+'</span></td>') +
@@ -984,7 +984,7 @@ function renderTrades(){
     });
     /* v1.6 — total floating P/L banner: sab open trades ka combined unrealized P/L */
     var f=r.data.floating||0, fc=r.data.floatingCount||0;
-    var flBanner = open? '<div class="banner '+(f>=0?'green':'red')+'">⚡ <b>LIVE P/L: '+(f>=0?'+':'')+f.toFixed(2)+' $</b> — '+fc+' open trade(s) is waqt is plus/minus mein chal rahi hain · har 5s update</div>' : '';
+    var flBanner = open? '<div class="banner '+(f>=0?'green':'red')+'">⚡ <b>LIVE P/L: '+(f>=0?'+':'')+f.toFixed(2)+' $</b> — '+fc+' open trade(s) is waqt is plus/minus mein chal rahi hain · har 2s update (1s Binance price)</div>' : '';
     tgt().innerHTML =
       flBanner +
       '<h2>Open Positions</h2>' + (open? '<table>'+open+'</table>' : '<div class="empty">No open positions — 24h scanner is watching the market on 5m candles</div>') +
@@ -996,7 +996,7 @@ function renderTrades(){
       el.innerHTML = histHtml((h.data&&h.data.years)||[]);
     });
     /* v1.6 — trades tab active rahe to har 5s live P/L refresh */
-    if(TAB==='trades') setTimeout(renderTrades, 5000);
+    if(TAB==='trades') setTimeout(renderTrades, 2000);
   });
 }
 /* v1.2 — permanent archive: Year → Month → Day accordion + per-month CSV download */
@@ -1171,9 +1171,19 @@ function labRestore(id){
     renderLab();
   });
 }
-function closeTrade(id){
-  if(confirm('Close this paper position at market?'))
-    api('/api/trades/close',{method:'POST',body:{id:id}}).then(function(){ renderTrades(); });
+function closeTrade(id, btn){
+  /* v1.7 ONE-TAP CLOSE — confirm() WebView me silently false hota tha (WebChromeClient missing), isliye
+     button kaam nahi kar raha tha. Ab seedha market close + button feedback + error display. */
+  if(btn){ btn.textContent='…'; btn.disabled=true; }
+  api('/api/trades/close',{method:'POST',body:{id:id}}).then(function(r){
+    if(r.status===200){ renderTrades(); }
+    else {
+      if(btn){ btn.textContent='CLOSE'; btn.disabled=false; }
+      var em=(r.data&&r.data.error)?r.data.error:('close fail '+r.status);
+      var fb=document.getElementById('closeFail'); if(!fb){ fb=document.createElement('div'); fb.id='closeFail'; fb.className='banner red'; var w=tgt(); if(w) w.insertBefore(fb, w.firstChild); }
+      fb.textContent='⚠ CLOSE FAIL — '+em;
+    }
+  });
 }
 function renderLogs(){
   api('/api/logs').then(function(r){
@@ -1257,13 +1267,13 @@ function renderSet(){
         '<div class="row" style="margin-top:8px"><input id="dkPct" type="number" min="0" max="90" step="any" value="'+dk+'" style="'+INP+';width:110px;padding:8px"><button class="btn" onclick="setGuard(\'dailyKillPct\')">SET</button></div>' +
         '<div class="small" style="margin-top:6px">Abhi <b>'+(dk>0?('ON — daily -'+dk+'% par ruk jayega'):'OFF — unlimited (aapki purani request)')+'</b>. 0 = off. Open trades ka SL/TP/breakeven kill switch ke baad bhi normal chalta hai — sirf NAYE entries rukti hain. Kal UTC reset.</div>' +
         '<div id="guardMsg" style="margin-top:8px"></div></div>' +
-        '<h2>🚀 TURBO — paper speed controls (v1.1 TUNED)</h2>' +
+        '<h2>🚀 TURBO — paper speed controls (v1.2 RISK FIX)</h2>' +
         '<div class="card full"><div class="k">X7 REGIME FADE — tuned strategy (replay-verified)</div>' +
         '<div class="row" style="margin-top:8px"><button class="btn '+(r.data.x7On?'sec':'')+'" onclick="setPro(\'x7On\','+!r.data.x7On+')">'+(r.data.x7On?'✅ ON':'⭕ OFF')+'</button>' +
         '<span class="small" style="margin-left:10px">VWAP 3.5σ + RSI confluence + ADX regime gate · TP +2.5R · SL 1×ATR · no BE</span></div>' +
-        '<div class="k" style="margin-top:14px">Paper leverage cap — notional × equity (TURBO)</div>' +
-        '<div class="row" style="margin-top:8px"><input id="tLev" type="number" min="0.1" max="10" step="any" value="'+(r.data.levCap!=null?r.data.levCap:0.95)+'" style="'+INP+';width:110px;padding:8px"><button class="btn" onclick="setTurbo(\'levCap\')">SET</button>' +
-        '<span class="small" style="margin-left:10px">0.95 = spot (safe) · 2/3/5 = TURBO presets</span></div>' +
+        '<div class="k" style="margin-top:14px">Paper leverage cap — notional × equity (v1.2: 0 = UNCAPPED, TRUE risk% sizing)</div>' +
+        '<div class="row" style="margin-top:8px"><input id="tLev" type="number" min="0" max="10" step="any" value="'+(r.data.levCap!=null?(r.data.levCap>100?0:r.data.levCap):0)+'" style="'+INP+';width:110px;padding:8px"><button class="btn" onclick="setTurbo(\'levCap\')">SET</button>' +
+        '<span class="small" style="margin-left:10px">0 = UNCAPPED (default — har trade poora risk% leta hai, e.g. 1%) · 0.95 = spot · 2/3/5/10 = TURBO presets</span></div>' +
         '<div class="k" style="margin-top:14px">Paper fee per side (bps)</div>' +
         '<div class="row" style="margin-top:8px"><input id="tFee" type="number" min="0" max="100" step="any" value="'+(r.data.feeBps!=null?r.data.feeBps:5)+'" style="'+INP+';width:110px;padding:8px"><button class="btn" onclick="setTurbo(\'feeBps\')">SET</button>' +
         '<span class="small" style="margin-left:10px">5 = Binance VIP 0.05% · 0 = zero-fee sim</span></div>' +

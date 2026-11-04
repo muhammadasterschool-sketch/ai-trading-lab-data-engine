@@ -1,275 +1,350 @@
 package com.aitradinglab.monitor;
 
 import android.app.Activity;
-import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
-import android.graphics.Typeface;
-import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
-import android.os.PowerManager;
-import android.provider.Settings;
 import android.text.Editable;
 import android.text.TextWatcher;
+import android.view.KeyEvent;
 import android.view.View;
-import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
-
 import com.aitradinglab.engine.HttpServer;
 import com.aitradinglab.engine.ServerService;
+import java.net.Socket;
 
-/**
- * v5 connection screen — three modes:
- *  THIS DEVICE: the FULL engine runs on this phone (service + embedded server + WebView)
- *  LOCAL: phone and computer on the same Wi-Fi (http://<computer-ip>:81) or USB (adb reverse)
- *  CLOUD: cloud server from anywhere (https://<domain>)
- * The engine itself stays invite-only (2FA + invitation code).
- */
+/* loaded from: classes.dex */
 public class ConnectActivity extends Activity {
-
-    private LinearLayout boxDevice, boxLocal, boxCloud;
-    private TextView labelDevice, labelLocal, labelCloud, subDevice, subLocal, subCloud, modeInfo;
-    private EditText urlInput;
+    private LinearLayout boxCloud;
+    private LinearLayout boxDevice;
+    private LinearLayout boxLocal;
+    private TextView labelCloud;
+    private TextView labelDevice;
+    private TextView labelLocal;
     private TextView lastConnected;
-    private SharedPreferences prefs;
     private String mode = "device";
+    private TextView modeInfo;
+    private SharedPreferences prefs;
+    private TextView subCloud;
+    private TextView subDevice;
+    private TextView subLocal;
+    private EditText urlInput;
 
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
+    @Override // android.app.Activity
+    protected void onCreate(Bundle bundle) {
+        super.onCreate(bundle);
         try {
-            initUi();
-        } catch (Throwable e) {
-            // the launcher screen must NEVER crash — worst case, tell the user and stay up
             try {
-                Toast.makeText(this, "Startup issue — reopening mode screen", Toast.LENGTH_LONG).show();
-            } catch (Throwable ignored) { }
+                initUi();
+            } catch (Throwable unused) {
+            }
+        } catch (Throwable unused2) {
+            Toast.makeText(this, "Startup issue — reopening mode screen", 1).show();
         }
     }
 
     private void initUi() {
         setContentView(R.layout.activity_connect);
-
-        prefs = getSharedPreferences("atl", Context.MODE_PRIVATE);
-        boxDevice = findViewById(R.id.mode_device_box);
-        boxLocal = findViewById(R.id.mode_local_box);
-        boxCloud = findViewById(R.id.mode_cloud_box);
-        labelDevice = findViewById(R.id.mode_device_label);
-        subDevice = findViewById(R.id.mode_device_sub);
-        labelLocal = findViewById(R.id.mode_local_label);
-        labelCloud = findViewById(R.id.mode_cloud_label);
-        subLocal = findViewById(R.id.mode_local_sub);
-        subCloud = findViewById(R.id.mode_cloud_sub);
-        modeInfo = findViewById(R.id.mode_info);
-        urlInput = findViewById(R.id.url_input);
-        lastConnected = findViewById(R.id.last_connected);
-        View forgetBtn = findViewById(R.id.btn_forget);
-        View connectBtn = findViewById(R.id.btn_connect);
-
-        boxDevice.setOnClickListener(v -> setMode("device"));
-        boxLocal.setOnClickListener(v -> setMode("local"));
-        boxCloud.setOnClickListener(v -> setMode("cloud"));
-
-        // restore last used mode (default: this device — full phone server)
-        setMode(prefs.getString("server_mode", "device"));
-
-        urlInput.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
-            @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
-            @Override public void afterTextChanged(Editable s) {
-                boolean valid = normalize(s.toString()) != null;
-                connectBtn.setEnabled(valid);
-                connectBtn.setAlpha(valid ? 1f : 0.4f);
+        this.prefs = getSharedPreferences("atl", 0);
+        this.boxDevice = (LinearLayout) findViewById(R.id.mode_device_box);
+        this.boxLocal = (LinearLayout) findViewById(R.id.mode_local_box);
+        this.boxCloud = (LinearLayout) findViewById(R.id.mode_cloud_box);
+        this.labelDevice = (TextView) findViewById(R.id.mode_device_label);
+        this.subDevice = (TextView) findViewById(R.id.mode_device_sub);
+        this.labelLocal = (TextView) findViewById(R.id.mode_local_label);
+        this.labelCloud = (TextView) findViewById(R.id.mode_cloud_label);
+        this.subLocal = (TextView) findViewById(R.id.mode_local_sub);
+        this.subCloud = (TextView) findViewById(R.id.mode_cloud_sub);
+        this.modeInfo = (TextView) findViewById(R.id.mode_info);
+        this.urlInput = (EditText) findViewById(R.id.url_input);
+        this.lastConnected = (TextView) findViewById(R.id.last_connected);
+        final View findViewById = findViewById(R.id.btn_forget);
+        final View findViewById2 = findViewById(R.id.btn_connect);
+        this.boxDevice.setOnClickListener(new View.OnClickListener() { // from class: com.aitradinglab.monitor.ConnectActivity$$ExternalSyntheticLambda3
+            @Override // android.view.View.OnClickListener
+            public final void onClick(View view) {
+                ConnectActivity.this.lambda$initUi$0(view);
             }
         });
-
-        urlInput.setOnEditorActionListener((v, actionId, event) -> {
-            if (actionId == EditorInfo.IME_ACTION_GO) {
-                connect();
-                return true;
+        this.boxLocal.setOnClickListener(new View.OnClickListener() { // from class: com.aitradinglab.monitor.ConnectActivity$$ExternalSyntheticLambda4
+            @Override // android.view.View.OnClickListener
+            public final void onClick(View view) {
+                ConnectActivity.this.lambda$initUi$1(view);
             }
-            return false;
         });
+        this.boxCloud.setOnClickListener(new View.OnClickListener() { // from class: com.aitradinglab.monitor.ConnectActivity$$ExternalSyntheticLambda5
+            @Override // android.view.View.OnClickListener
+            public final void onClick(View view) {
+                ConnectActivity.this.lambda$initUi$2(view);
+            }
+        });
+        setMode(this.prefs.getString("server_mode", "device"));
+        this.urlInput.addTextChangedListener(new TextWatcher() { // from class: com.aitradinglab.monitor.ConnectActivity.1
+            @Override // android.text.TextWatcher
+            public void beforeTextChanged(CharSequence charSequence, int i, int i2, int i3) {
+            }
 
-        connectBtn.setOnClickListener(v -> connect());
-        connectBtn.setEnabled(false);
-        connectBtn.setAlpha(0.4f);
+            @Override // android.text.TextWatcher
+            public void onTextChanged(CharSequence charSequence, int i, int i2, int i3) {
+            }
 
-        forgetBtn.setOnClickListener(v -> {
-            String key = "last_" + mode;
-            prefs.edit().remove(key).apply();
-            String cur = prefs.getString("server_url", "");
-            String last = prefs.getString(key, "");
-            if (cur.equals(last) || last.isEmpty()) prefs.edit().remove("server_url").apply();
-            urlInput.setText("");
-            lastConnected.setVisibility(View.GONE);
-            forgetBtn.setVisibility(View.GONE);
-            Toast.makeText(this, "Saved " + mode + " address removed", Toast.LENGTH_SHORT).show();
+            @Override // android.text.TextWatcher
+            public void afterTextChanged(Editable editable) {
+                boolean z = ConnectActivity.normalize(editable.toString()) != null;
+                findViewById2.setEnabled(z);
+                findViewById2.setAlpha(z ? 1.0f : 0.4f);
+            }
+        });
+        this.urlInput.setOnEditorActionListener(new TextView.OnEditorActionListener() { // from class: com.aitradinglab.monitor.ConnectActivity$$ExternalSyntheticLambda6
+            @Override // android.widget.TextView.OnEditorActionListener
+            public final boolean onEditorAction(TextView textView, int i, KeyEvent keyEvent) {
+                boolean lambda$initUi$3;
+                lambda$initUi$3 = ConnectActivity.this.lambda$initUi$3(textView, i, keyEvent);
+                return lambda$initUi$3;
+            }
+        });
+        findViewById2.setOnClickListener(new View.OnClickListener() { // from class: com.aitradinglab.monitor.ConnectActivity$$ExternalSyntheticLambda7
+            @Override // android.view.View.OnClickListener
+            public final void onClick(View view) {
+                ConnectActivity.this.lambda$initUi$4(view);
+            }
+        });
+        findViewById2.setEnabled(false);
+        findViewById2.setAlpha(0.4f);
+        findViewById.setOnClickListener(new View.OnClickListener() { // from class: com.aitradinglab.monitor.ConnectActivity$$ExternalSyntheticLambda8
+            @Override // android.view.View.OnClickListener
+            public final void onClick(View view) {
+                ConnectActivity.this.lambda$initUi$5(findViewById, view);
+            }
         });
     }
 
-    private void setMode(String m) {
+    /* JADX INFO: Access modifiers changed from: private */
+    public /* synthetic */ void lambda$initUi$0(View view) {
+        setMode("device");
+    }
+
+    /* JADX INFO: Access modifiers changed from: private */
+    public /* synthetic */ void lambda$initUi$1(View view) {
+        setMode("local");
+    }
+
+    /* JADX INFO: Access modifiers changed from: private */
+    public /* synthetic */ void lambda$initUi$2(View view) {
+        setMode("cloud");
+    }
+
+    /* JADX INFO: Access modifiers changed from: private */
+    public /* synthetic */ boolean lambda$initUi$3(TextView textView, int i, KeyEvent keyEvent) {
+        if (i != 2) {
+            return false;
+        }
+        connect();
+        return true;
+    }
+
+    /* JADX INFO: Access modifiers changed from: private */
+    public /* synthetic */ void lambda$initUi$4(View view) {
+        connect();
+    }
+
+    /* JADX INFO: Access modifiers changed from: private */
+    public /* synthetic */ void lambda$initUi$5(View view, View view2) {
+        String str = "last_" + this.mode;
+        this.prefs.edit().remove(str).apply();
+        String string = this.prefs.getString("server_url", "");
+        String string2 = this.prefs.getString(str, "");
+        if (string.equals(string2) || string2.isEmpty()) {
+            this.prefs.edit().remove("server_url").apply();
+        }
+        this.urlInput.setText("");
+        this.lastConnected.setVisibility(8);
+        view.setVisibility(8);
+        Toast.makeText(this, "Saved " + this.mode + " address removed", 0).show();
+    }
+
+    private void setMode(String str) {
         try {
-            applyMode(m);
-        } catch (Throwable e) {
-            try { Toast.makeText(this, "Mode error — reset to THIS DEVICE", Toast.LENGTH_SHORT).show(); } catch (Throwable ignored) { }
-            try { applyMode("device"); } catch (Throwable ignored) { }
+            try {
+                applyMode(str);
+            } catch (Throwable unused) {
+                Toast.makeText(this, "Mode error — reset to THIS DEVICE", 0).show();
+                try {
+                    applyMode("device");
+                } catch (Throwable unused2) {
+                }
+            }
+        } catch (Throwable unused3) {
+            applyMode("device");
         }
     }
 
-    private void applyMode(String m) {
-        mode = m;
-        prefs.edit().putString("server_mode", m).apply();
-        boolean device = "device".equals(m);
-        boolean local = "local".equals(m);
-
-        // THIS DEVICE card: green when selected
-        int selDev = getResources().getColor(R.color.green);
-        boxDevice.setBackgroundTintList(ColorStateList.valueOf(device ? selDev : getResources().getColor(R.color.surface)));
-        labelDevice.setTextColor(getResources().getColor(device ? R.color.text_primary : R.color.text_dim));
-        labelDevice.setTypeface(null, device ? Typeface.BOLD : Typeface.NORMAL);
-        subDevice.setTextColor(getResources().getColor(device ? R.color.text_primary : R.color.text_dim));
-
-        // selected card: accent color + bold; unselected: dim
-        int selBg = getResources().getColor(local ? R.color.gold : R.color.cloud);
-        boxLocal.setBackgroundTintList(ColorStateList.valueOf(local ? selBg : getResources().getColor(R.color.surface)));
-        boxCloud.setBackgroundTintList(ColorStateList.valueOf(!local ? selBg : getResources().getColor(R.color.surface)));
-        labelLocal.setTextColor(getResources().getColor(local ? R.color.text_primary : R.color.text_dim));
-        labelCloud.setTextColor(getResources().getColor(!local ? R.color.text_primary : R.color.text_dim));
-        labelLocal.setTypeface(null, local ? Typeface.BOLD : Typeface.NORMAL);
-        labelCloud.setTypeface(null, !local ? Typeface.BOLD : Typeface.NORMAL);
-        subLocal.setTextColor(getResources().getColor(local ? R.color.text_primary : R.color.text_dim));
-        subCloud.setTextColor(getResources().getColor(!local ? R.color.text_primary : R.color.text_dim));
-
-        modeInfo.setText(device ? R.string.mode_device : local ? R.string.mode_local : R.string.mode_cloud);
-        urlInput.setVisibility(device ? View.GONE : View.VISIBLE);
-        findViewById(R.id.btn_connect).setVisibility(device ? View.GONE : View.VISIBLE);
-
-        if (device) {
-            lastConnected.setVisibility(View.GONE);
-            findViewById(R.id.btn_forget).setVisibility(View.GONE);
+    private void applyMode(String str) {
+        this.mode = str;
+        this.prefs.edit().putString("server_mode", str).apply();
+        boolean equals = "device".equals(str);
+        boolean equals2 = "local".equals(str);
+        int color = getResources().getColor(R.color.green);
+        LinearLayout linearLayout = this.boxDevice;
+        if (!equals) {
+            color = getResources().getColor(R.color.surface);
+        }
+        linearLayout.setBackgroundTintList(ColorStateList.valueOf(color));
+        this.labelDevice.setTextColor(getResources().getColor(equals ? R.color.text_primary : R.color.text_dim));
+        this.labelDevice.setTypeface(null, equals ? 1 : 0);
+        this.subDevice.setTextColor(getResources().getColor(equals ? R.color.text_primary : R.color.text_dim));
+        int color2 = getResources().getColor(equals2 ? R.color.gold : R.color.cloud);
+        this.boxLocal.setBackgroundTintList(ColorStateList.valueOf(equals2 ? color2 : getResources().getColor(R.color.surface)));
+        LinearLayout linearLayout2 = this.boxCloud;
+        if (equals2) {
+            color2 = getResources().getColor(R.color.surface);
+        }
+        linearLayout2.setBackgroundTintList(ColorStateList.valueOf(color2));
+        this.labelLocal.setTextColor(getResources().getColor(equals2 ? R.color.text_primary : R.color.text_dim));
+        this.labelCloud.setTextColor(getResources().getColor(!equals2 ? R.color.text_primary : R.color.text_dim));
+        this.labelLocal.setTypeface(null, equals2 ? 1 : 0);
+        this.labelCloud.setTypeface(null, !equals2 ? 1 : 0);
+        this.subLocal.setTextColor(getResources().getColor(equals2 ? R.color.text_primary : R.color.text_dim));
+        this.subCloud.setTextColor(getResources().getColor(!equals2 ? R.color.text_primary : R.color.text_dim));
+        this.modeInfo.setText(equals ? R.string.mode_device : equals2 ? R.string.mode_local : R.string.mode_cloud);
+        this.urlInput.setVisibility(equals ? 8 : 0);
+        findViewById(R.id.btn_connect).setVisibility(equals ? 8 : 0);
+        if (equals) {
+            this.lastConnected.setVisibility(8);
+            findViewById(R.id.btn_forget).setVisibility(8);
             launchDeviceServer();
             return;
         }
-
-        urlInput.setHint(local ? R.string.hint_local : R.string.hint_cloud);
-
-        // prefill this mode's last address
-        String key = "last_" + m;
-        String saved = prefs.getString(key, "");
-        urlInput.setText(saved);
-        urlInput.setSelection(urlInput.getText().length());
-
-        if (!saved.isEmpty()) {
-            lastConnected.setText(getString(R.string.last_connected) + ": " + saved);
-            lastConnected.setVisibility(View.VISIBLE);
-            View forgetBtn = findViewById(R.id.btn_forget);
-            forgetBtn.setVisibility(View.VISIBLE);
+        this.urlInput.setHint(equals2 ? R.string.hint_local : R.string.hint_cloud);
+        String string = this.prefs.getString("last_" + str, "");
+        this.urlInput.setText(string);
+        EditText editText = this.urlInput;
+        editText.setSelection(editText.getText().length());
+        if (!string.isEmpty()) {
+            this.lastConnected.setText(getString(R.string.last_connected) + ": " + string);
+            this.lastConnected.setVisibility(0);
+            findViewById(R.id.btn_forget).setVisibility(0);
         } else {
-            lastConnected.setVisibility(View.GONE);
-            findViewById(R.id.btn_forget).setVisibility(View.GONE);
+            this.lastConnected.setVisibility(8);
+            findViewById(R.id.btn_forget).setVisibility(8);
         }
-
-        // revalidate connect button for the prefilled text
-        boolean valid = normalize(urlInput.getText().toString()) != null;
-        View connectBtn = findViewById(R.id.btn_connect);
-        connectBtn.setEnabled(valid);
-        connectBtn.setAlpha(valid ? 1f : 0.4f);
+        boolean z = normalize(this.urlInput.getText().toString()) != null;
+        View findViewById = findViewById(R.id.btn_connect);
+        findViewById.setEnabled(z);
+        findViewById.setAlpha(z ? 1.0f : 0.4f);
     }
 
     private void connect() {
-        String url = normalize(urlInput.getText().toString());
-        if (url == null) {
-            Toast.makeText(this, getString(R.string.err_invalid), Toast.LENGTH_LONG).show();
+        String normalize = normalize(this.urlInput.getText().toString());
+        if (normalize == null) {
+            Toast.makeText(this, getString(R.string.err_invalid), 1).show();
             return;
         }
-        prefs.edit()
-             .putString("server_url", url)
-             .putString("server_mode", mode)
-             .putString("last_" + mode, url)
-             .apply();
-        Intent i = new Intent(this, MainActivity.class);
-        i.putExtra("server_url", url);
-        startActivity(i);
+        this.prefs.edit().putString("server_url", normalize).putString("server_mode", this.mode).putString("last_" + this.mode, normalize).apply();
+        Intent intent = new Intent(this, (Class<?>) MainActivity.class);
+        intent.putExtra("server_url", normalize);
+        startActivity(intent);
     }
 
-    /** THIS DEVICE: start the engine service and open the embedded dashboard. */
     private void launchDeviceServer() {
         try {
             runDeviceServer();
-        } catch (Throwable e) {
-            try { Toast.makeText(this, "Engine start issue: " + e, Toast.LENGTH_LONG).show(); } catch (Throwable ignored) { }
+        } catch (Throwable th) {
+            try {
+                Toast.makeText(this, "Engine start issue: " + th, 1).show();
+            } catch (Throwable unused) {
+            }
         }
     }
 
     private void runDeviceServer() {
-        Toast.makeText(this, R.string.starting_engine, Toast.LENGTH_SHORT).show();
-        String phoneUrl = "http://127.0.0.1:" + HttpServer.PORT;
-        prefs.edit().putString("server_url", phoneUrl).putString("last_device", phoneUrl).apply();
+        Toast.makeText(this, R.string.starting_engine, 0).show();
+        this.prefs.edit().putString("server_url", "http://127.0.0.1:8788").putString("last_device", "http://127.0.0.1:8788").apply();
         askNotificationPermission();
         try {
-            startForegroundService(new Intent(this, ServerService.class));
-        } catch (Exception e) {
-            try { startService(new Intent(this, ServerService.class)); } catch (Exception ignored) { }
-        }
-        // wait for the embedded server to come up, then open it
-        final Activity act = this;
-        new Thread(() -> {
-            for (int i = 0; i < 30; i++) {
-                try {
-                    java.net.Socket s = new java.net.Socket("127.0.0.1", HttpServer.PORT);
-                    s.close();
-                    runOnUiThread(() -> {
-                        Intent i2 = new Intent(act, MainActivity.class);
-                        i2.putExtra("server_url", "http://127.0.0.1:" + HttpServer.PORT);
-                        startActivity(i2);
-                    });
-                    return;
-                } catch (Exception ignored) {
-                    try { Thread.sleep(500); } catch (InterruptedException ignored2) { return; }
-                }
+            try {
+                startForegroundService(new Intent(this, (Class<?>) ServerService.class));
+            } catch (Exception unused) {
+                startService(new Intent(this, (Class<?>) ServerService.class));
             }
-            runOnUiThread(() -> Toast.makeText(act, "Engine failed to start — reopen the app", Toast.LENGTH_LONG).show());
+        } catch (Exception unused2) {
+        }
+        new Thread(new Runnable() { // from class: com.aitradinglab.monitor.ConnectActivity$$ExternalSyntheticLambda0
+            @Override // java.lang.Runnable
+            public final void run() {
+                ConnectActivity.this.lambda$runDeviceServer$8(ConnectActivity.this);
+            }
         }, "wait-server").start();
     }
 
-    /**
-     * Android 13+ runtime notification permission — requested from the foreground,
-     * wrapped, one tap. The battery-optimization prompt lives in MainActivity
-     * (after the dashboard is loaded) so the cold-start path stays minimal.
-     */
-    private void askNotificationPermission() {
-        if (android.os.Build.VERSION.SDK_INT >= 33 &&
-                checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
+    /* JADX INFO: Access modifiers changed from: private */
+    public /* synthetic */ void lambda$runDeviceServer$8(final Activity activity) {
+        for (int i = 0; i < 30; i++) {
             try {
-                requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 901);
-            } catch (Exception ignored) { }
+                new Socket("127.0.0.1", HttpServer.PORT).close();
+                runOnUiThread(new Runnable() { // from class: com.aitradinglab.monitor.ConnectActivity$$ExternalSyntheticLambda1
+                    @Override // java.lang.Runnable
+                    public final void run() {
+                        ConnectActivity.this.lambda$runDeviceServer$6(activity);
+                    }
+                });
+                return;
+            } catch (Exception unused) {
+                try {
+                    Thread.sleep(500L);
+                } catch (InterruptedException unused2) {
+                    return;
+                }
+            }
+        }
+        runOnUiThread(new Runnable() { // from class: com.aitradinglab.monitor.ConnectActivity$$ExternalSyntheticLambda2
+            @Override // java.lang.Runnable
+            public final void run() {
+                Toast.makeText(activity, "Engine failed to start — reopen the app", 1).show();
+            }
+        });
+    }
+
+    /* JADX INFO: Access modifiers changed from: private */
+    public /* synthetic */ void lambda$runDeviceServer$6(Activity activity) {
+        Intent intent = new Intent(activity, (Class<?>) MainActivity.class);
+        intent.putExtra("server_url", "http://127.0.0.1:8788");
+        startActivity(intent);
+    }
+
+    private void askNotificationPermission() {
+        if (Build.VERSION.SDK_INT < 33 || checkSelfPermission("android.permission.POST_NOTIFICATIONS") == 0) {
+            return;
+        }
+        try {
+            requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 901);
+        } catch (Exception unused) {
         }
     }
 
-    /** Accepts "192.168.1.10:81", "http://192.168.1.10", "https://x.com" and normalizes. */
-    static String normalize(String raw) {
-        if (raw == null) return null;
-        String s = raw.trim();
-        if (s.isEmpty()) return null;
-        if (!s.startsWith("http://") && !s.startsWith("https://")) {
-            s = "http://" + s;
+    static String normalize(String str) {
+        if (str == null) {
+            return null;
         }
-        // strip trailing slash
-        while (s.endsWith("/")) s = s.substring(0, s.length() - 1);
-        String hostPart = s.startsWith("https://") ? s.substring(8) : s.substring(7);
-        if (hostPart.isEmpty()) return null;
-        boolean validChar = hostPart.matches("[A-Za-z0-9.\\-_:\\[\\]]+");
-        if (!validChar) return null;
-        // default port for bare local IPs: 81 (engine gateway)
-        if (!s.startsWith("https://") && !hostPart.contains(":")) {
-            s = s + ":81";
+        String trim = str.trim();
+        if (trim.isEmpty()) {
+            return null;
         }
-        return s;
+        if (!trim.startsWith("http://") && !trim.startsWith("https://")) {
+            trim = "http://" + trim;
+        }
+        while (trim.endsWith("/")) {
+            trim = trim.substring(0, trim.length() - 1);
+        }
+        String substring = trim.substring(trim.startsWith("https://") ? 8 : 7);
+        if (!substring.isEmpty() && substring.matches("[A-Za-z0-9.\\-_:\\[\\]]+")) {
+            return (trim.startsWith("https://") || substring.contains(":")) ? trim : trim + ":81";
+        }
+        return null;
     }
 }
