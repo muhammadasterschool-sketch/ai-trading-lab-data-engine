@@ -137,6 +137,28 @@ public class EngineCore implements Runnable {
         } catch (Exception e) { return RISK_DEFAULT_PCT; }
     }
 
+    /** v1.1 TUNED — taker fee as fraction per side (settings fee_bps, default 5 = 0.05%).
+     *  PAPER sim: owner 0 set karke zero-fee sim chala sakta hai (honest label rahega). */
+    public double takerFee() {
+        try {
+            double bps = Double.parseDouble(db.setting("fee_bps", "5"));
+            if (bps < 0) bps = 0;
+            if (bps > 100) bps = 100;
+            return bps / 10000.0;
+        } catch (Exception e) { return TAKER_FEE; }
+    }
+
+    /** v1.1 TURBO — notional cap as multiple of equity (settings lev_cap, default 0.95 = spot).
+     *  PAPER sim: 2/3/5 = paper leverage presets (owner TURBO control). */
+    public double levCap() {
+        try {
+            double v = Double.parseDouble(db.setting("lev_cap", "0.95"));
+            if (v < 0.1) v = 0.1;
+            if (v > 10) v = 10;
+            return v;
+        } catch (Exception e) { return 0.95; }
+    }
+
     /** v4.1 OWNER RULE: "min trades 25 ho phir consensus percentage par increase ho jaye
      *  aur risk should be 1 percent on a trade".
      *  - har trade ka base risk = riskPct() (default 1%)
@@ -436,6 +458,7 @@ public class EngineCore implements Runnable {
         scanAndTrade();
         try { scanPdfPack(); } catch (Throwable t) { db.log("ERROR", "PACK", "SCAN_FAIL", String.valueOf(t)); }   // v4.5 PDF pack (5m, ALL pairs)
         try { scanPlaybook(); } catch (Throwable t) { db.log("ERROR", "PB", "SCAN_FAIL", String.valueOf(t)); }   // v1.0 5M PLAYBOOK (guide S1-S4, BTC/ETH/BNB/SOL)
+        try { scanX7(); } catch (Throwable t) { db.log("ERROR", "X7", "SCAN_FAIL", String.valueOf(t)); }   // v1.1 TUNED — X7 REGIME FADE (replay-verified)
         snapshotEquity();
         try { selfLearnTick(); } catch (Throwable ignored) { }   // v4.4 — har 25 closed trades par AI re-weight
         scanCount++;
@@ -2297,7 +2320,7 @@ public class EngineCore implements Runnable {
         if (bal <= 0) return;
         double risk = bal * dynamicRiskPct(tier) / 100.0;   // base 1%, min-25 consensus scaling
         double qty = risk / rd;
-        if (qty * price > bal * 0.95) qty = bal * 0.95 / price;
+        if (qty * price > bal * levCap()) qty = bal * levCap() / price;
         if (qty <= 0) return;
         boolean buy = "BUY".equals(s.side);
         double sl = buy ? price - rd : price + rd;
@@ -2463,7 +2486,7 @@ public class EngineCore implements Runnable {
         if (bal <= 0) return;
         double risk = bal * dynamicRiskPct(tier) / 100.0;   // base 1% (guide safe config), min-25 scaling
         double qty = risk / slDist;
-        if (qty * price > bal * 0.95) qty = bal * 0.95 / price;
+        if (qty * price > bal * levCap()) qty = bal * levCap() / price;
         if (qty <= 0) return;
         boolean buy = "BUY".equals(s.side);
         double sl = buy ? price - slDist : price + slDist;
@@ -2566,6 +2589,117 @@ public class EngineCore implements Runnable {
         }
     }
 
+    // ================== v1.1 TUNED — X7 REGIME FADE (replay-verified PF 1.29-1.87) ==================
+    /** Replay tuning (Nov 2026, real Binance 5m, 14-din windows): X7 = 24h VWAP ± 3.5σ
+     *  deviation fade + RSI confluence (RSI<30 buy / >70 sell) + REGIME GATE (ADX(56) < 22 —
+     *  sirf ranging market). SL = 1.0×ATR, TP = +2.5R, NO breakeven (tuned: BE-off), risk
+     *  riskPct(), notional levCap(). Har closed 5m bar par eval, per symbol 1 open trade,
+     *  SL ke baad 15-min cooldown (generic guard). Recent windows: +1.0%..+2.2%/14d @1% risk,
+     *  maxDD 1.7-2.7%. TURBO controls (risk 20% + lev 5x) owner ke paas — PAPER sim. */
+    static final double X7_SIGMA = 3.5, X7_TP_R = 2.5, X7_SL_ATR = 1.0, X7_RSI_LO = 30, X7_RSI_HI = 70, X7_ADX_MAX = 22.0;
+    private final Map<String, Long> lastEvalX7 = new HashMap<>();
+
+    private void scanX7() {
+        if (!"1".equals(db.setting("x7_on", "1"))) return;
+        List<Long> users = userIds();
+        List<String> syms = activeSymbols();
+        for (String sym : syms) {
+            try {
+                List<Candle> all = loadCandles(sym);
+                if (all.size() < 300) continue;
+                List<Candle> k = all;
+                if (!k.isEmpty() && System.currentTimeMillis() - k.get(k.size() - 1).ts < TF_MS) {
+                    k = k.subList(0, k.size() - 1);   // sirf CLOSED 5m candles
+                    if (k.size() < 300) continue;
+                }
+                Candle last = k.get(k.size() - 1);
+                Long done = lastEvalX7.get(sym);
+                if (done != null && done == last.ts) continue;   // idempotent (isi bar par eval ho chuka)
+                lastEvalX7.put(sym, last.ts);
+                String side = x7Signal(k, k.size() - 1);
+                if (side == null) continue;
+                for (long uid : users) openTradeX7(uid, sym, side, k);
+            } catch (Throwable t) {
+                db.log("WARN", "X7", "EVAL_FAIL", sym + " — " + t);
+            }
+        }
+    }
+
+    /** X7 signal core (replay parity): VWAP(288) ± 3.5σ + RSI(14) confluence + ADX(56)<22. */
+    static String x7Signal(List<Candle> k, int i) {
+        if (i < 300 || i >= k.size()) return null;
+        double pv = 0, vv = 0;
+        int from = Math.max(0, i - 287);
+        for (int j = from; j <= i; j++) { Candle c = k.get(j); double tp = (c.h + c.l + c.c) / 3; pv += tp * c.v; vv += c.v; }
+        if (vv <= 0) return null;
+        double vwap = pv / vv;
+        double var = 0; int n = 0;
+        for (int j = from; j <= i; j++) { double d = k.get(j).c - vwap; var += d * d; n++; }
+        double sd = Math.sqrt(var / Math.max(1, n));
+        if (sd <= 0) return null;
+        double g = 0, l = 0;
+        for (int j = i - 13; j <= i; j++) { double ch = k.get(j).c - k.get(j - 1).c; if (ch > 0) g += ch; else l -= ch; }
+        if (g + l == 0) return null;
+        double rsi = 100 * g / (g + l);
+        double[] adx = StrategyPack.adxAt(k, 56, i);
+        if (adx == null || adx[0] >= X7_ADX_MAX) return null;   // regime gate: strong trend = fade NAHI
+        Candle bar = k.get(i);
+        if (bar.c < vwap - X7_SIGMA * sd && rsi < X7_RSI_LO) return "BUY";
+        if (bar.c > vwap + X7_SIGMA * sd && rsi > X7_RSI_HI) return "SELL";
+        return null;
+    }
+
+    /** X7 entry — SL 1×ATR, TP 2.5R, fee-edge, risk%/levCap sizing, per sym+tier 1 open. */
+    private void openTradeX7(long uid, String sym, String side, List<Candle> k) {
+        String tier = "X7:REGIME_FADE";
+        if (!freshData(sym)) return;
+        if (strategyPaused(tier)) return;
+        if (entryBlocked(uid, sym)) return;
+        if (!tradingAllowed(uid)) { askOwnerToEnableTrading(uid); return; }
+        if (eventGateActive()) return;
+        Cursor ex = db.getReadableDatabase().rawQuery(
+                "SELECT COUNT(*) FROM trades WHERE user_id=? AND symbol=? AND strategy=? AND status='OPEN'",
+                new String[]{String.valueOf(uid), sym, tier});
+        boolean have = ex.moveToFirst() && ex.getInt(0) > 0;
+        ex.close();
+        if (have) return;
+        Candle last = k.get(k.size() - 1);
+        double atr = StrategyPack.atrAt(k, 14, k.size() - 1);
+        if (!(atr > 0)) return;
+        double price = last.c;
+        double slDist = X7_SL_ATR * atr;
+        if (!(slDist > 0) || price <= 0) return;
+        double tpDist = X7_TP_R * slDist;
+        if (!feeEdgeOk(tier + " " + sym, price, tpDist)) return;
+        double heatCap = heatMaxPct(), bucketCap = bucketMaxPct();
+        if (heatCap > 0 && heatRiskPct(uid) + riskPct() > heatCap) return;
+        if (bucketCap > 0 && bucketRiskPct(uid, bucketOf(sym)) + riskPct() > bucketCap) return;
+        boolean buy = "BUY".equals(side);
+        price = slipEntry(price, side);
+        double bal = balanceOf(uid);
+        if (bal <= 0) return;
+        double risk = bal * dynamicRiskPct(tier) / 100.0;
+        double qty = risk / slDist;
+        if (qty * price > bal * levCap()) qty = bal * levCap() / price;
+        if (qty <= 0) return;
+        double sl = buy ? price - slDist : price + slDist;
+        double tp = buy ? price + tpDist : price - tpDist;
+        JSONObject features = new JSONObject();
+        try {
+            features.put("x7", 1).put("atr", atr).put("tp_r", X7_TP_R).put("sl_atr", X7_SL_ATR)
+                    .put("sigma", X7_SIGMA).put("be", 0).put("tf", TF).put("note", "VWAP 3.5σ + RSI confluence + ADX regime gate");
+        } catch (Throwable ignored) { }
+        double riskAmt = slDist * qty;
+        db.getWritableDatabase().execSQL(
+                "INSERT INTO trades(user_id, symbol, side, qty, entry, sl, tp, status, strategy, consensus, opened_at, risk, risk_amt, decision, council, win_prob, features) VALUES(?,?,?,?,?,?,?,'OPEN',?,?,?,?,?,?,?,?,?)",
+                new Object[]{uid, sym, side, qty, price, sl, tp, tier, 0.7, System.currentTimeMillis(), dynamicRiskPct(tier) / 100.0, riskAmt, price, 0, mlWinProb(features), features.toString()});
+        recordOrder(0, uid, sym, side, "MARKET", price, qty, "PAPER", "FILLED");
+        db.log("INFO", "X7", "ORDER_EXECUTED", sym + " " + side + " [" + tier + "] qty="
+                + String.format(Locale.US, "%.6f", qty) + " entry=" + fpx(price) + " sl=" + fpx(sl)
+                + " tp=" + fpx(tp) + " — VWAP σ-fade + RSI confluence, regime ADX<22 (TP +2.5R, NO BE)");
+        try { Notifier.post(appContext(), "X7 Regime Fade", sym + " " + side + " — VWAP extreme + RSI confluence"); } catch (Throwable ignored) { }
+    }
+
     // ================== v4.4 — AI TRAINER GLUE ==================
     private long lastAiTrainCheck = 0;
     volatile boolean aiTraining = false;   // package-private (Api status ke liye)
@@ -2609,7 +2743,7 @@ public class EngineCore implements Runnable {
         System.arraycopy(shk, 0, keys, StrategyPack.KEYS.length, 5);
         Map<String, List<AiTrainer.T>> trades = new java.util.LinkedHashMap<>();
         for (String k : keys) trades.put(k, new ArrayList<>());
-        double fee = TAKER_FEE;
+        double fee = takerFee();
         double slip = slipBps();
         long minTs = Long.MAX_VALUE, maxTs = 0;
         int pairsDone = 0;
@@ -2883,7 +3017,7 @@ public class EngineCore implements Runnable {
         }
         double risk = bal * dynamicRiskPct("3C_MASTER") / 100.0;
         double qty = risk / riskDist;
-        if (qty * fillSlip > bal * 0.95) qty = bal * 0.95 / fillSlip;
+        if (qty * fillSlip > bal * levCap()) qty = bal * levCap() / fillSlip;
         if (qty <= 0) return;
         double tp = "BUY".equals(s.side) ? fillSlip + THREEC_TP_R * riskDist : fillSlip - THREEC_TP_R * riskDist;
         if (!feeEdgeOk("3C_MASTER " + sym, fillSlip, THREEC_TP_R * riskDist)) return;   // v4.4 fee-edge guard
@@ -2997,7 +3131,7 @@ public class EngineCore implements Runnable {
         if (bal <= 0) return;
         double risk = bal * dynamicRiskPct(tier) / 100.0;   // v4.1: min-25 → consensus scaling, base 1%
         double qty = risk / (1.5 * a);
-        if (qty * price > bal * 0.95) qty = bal * 0.95 / price;
+        if (qty * price > bal * levCap()) qty = bal * levCap() / price;
         if (qty <= 0) return;
         double riskAmt = Math.abs(price - sl) * qty;
         java.util.Calendar cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"));
@@ -3116,7 +3250,8 @@ public class EngineCore implements Runnable {
                     continue;
                 }
                 // 3C/PACK management: +1R par WHOLE position ka SL breakeven par (3C TP=3R, pack TP=2R)
-                if (is3C || isPack) {
+                // v1.1 — X7 REGIME FADE par BE NAHI (tuned: BE-off better expectancy)
+                if ((is3C || isPack) && !(strategy != null && strategy.startsWith("X7"))) {
                     boolean beMoved = buy ? sl >= entry : sl <= entry;      // SL pehle se entry par?
                     boolean beHit = buy ? hi >= entry + rDist : lo <= entry - rDist;
                     if (!beMoved && beHit && rDist > 0) {
@@ -3135,7 +3270,7 @@ public class EngineCore implements Runnable {
         double exitFill = slipExit(price, side);
         // v1.7 PRO GUARD — fee modeling (freqtrade-style): entry + exit dono sides par
         // Taker fee 0.05% per side. Paper results ab real trading jaise realistic.
-        double fees = (qty * entry + qty * exitFill) * TAKER_FEE;
+        double fees = (qty * entry + qty * exitFill) * takerFee();
         double pnl = ("BUY".equals(side) ? exitFill - entry : entry - exitFill) * qty - fees;
         // v3.0 — journal: R-multiple + TCA (decision vs fill, professional slippage tracking)
         Cursor jc = db.getReadableDatabase().rawQuery(
@@ -3156,7 +3291,7 @@ public class EngineCore implements Runnable {
         db.log(reason.equals("SL") ? "WARN" : "INFO", "EXECUTOR", "TRADE_CLOSED_" + reason,
                 "trade #" + id + " exit=" + fpx(exitFill) + " (level " + fpx(price) + ", slip " + String.format(Locale.US, "%.1f", slipBps()) + "bps) pnl=" + String.format("%.2f", pnl)
                         + " = " + String.format(Locale.US, "%.2f", rMult) + "R, fees $" + String.format("%.4f", fees)
-                        + " @ " + pct(TAKER_FEE) + "%/side, TCA " + String.format(Locale.US, "%.1f", tcaBps) + "bps");
+                        + " @ " + pct(takerFee()) + "%/side, TCA " + String.format(Locale.US, "%.1f", tcaBps) + "bps");
         // v3.0 — ML retrain cadence: har 20 feature-tagged closed trades par
         try {
             if (feats != null && !"{}".equals(feats)) {
@@ -4179,7 +4314,7 @@ public class EngineCore implements Runnable {
         m.put("min_trades_scaling", MIN_TRADES_BEFORE_SCALING);
         m.put("limits", "UNLIMITED daily P/L (owner) — heat/bucket/event/session caps default OFF opt-in");
         // v4.4 status
-        m.put("version", "1.0");
+        m.put("version", "1.1");
         boolean mktClosed = marketClosedET();
         m.put("safe_mode", safeMode && !mktClosed);   // v3.0.1 — band market par SAFE MODE jhoota lagta tha
         m.put("market_closed", mktClosed);            // v3.0.1 — weekend / CME halt indicator

@@ -16,7 +16,8 @@ echo "=== compiling engine package + tests ==="
   "$BASE"/engine-tests/V44Test.java \
   "$BASE"/engine-tests/V441Test.java \
   "$BASE"/engine-tests/V442Test.java \
-  "$BASE"/engine-tests/V1Test.java 2>&1 | grep -v "^Note:" || true
+  "$BASE"/engine-tests/V1Test.java \
+  "$BASE"/engine-tests/V11Test.java 2>&1 | grep -v "^Note:" || true
 
 echo ""
 echo "=== ShaakuniEngineTest (v4.1 suite) ==="
@@ -33,3 +34,6 @@ echo "=== V442Test (v4.4.2 failover + 5m shift) ==="
 echo ""
 echo "=== V1Test (v1.0 5M Playbook + persistence guarantee) ==="
 "$JDK/java" -cp "$OUT:$BASE/engine-tests/org-json.jar:$AJ" com.aitradinglab.engine.V1Test
+echo ""
+echo "=== V11Test (v1.1 X7 REGIME FADE + TURBO) ==="
+"$JDK/java" -cp "$OUT:$BASE/engine-tests/org-json.jar:$AJ" com.aitradinglab.engine.V11Test

@@ -92,7 +92,7 @@ public class Api {
     private Res get(String path, String auth) throws Exception {
         if ("/".equals(path) || "/index.html".equals(path)) return Res.html(dashboardHtml);
         if ("/api/health".equals(path)) return Res.json(200, new JSONObject()
-                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "1.0").put("timeframe", "5m").put("scanner", "24/7").put("strategy", "3C MASTER (M5) + PDF PACK (9, 5m) + 5M PLAYBOOK (4, guide-tuned) + SHAAKUNI (5) + AI TRAINER"));
+                .put("ok", true).put("engine", "ai-trading-lab-phone").put("device", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL).put("android", android.os.Build.VERSION.SDK_INT).put("version", "1.1").put("timeframe", "5m").put("scanner", "24/7").put("strategy", "3C MASTER (M5) + PDF PACK (9, 5m) + 5M PLAYBOOK (4, guide-tuned) + SHAAKUNI (5) + AI TRAINER"));
 
         Long uid = userId(auth);
         if (uid == null) return Res.error(401, "authentication required");
@@ -852,6 +852,10 @@ public class Api {
                 .put("consecLoss", engine != null ? engine.consecLossN() : 3)
                 .put("dailyKillPct", engine != null ? engine.dailyKillPct() : 0)
                 .put("feePct", 0.05)
+                // v1.1 TUNED — TURBO + X7 (dashboard controls ke liye)
+                .put("levCap", engine != null ? engine.levCap() : 0.95)
+                .put("feeBps", db.setting("fee_bps", "5"))
+                .put("x7On", "1".equals(db.setting("x7_on", "1")))
                 // v4.4.1 — PRO FILTER PACK fields REMOVED (filter deleted)
                 // v3.0 QUANT PRO (P1-P5)
                 .put("slipBps", engine != null ? engine.slipBps() : 2)
@@ -1120,6 +1124,24 @@ public class Api {
             if (r < 0.1 || r > 20) return Res.error(400, "Risk 0.1% se 20% ke beech set karein (3C default 2%)");
             db.setSetting("risk_pct", String.valueOf(r));
             db.log("INFO", "RISK", "RISK_SET", "3C per-trade risk = " + r + "% of equity (owner setting)");
+        }
+        // v1.1 TUNED — TURBO controls: paper leverage + fee model + X7 toggle
+        if (o.has("levCap")) {
+            double v = o.optDouble("levCap", 0.95);
+            if (v < 0.1 || v > 10) return Res.error(400, "Leverage cap 0.1x–10x ke beech set karein (0.95 = spot, 2/3/5 = TURBO) — PAPER ONLY");
+            db.setSetting("lev_cap", String.valueOf(v));
+            db.log("WARN", "TURBO", "LEV_SET", "paper notional cap = " + v + "x equity"
+                    + (v > 1 ? " — TURBO mode (PAPER ONLY, koi real order nahi)" : " (spot sizing)"));
+        }
+        if (o.has("feeBps")) {
+            double v = o.optDouble("feeBps", 5);
+            if (v < 0 || v > 100) return Res.error(400, "Fee 0–100 bps ke beech set karein (5 = Binance VIP 0.05%, 0 = zero-fee sim)");
+            db.setSetting("fee_bps", String.valueOf(v));
+            db.log("INFO", "TURBO", "FEE_SET", "paper taker fee = " + v + " bps/side" + (v == 0 ? " (zero-fee sim)" : ""));
+        }
+        if (o.has("x7On")) {
+            db.setSetting("x7_on", o.optBoolean("x7On") ? "1" : "0");
+            db.log("INFO", "X7", "X7_SET", "X7 REGIME FADE strategy = " + (o.optBoolean("x7On") ? "ON" : "OFF"));
         }
         // v4.4.1 — PRO FILTER PACK toggles REMOVED (filter deleted — owner order)
         // v1.7 PRO GUARD — SL-loss cooldown minutes (0=off)

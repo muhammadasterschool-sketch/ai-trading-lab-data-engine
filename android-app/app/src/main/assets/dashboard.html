@@ -144,7 +144,7 @@ select{width:100%;background:var(--card);border:1px solid var(--line);border-rad
   <div class="logo"><img src="logo.png" alt="AI Trading Lab"></div>
   <h1>AI Trading Lab</h1>
   <div class="sub">Full trading engine on this device — paper trading</div>
-  <div class="sub" style="color:var(--gold)">v1.0 · ALL BINANCE COINS · 5M TIMEFRAME · PLAYBOOK · PDF STRATEGIES · SHAAKUNI SUITE · AI TRAINED · RISK 1%</div>
+  <div class="sub" style="color:var(--gold)">v1.1 TUNED · ALL BINANCE COINS · 5M · X7 REGIME FADE + PLAYBOOK · PDF · SHAAKUNI · TURBO</div>
   <div id="engStrip" class="eng">checking engine…</div>
   <div class="note"><b>Naya install / update?</b> Accounts is device ki local database mein hote hain — app reinstall ya update ke baad purana account <b>transfer nahi hota</b>. Pehla account = <b>OWNER (ADMIN)</b>. Baaki log <b>Register</b> se apply karein — <b>invite code owner se milega</b> (kahin likha hua nahi hota), aur owner ke <b>APPROVE</b> karne ke baad hi sign in possible hoga. Kisi authenticator app ki zaroorat nahi.</div>
 
@@ -217,7 +217,7 @@ select{width:100%;background:var(--card);border:1px solid var(--line);border-rad
   <aside id="drawer">
     <div class="dhead">
       <img src="logo.png" alt="">
-      <div><div class="dt">AI Trading Lab</div><div class="ds" id="drEngine">engine · v1.0 ALL-BINANCE 5M + PLAYBOOK + AI</div></div>
+      <div><div class="dt">AI Trading Lab</div><div class="ds" id="drEngine">engine · v1.1 TUNED ALL-BINANCE 5M + X7 + AI</div></div>
       <button class="dclose" onclick="closeDrawer()">✕</button>
     </div>
     <div class="duser" id="drUser"></div>
@@ -1257,6 +1257,18 @@ function renderSet(){
         '<div class="row" style="margin-top:8px"><input id="dkPct" type="number" min="0" max="90" step="any" value="'+dk+'" style="'+INP+';width:110px;padding:8px"><button class="btn" onclick="setGuard(\'dailyKillPct\')">SET</button></div>' +
         '<div class="small" style="margin-top:6px">Abhi <b>'+(dk>0?('ON — daily -'+dk+'% par ruk jayega'):'OFF — unlimited (aapki purani request)')+'</b>. 0 = off. Open trades ka SL/TP/breakeven kill switch ke baad bhi normal chalta hai — sirf NAYE entries rukti hain. Kal UTC reset.</div>' +
         '<div id="guardMsg" style="margin-top:8px"></div></div>' +
+        '<h2>🚀 TURBO — paper speed controls (v1.1 TUNED)</h2>' +
+        '<div class="card full"><div class="k">X7 REGIME FADE — tuned strategy (replay-verified)</div>' +
+        '<div class="row" style="margin-top:8px"><button class="btn '+(r.data.x7On?'sec':'')+'" onclick="setPro(\'x7On\','+!r.data.x7On+')">'+(r.data.x7On?'✅ ON':'⭕ OFF')+'</button>' +
+        '<span class="small" style="margin-left:10px">VWAP 3.5σ + RSI confluence + ADX regime gate · TP +2.5R · SL 1×ATR · no BE</span></div>' +
+        '<div class="k" style="margin-top:14px">Paper leverage cap — notional × equity (TURBO)</div>' +
+        '<div class="row" style="margin-top:8px"><input id="tLev" type="number" min="0.1" max="10" step="any" value="'+(r.data.levCap!=null?r.data.levCap:0.95)+'" style="'+INP+';width:110px;padding:8px"><button class="btn" onclick="setTurbo(\'levCap\')">SET</button>' +
+        '<span class="small" style="margin-left:10px">0.95 = spot (safe) · 2/3/5 = TURBO presets</span></div>' +
+        '<div class="k" style="margin-top:14px">Paper fee per side (bps)</div>' +
+        '<div class="row" style="margin-top:8px"><input id="tFee" type="number" min="0" max="100" step="any" value="'+(r.data.feeBps!=null?r.data.feeBps:5)+'" style="'+INP+';width:110px;padding:8px"><button class="btn" onclick="setTurbo(\'feeBps\')">SET</button>' +
+        '<span class="small" style="margin-left:10px">5 = Binance VIP 0.05% · 0 = zero-fee sim</span></div>' +
+        '<div class="small" style="margin-top:10px"><b>⚠ PAPER ONLY</b> — ye controls sirf simulated account ki speed badalte hain; koi real order kahin nahi jata. Risk % Settings > PRO GUARD ke upar Risk section mein hai (0.1–20%).</div>' +
+        '<div id="turboMsg" style="margin-top:8px"></div></div>' +
         '<h2>🧠 QUANT PRO — v3.0 professional stack</h2>' +
         '<div class="banner green" style="margin-bottom:10px"><b>Sab caps OPT-IN hain (default OFF/UNLIMITED — aapka UNLIMITED rule qayam).</b> Ye professional risk machinery hai: heat cap, bucket exposure, slippage model, Signal Council, event gate, CME session filter aur bridge live mirror.</div>' +
         '<div class="card full">' +
@@ -1340,6 +1352,19 @@ function setBalance(){
 }
 function setEngine(on){
   api('/api/settings',{method:'POST',body:{engineOn:on}}).then(function(){ renderSettings(); });
+}
+/* v1.1 TUNED — TURBO paper speed controls */
+function setTurbo(key){
+  var id = {levCap:'tLev', feeBps:'tFee'}[key];
+  var v = parseFloat(document.getElementById(id).value);
+  if(isNaN(v) || v < 0){ alert('Number dein'); return; }
+  if(key==='levCap' && v > 1 && !confirm('TURBO leverage '+v+'x set karein? PAPER ONLY — simulated account ki speed badlegi, koi real order nahi jayega.')) return;
+  var b = {}; b[key] = v;
+  api('/api/settings',{method:'POST',body:b}).then(function(r){
+    var el = document.getElementById('turboMsg');
+    if(el) el.innerHTML = '<div class="banner green">✅ TURBO: '+key+' = '+v+'</div>';
+    setTimeout(renderSettings, 1200);
+  });
 }
 function setMt5(){
   var v = document.getElementById('mt5Url').value.trim();

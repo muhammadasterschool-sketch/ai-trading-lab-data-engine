@@ -84,13 +84,13 @@ public class V442Test {
 
         // ---- 5) VERSION + UI + API LABELS ----
         String gradle = src("android-app/app/build.gradle");
-        check("build.gradle versionCode 1", gradle.contains("versionCode 1"), "");
-        check("build.gradle versionName 1.0", gradle.contains("versionName \"1.0\""), "");
+        check("build.gradle versionCode 2", gradle.contains("versionCode 2"), "");
+        check("build.gradle versionName 1.1", gradle.contains("versionName \"1.1\""), "");
         String api = src("android-app/app/src/main/java/com/aitradinglab/engine/Api.java");
-        check("Api health: version 1.0", api.contains("\"version\", \"1.0\""), "");
+        check("Api health: version 1.1", api.contains("\"version\", \"1.1\""), "");
         check("Api health: timeframe 5m", api.contains("\"timeframe\", \"5m\""), "");
         String dash = src("android-app/app/src/main/assets/dashboard.html");
-        check("dashboard: v1.0 header", dash.contains("v1.0"), "");
+        check("dashboard: v1.1 header", dash.contains("v1.1 TUNED"), "");
         check("dashboard: 5m PDF pack banner", dash.contains("5m PDF pack SAB par"), "");
         check("dashboard: 5m scan tier", dash.contains("5m scan top-"), "");
         check("dashboard: no stale 15m label", !dash.contains("15m PDF pack"), "purana 15m text gaya");
