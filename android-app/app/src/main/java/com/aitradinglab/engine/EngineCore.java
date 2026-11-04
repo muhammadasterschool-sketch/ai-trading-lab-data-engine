@@ -2227,7 +2227,7 @@ public class EngineCore implements Runnable {
 
     /** Pack scan: naye CLOSED 15m candle par S1-S9 evaluate (rotating feed ka current window). */
     private void scanPdfPack() {
-        if (!"1".equals(db.setting("pack_on", "1"))) return;
+        if (!"1".equals(db.setting("pack_on", "0"))) return;   // v1.1 TUNED default OFF (replay: PF 0.38-0.60 fees bleed — owner toggle ON kar sakta hai)
         if (rot15.isEmpty()) return;
         int from = Math.max(0, rot15Pos - 30), end = rot15Pos;
         if (from >= end) return;

@@ -153,7 +153,8 @@ public class Api {
                         .put("on", "1".equals(db.setting("pack_" + s[0].toLowerCase(Locale.ROOT), "1"))));
             }
             o.put("strategies", arr);
-            o.put("pack_on", "1".equals(db.setting("pack_on", "1")));
+            // v1.1 TUNED default OFF — replay data: PDF pack 5m par PF 0.38-0.60 (fees bleed); owner toggle ON kar sakta hai
+            o.put("pack_on", "1".equals(db.setting("pack_on", "0")));
         } catch (Throwable t) { return Res.error(500, String.valueOf(t)); }
         return Res.json(200, o);
     }
@@ -871,7 +872,7 @@ public class Api {
                 .put("aiAutoTrain", "1".equals(db.setting("ai_auto_train", "1")))
                 .put("feeEdgeOn", "1".equals(db.setting("fee_edge_on", "1")))
                 .put("minFeeEdgePct", db.setting("min_fee_edge_pct", "0.14"))
-                .put("packOn", "1".equals(db.setting("pack_on", "1")))
+                .put("packOn", "1".equals(db.setting("pack_on", "0")))   // v1.1 TUNED default OFF (replay: fees bleed)
                 .put("aiTrainedAt", db.setting("ai_trained_at", "0"))
                 .put("feedIntervalSec", db.setting("feed_interval_sec", "60"))
                 .put("labSymbol", db.setting("lab_symbol", "BTCUSDT"))
