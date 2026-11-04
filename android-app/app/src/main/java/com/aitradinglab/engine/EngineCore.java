@@ -6568,7 +6568,7 @@ public class EngineCore implements Runnable {
         hashMap.put("risk_scaling", scalingInfo("3C_MASTER"));
         hashMap.put("min_trades_scaling", 25);
         hashMap.put("limits", "UNLIMITED daily P/L (owner) — heat/bucket/event/session caps default OFF opt-in");
-        hashMap.put("version", "1.1");
+        hashMap.put("version", "1.2");
         boolean marketClosedET = marketClosedET();
         hashMap.put("safe_mode", Boolean.valueOf(this.safeMode && !marketClosedET));
         hashMap.put("market_closed", Boolean.valueOf(marketClosedET));
@@ -6896,29 +6896,33 @@ public class EngineCore implements Runnable {
                     }
                     if (i4 > 0) {
                         int i15 = i4 - 1;
-                        while (true) {
-                            if (i15 < i9) {
-                                break;
-                            }
+                        /* v1.2.1 HANG FIX: pehle sirf bearish branch me i15-- tha — bullish candle par
+                           zone add hone ke baad i15 ruk jata tha aur add() dobara false return karti
+                           thi -> INFINITE LOOP (Poora /api/indicators + Lab backtest + AI trainer hang).
+                           Ab har branch me index aage badhta hai — loop guaranteed terminate hota hai. */
+                        while (i15 >= i9) {
                             if (list.get(i15).c <= list.get(i15).o) {
                                 i15--;
-                            } else if (linkedHashSet.add(Integer.valueOf(i15))) {
-                                double d7 = list.get(i15).h;
-                                double d8 = list.get(i15).l;
-                                int i16 = i7 + 1;
-                                i2 = i3;
-                                while (true) {
-                                    if (i16 >= i2) {
-                                        z = false;
-                                        break;
+                            } else {
+                                if (linkedHashSet.add(Integer.valueOf(i15))) {
+                                    double d7 = list.get(i15).h;
+                                    double d8 = list.get(i15).l;
+                                    int i16 = i7 + 1;
+                                    i2 = i3;
+                                    while (true) {
+                                        if (i16 >= i2) {
+                                            z = false;
+                                            break;
+                                        }
+                                        if (list.get(i16).h >= d8) {
+                                            z = true;
+                                            break;
+                                        }
+                                        i16++;
                                     }
-                                    if (list.get(i16).h >= d8) {
-                                        z = true;
-                                        break;
-                                    }
-                                    i16++;
+                                    arrayList.add(new ObZone(i15, d7, d8, false, z));
                                 }
-                                arrayList.add(new ObZone(i15, d7, d8, false, z));
+                                i15--;
                             }
                         }
                     }

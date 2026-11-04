@@ -144,7 +144,7 @@ select{width:100%;background:var(--card);border:1px solid var(--line);border-rad
   <div class="logo"><img src="logo.png" alt="AI Trading Lab"></div>
   <h1>AI Trading Lab</h1>
   <div class="sub">Full trading engine on this device — paper trading</div>
-  <div class="sub" style="color:var(--gold)">v1.1 TUNED · ALL BINANCE COINS · 5M · X7 REGIME FADE + PLAYBOOK · PDF · SHAAKUNI · TURBO</div>
+  <div class="sub" style="color:var(--gold)">v1.2 FRESH · ALL BINANCE COINS · 5M · 3C MASTER + PLAYBOOK · PDF · SHAAKUNI · MIN-25 OPEN · FLAT 1% RISK</div>
   <div id="engStrip" class="eng">checking engine…</div>
   <div class="note"><b>Naya install / update?</b> Accounts is device ki local database mein hote hain — app reinstall ya update ke baad purana account <b>transfer nahi hota</b>. Pehla account = <b>OWNER (ADMIN)</b>. Baaki log <b>Register</b> se apply karein — <b>invite code owner se milega</b> (kahin likha hua nahi hota), aur owner ke <b>APPROVE</b> karne ke baad hi sign in possible hoga. Kisi authenticator app ki zaroorat nahi.</div>
 
@@ -217,12 +217,12 @@ select{width:100%;background:var(--card);border:1px solid var(--line);border-rad
   <aside id="drawer">
     <div class="dhead">
       <img src="logo.png" alt="">
-      <div><div class="dt">AI Trading Lab</div><div class="ds" id="drEngine">engine · v1.1 TUNED ALL-BINANCE 5M + X7 + AI</div></div>
+      <div><div class="dt">AI Trading Lab</div><div class="ds" id="drEngine">engine · v1.2 FRESH ALL-BINANCE 5M · MIN-25 OPEN + FLAT 1% RISK</div></div>
       <button class="dclose" onclick="closeDrawer()">✕</button>
     </div>
     <div class="duser" id="drUser"></div>
     <div class="ditems" id="drItems"></div>
-    <div class="dfoot">v4.1.0 · BINANCE SPOT · paper trading only — engine is device par 24/7 chalta hai</div>
+    <div class="dfoot">v1.2.0 · BINANCE SPOT · paper trading only — engine is device par 24/7 chalta hai</div>
   </aside>
   <main id="main"></main>
   <nav>
@@ -238,15 +238,32 @@ select{width:100%;background:var(--card);border:1px solid var(--line);border-rad
 var TOKEN = localStorage.getItem('atl_token') || '';
 var USER = null, TAB = 'dash';
 
+/* v1.2.1 STALE-RENDER GUARD — jab user tezi se tab/chip switch karta hai to purane tab ka
+   late API response naye tab ke content ko overwrite kar deta tha (blank/khali screens).
+   Ab har request apne render-generation par capture hoti hai; response tak aate tak generation
+   badal chuki ho to wo response DROP ho jata hai (kabhi DOM par nahi likha jata). */
+var RENDER_GEN = 0;
+function bumpGen(){ RENDER_GEN++; }
 function api(path, opts) {
   opts = opts || {};
+  var gen = RENDER_GEN;
+  /* v1.2.1 — 12s abort timeout: agar engine atak jaye to request khud cancel ho aur error banner dikhe — koi tab hamesha ke liye blank nahi reh sakta */
+  var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+  var tid = ctrl ? setTimeout(function(){ try { ctrl.abort(); } catch(e){} }, 12000) : null;
   return fetch(path, {
     method: opts.method || 'GET',
     headers: Object.assign({'Content-Type': 'application/json'},
       TOKEN ? {'Authorization': 'Bearer ' + TOKEN} : {}),
-    body: opts.body ? JSON.stringify(opts.body) : undefined
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+    signal: ctrl ? ctrl.signal : undefined
   }).then(function(r){ return r.json().then(function(j){ return {status: r.status, data: j}; }); })
+  .then(function(res){
+    if (tid) clearTimeout(tid);
+    if (gen !== RENDER_GEN) { return new Promise(function(){}); } /* stale — never write DOM */
+    return res;
+  })
   .catch(function(e){
+    if (tid) clearTimeout(tid);
     // v5.5: NO silent failures — every network problem becomes a visible message
     return {status: 0, data: {error: 'Engine tak request nahi pahunchi (connection failed). App band karke dobara kholein — engine background me chal raha hoga.'}};
   });
@@ -414,6 +431,7 @@ function renderDrawer(){
 /* ---------------- tabs ---------------- */
 function go(t){
   TAB = t;
+  bumpGen(); /* v1.2.1 stale-render guard */
   var bs = document.querySelectorAll('nav button');
   for(var i=0;i<bs.length;i++) bs[i].classList.toggle('on', bs[i].getAttribute('data-t')===t);
   refresh();
@@ -432,7 +450,10 @@ function tgt(){ return document.getElementById(RENDER_TARGET); }
 /* v1.8 INSIGHTS — Indicators + News + Instruments + Logs ek hi tab mein (chips se switch) */
 var INS_TAB = 'ind';
 function renderInsights(){
-  var t = tgt();
+  bumpGen(); /* v1.2.1 stale-render guard — chip re-entry bhi */
+  /* v1.2.1 FIX: shell hamesha #main par likho — RENDER_TARGET 'insBody' par rehne do taake
+     async responses BODY me likhen, #main ko replace na karen (pehle header gayab ho jata tha) */
+  var t = document.getElementById('main');
   var chips = [['edge','📊 Edge Analytics'],['seas','🗓 Seasonality'],['ind','📏 Indicators'],['news','📰 News'],['inst','🗂 Instruments'],['logs','📜 Logs']]
     .map(function(c){ return '<button class="chip '+(INS_TAB===c[0]?'on':'')+'" onclick="INS_TAB=\''+c[0]+'\';renderInsights()">'+c[1]+'</button>'; }).join('');
   t.innerHTML = '<div class="sechead"><h2 style="margin:0">📡 Insights</h2></div><div class="chips">'+chips+'</div><div id="insBody"></div>';
@@ -443,10 +464,12 @@ function renderInsights(){
   else if(INS_TAB==='edge') renderEdge();
   else if(INS_TAB==='seas') renderSeason();
   else renderLogs();
-  RENDER_TARGET = 'main';
+  /* v1.2.1 — RENDER_TARGET 'insBody' par hi rehne do: async responses body me likhen,
+     'main' par reset karne se late writes poora #main replace kar dete the (blank screens) */
 }
 /* ============ v3.0 EDGE ANALYTICS (FreqUI + Jesse + LEAN extraction) ============ */
 function renderEdge(){
+  { var __t = document.getElementById('insBody'); if(__t) __t.innerHTML = '<div class="empty">📊 Edge Analytics load ho raha hai…</div>'; } /* v1.2.1 — blank na dikhe */
   api('/api/analytics').then(function(r){
     var t = document.getElementById('insBody'); if(!t) return;
     if(r.status!==200){ t.innerHTML = '<div class="banner warn">Analytics abhi load nahi hua</div>'; return; }
@@ -530,6 +553,7 @@ function dlAudit(){
 /* ============ v3.0 SEASONALITY (seasonality.ai pattern — commodities ka asal edge) ============ */
 var SEASON_SYM = 'BTCUSDT';
 function renderSeason(){
+  bumpGen(); /* v1.2.1 stale-render guard — symbol chip re-entry bhi */
   var t = document.getElementById('insBody'); if(!t) return;
   var chips = UNIVERSE_TOP.slice(0,14).map(function(s){
     return '<button class="chip '+(SEASON_SYM===s?'on':'')+'" onclick="SEASON_SYM=\''+s+'\';renderSeason()">'+s.replace('USDT','')+'</button>';
@@ -558,7 +582,9 @@ function renderSeason(){
 /* v1.8 SETTINGS — General + Broker + Control (admin) ek hi tab mein */
 var SET_TAB = 'general';
 function renderSettings(){
-  var t = tgt();
+  bumpGen(); /* v1.2.1 stale-render guard — chip re-entry bhi */
+  /* v1.2.1 FIX: shell hamesha #main par; RENDER_TARGET 'setBody' par rehne do */
+  var t = document.getElementById('main');
   var chips = [['general','⚙️ General'],['broker','🔌 Broker']]
     .concat(USER && USER.role==='ADMIN' ? [['control','🛡️ Control'+(UNREAD>0?' ('+UNREAD+')':'')]] : [])
     .map(function(c){ return '<button class="chip '+(SET_TAB===c[0]?'on':'')+'" onclick="SET_TAB=\''+c[0]+'\';renderSettings()">'+c[1]+'</button>'; }).join('');
@@ -567,7 +593,7 @@ function renderSettings(){
   if(SET_TAB==='general') renderSet();
   else if(SET_TAB==='broker') renderBroker();
   else renderControl();
-  RENDER_TARGET = 'main';
+  /* v1.2.1 — 'setBody' par rehne do (upar wale fix dekho) */
 }
 function renderDash(){
   ensureUniverse(false);
@@ -854,6 +880,7 @@ function sparkSvg(a){
   return '<svg id="spark" viewBox="0 0 '+w+' '+h+'" preserveAspectRatio="none"><polyline points="'+pts.join(' ')+'" fill="none" stroke="'+col+'" stroke-width="2.2" stroke-linejoin="round"/></svg>';
 }
 function renderInst(){
+  { var __t = tgt(); if(__t) __t.innerHTML = '<div class="empty">🗂 Instruments load ho rahe hain…</div>'; } /* v1.2.1 — blank na dikhe */
   api('/api/instruments').then(function(r){
     var d = r.data, rows = '';
     var classes = [];
@@ -887,6 +914,7 @@ function scanNow(){
 }
 /* ---- v5.9 Indicators tab — full PDF encyclopedia library + live values ---- */
 function renderInd(){
+  { var __t = tgt(); if(__t) __t.innerHTML = '<div class="empty">📏 Indicators load ho rahe hain…</div>'; } /* v1.2.1 — blank na dikhe */
   api('/api/indicators').then(function(r){
     var d = r.data || {};
     var lib = d.library || [];
@@ -905,7 +933,7 @@ function renderInd(){
     var live = '';
     if (d.ok) {
       var obRows = '';
-      (v.orderBlocks||[]).forEach(function(z){
+      (Array.isArray(v.orderBlocks) ? v.orderBlocks : []).forEach(function(z){
         obRows += '<tr><td class="mut">OB @bar '+z.idx+' ('+(z.bull?'BULL':'BEAR')+(z.mitigated?' · mitigated':' · UNTOUCHED')+')</td><td style="text-align:right"><b>'+fnum(z.bottom)+' — '+fnum(z.top)+'</b></td></tr>';
       });
       live = '<div class="banner green">🎯 SHAAKUNI TRAP SUITE — <b>'+esc(d.symbol)+'</b> 1m live'+(v.candlePattern?' · candle: <b>'+esc(v.candlePattern)+'</b>':'')+'</div>' +
@@ -952,7 +980,7 @@ function renderNews(){
     tgt().innerHTML =
       (d.pauseActive? '<div class="banner warn">High-impact news active — new entries paused 30 min</div>' : '') +
       '<h2>News Feed (auto-ingested)</h2>' +
-      (rows || '<div class="empty">Fetching news…</div>') +
+      (rows || '<div class="empty">Abhi koi headline nahi — engine chalte hi headlines khud fetch hoti hain (hourly refresh). Thodi der baad dobara kholein.</div>') +
       '<div class="small" style="margin-top:14px">Every headline is scored for sentiment (bullish/bearish) and impact. High-impact news pauses new entries for 30 minutes to protect paper trades.</div>';
   });
 }
@@ -1233,6 +1261,7 @@ function delBroker(id){
     api('/api/brokers/'+id,{method:'DELETE'}).then(function(){ renderBroker(); });
 }
 function renderSet(){
+  { var __t = tgt(); if(__t) __t.innerHTML = '<div class="empty">⚙️ Settings load ho raha hai…</div>'; } /* v1.2.1 — blank na dikhe */
   api('/api/settings').then(function(r){
     var on = r.data.engineOn;
     var cd = r.data.cooldownMin != null ? r.data.cooldownMin : 15;
@@ -1390,6 +1419,7 @@ function renderControl(){
     tgt().innerHTML = '<div class="banner red">Owner account required — ye section sirf owner ke liye hai</div>';
     return;
   }
+  { var __t = tgt(); if(__t) __t.innerHTML = '<div class="empty">🛡️ Control load ho raha hai…</div>'; } /* v1.2.1 — blank na dikhe */
   api('/api/admin/alerts').then(function(a){
     if(a.status!==200){ tgt().innerHTML = '<div class="banner red">'+esc(a.data.error||'Control load failed')+'</div>'; return; }
     api('/api/admin/users').then(function(u){

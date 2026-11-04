@@ -126,7 +126,7 @@ public class Api {
             return Res.html(this.dashboardHtml);
         }
         if ("/api/health".equals(str)) {
-            return Res.json(200, new JSONObject().put("ok", true).put("engine", "ai-trading-lab-phone").put("device", Build.MANUFACTURER + " " + Build.MODEL).put("android", Build.VERSION.SDK_INT).put("version", "1.1").put("timeframe", "5m").put("scanner", "24/7").put("strategy", "3C MASTER (M5) + PDF PACK (9, 5m) + 5M PLAYBOOK (4, guide-tuned) + SHAAKUNI (5) + AI TRAINER"));
+            return Res.json(200, new JSONObject().put("ok", true).put("engine", "ai-trading-lab-phone").put("device", Build.MANUFACTURER + " " + Build.MODEL).put("android", Build.VERSION.SDK_INT).put("version", "1.2").put("timeframe", "5m").put("scanner", "24/7").put("strategy", "3C MASTER (M5) + PDF PACK (9, 5m) + 5M PLAYBOOK (4, guide-tuned) + SHAAKUNI (5) + AI TRAINER · MIN-25 OPEN · FLAT 1% RISK"));
         }
         Long userId = userId(str2);
         if (userId == null) {
@@ -664,6 +664,11 @@ public class Api {
                     Object value2 = entry.getValue();
                     if (value2 instanceof Number) {
                         jSONObject2.put(String.valueOf(entry.getKey()), safeD(((Number) value2).doubleValue()));
+                    } else if (value2 instanceof JSONArray || value2 instanceof JSONObject) {
+                        /* v1.2.1 HANG/BLANK FIX: orderBlocks (JSONArray) pehle String.valueOf se
+                           string ban ke jata tha — dashboard renderInd me .forEach TypeError deta tha
+                           aur poora Indicators tab blank rehta tha. Ab real JSON array pas hota hai. */
+                        jSONObject2.put(String.valueOf(entry.getKey()), value2);
                     } else {
                         jSONObject2.put(String.valueOf(entry.getKey()), String.valueOf(value2));
                     }
